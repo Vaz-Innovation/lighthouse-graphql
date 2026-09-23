@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # The gemspec requires >= 3.0; every supported line is exercised.
+        ruby-version: ['3.1', '3.2', '3.3', '3.4']
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Ruby ${{ matrix.ruby-version }}
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ matrix.ruby-version }}
+          # No Gemfile.lock is committed — a library resolves against its
+          # gemspec, so each Ruby in the matrix resolves its own dependency set.
+          bundler-cache: true
+
+      - name: Test
+        run: bundle exec rspec
+
+      - name: Build the gem
+        run: bundle exec rake build
+
+      # A gemspec that builds can still ship an incomplete package: `spec.files`
+      # is an explicit `Dir[...]` allowlist, so anything added outside those
+      # globs — a template under lib/, a new docs subtree — is left out
+      # silently, and only breaks in someone else's Gemfile. Unpacking the
+      # built gem and diffing it against the tracked sources catches that here.
+      - name: The package must contain every tracked source file
+        run: |
+          version="$(ruby -Ilib -e 'require "lighthouse/graphql/version"; print Lighthouse::GraphQL::VERSION')"
+          gem unpack "pkg/lighthouse-graphql-$version.gem" --target "$RUNNER_TEMP/unpacked"
+          missing="$(comm -23 \
+            <(git ls-files lib docs README.md CHANGELOG.md LICENSE.txt | sort) \
+            <(cd "$RUNNER_TEMP/unpacked/lighthouse-graphql-$version" && find . -type f | sed 's|^\./||' | sort))"
+          if [ -n "$missing" ]; then
+            echo "::error::these tracked files are not in the built gem — widen spec.files:"
+            echo "$missing"
+            exit 1
+          fi
+          echo "package contains every tracked source file"

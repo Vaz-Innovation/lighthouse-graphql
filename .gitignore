@@ -1,0 +1,22 @@
+# Bundler
+/.bundle/
+/vendor/bundle/
+# A library resolves against its gemspec, not a pinned lockfile: committing one
+# would pin every consumer's CI to the platform and Ruby that happened to write it.
+/Gemfile.lock
+
+# Build output
+/pkg/
+*.gem
+
+# Test / coverage
+/coverage/
+/spec/examples.txt
+/tmp/
+
+# Editors / OS
+.DS_Store
+*.swp
+.idea/
+.vscode/*
+!.vscode/extensions.json

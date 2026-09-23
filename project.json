@@ -1,0 +1,27 @@
+{
+  "name": "lighthouse-graphql",
+  "projectType": "library",
+  "tags": [
+    "lang:ruby",
+    "type:lib"
+  ],
+  "targets": {
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "{projectRoot}",
+        "command": "bundle exec rspec"
+      }
+    },
+    "build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "{projectRoot}",
+        "command": "bundle exec rake build"
+      },
+      "outputs": [
+        "{projectRoot}/pkg"
+      ]
+    }
+  }
+}

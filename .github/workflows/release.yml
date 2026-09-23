@@ -1,0 +1,102 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write # create the GitHub Release
+      id-token: write # mint the OIDC token RubyGems trusted publishing exchanges
+
+    env:
+      # `secrets` cannot be read from a step-level `if`, so the choice is made
+      # once, here. A RUBYGEMS_API_KEY in the repository wins; with no secret
+      # set, the push authenticates through trusted publishing and nothing
+      # long-lived is stored anywhere.
+      HAS_API_KEY: ${{ secrets.RUBYGEMS_API_KEY != '' }}
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.4'
+          bundler-cache: true
+
+      - name: Test
+        run: bundle exec rspec
+
+      - name: Build the gem
+        run: bundle exec rake build
+
+      # The tag and the version being published have to be the same thing, or the
+      # GitHub Release would describe something RubyGems never received.
+      - name: Check the tag matches the gem version
+        run: |
+          built="$(ruby -Ilib -e 'require "lighthouse/graphql/version"; print Lighthouse::GraphQL::VERSION')"
+          tagged="${GITHUB_REF_NAME#v}"
+          if [ "$built" != "$tagged" ]; then
+            echo "tag $GITHUB_REF_NAME does not match gem version $built" >&2
+            exit 1
+          fi
+          test -f "pkg/lighthouse-graphql-$built.gem"
+
+      # Exchanges this workflow's OIDC token for a short-lived RubyGems
+      # credential. Needs a trusted publisher configured for the gem on
+      # rubygems.org; the gemspec sets `rubygems_mfa_required`, and trusted
+      # publishing is the way to satisfy that without a human typing an OTP.
+      - name: Authenticate through trusted publishing
+        if: env.HAS_API_KEY != 'true'
+        uses: rubygems/configure-rubygems-credentials@v2.1.0
+
+      - name: Push the gem (trusted publishing)
+        if: env.HAS_API_KEY != 'true'
+        run: gem push pkg/*.gem
+
+      # The two pushes are separate steps on purpose: a step-level `env` would
+      # override the credential the action above exported with an empty string.
+      - name: Push the gem (API key)
+        if: env.HAS_API_KEY == 'true'
+        env:
+          GEM_HOST_API_KEY: ${{ secrets.RUBYGEMS_API_KEY }}
+        run: gem push pkg/*.gem
+
+      # The release body is the tag's own changelog section, so the notes on
+      # GitHub and the notes in the repo cannot drift apart.
+      - name: Read the release notes out of the changelog
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v version="$version" '
+            $0 ~ "^## \\[" version "\\]" { found = 1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > "$RUNNER_TEMP/release-notes.md"
+          if [ ! -s "$RUNNER_TEMP/release-notes.md" ]; then
+            echo "CHANGELOG.md has no '## [$version]' section" >&2
+            exit 1
+          fi
+
+      # A release cut by hand ahead of the tag keeps its own notes: updating one
+      # that already exists is refused with "Resource not accessible by
+      # integration" even with `contents: write`, and overwriting notes someone
+      # wrote is not what this step is for. Creating is the path that matters.
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists — leaving its notes as they are."
+            exit 0
+          fi
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file "$RUNNER_TEMP/release-notes.md" \
+            --latest
