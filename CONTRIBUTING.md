@@ -107,6 +107,10 @@ The `Release` workflow builds, runs the suite, refuses if the tag and the gem ve
 pushes to RubyGems, and creates the GitHub Release from that version's changelog section — so
 the notes on GitHub and the notes in the repository cannot drift apart.
 
+It asks RubyGems whether the version is already published and skips the push if it is, which
+makes the whole workflow re-runnable: RubyGems refuses to overwrite a version, so without that
+check a release that failed *after* the push could never be re-run to completion.
+
 ### How the push authenticates
 
 Two modes, decided by whether a `RUBYGEMS_API_KEY` secret exists on the repository:

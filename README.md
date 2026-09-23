@@ -1,5 +1,9 @@
 # Lighthouse for Ruby (`lighthouse-graphql`)
 
+[![Gem Version](https://img.shields.io/gem/v/lighthouse-graphql.svg)](https://rubygems.org/gems/lighthouse-graphql)
+[![CI](https://github.com/Vaz-Innovation/lighthouse-graphql/actions/workflows/ci.yml/badge.svg)](https://github.com/Vaz-Innovation/lighthouse-graphql/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/Vaz-Innovation/lighthouse-graphql.svg)](./LICENSE.txt)
+
 **SDL-first, directive-driven GraphQL for Ruby on Rails.**
 
 Lighthouse lets you build a GraphQL API for your Rails app primarily through your

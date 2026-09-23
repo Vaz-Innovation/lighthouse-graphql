@@ -49,22 +49,46 @@ jobs:
           fi
           test -f "pkg/lighthouse-graphql-$built.gem"
 
+      # RubyGems refuses to overwrite a published version, so without this a
+      # re-run of a release that failed *after* the push — a flaky GitHub API
+      # call, a bad changelog section — could never be re-run to completion.
+      # Asking first makes the whole workflow idempotent.
+      - name: Is this version already on RubyGems?
+        id: published
+        run: |
+          name="$(ruby -e 'print Gem::Specification.load(Dir["*.gemspec"].first).name')"
+          version="${GITHUB_REF_NAME#v}"
+          body="$(curl -sS -w '\n%{http_code}' "https://rubygems.org/api/v1/versions/$name.json")"
+          code="$(printf '%s' "$body" | tail -n1)"
+          if [ "$code" = "200" ]; then
+            already="$(printf '%s' "$body" | sed '$d' | ruby -rjson -e '
+              puts JSON.parse($stdin.read).any? { |v| v["number"] == ARGV[0] } ? "true" : "false"
+            ' "$version")"
+          else
+            # 404 — the gem has never been published. This is a first release.
+            already=false
+          fi
+          echo "already=$already" >> "$GITHUB_OUTPUT"
+          if [ "$already" = "true" ]; then
+            echo "::notice::$name $version is already on RubyGems — the push will be skipped."
+          fi
+
       # Exchanges this workflow's OIDC token for a short-lived RubyGems
       # credential. Needs a trusted publisher configured for the gem on
       # rubygems.org; the gemspec sets `rubygems_mfa_required`, and trusted
       # publishing is the way to satisfy that without a human typing an OTP.
       - name: Authenticate through trusted publishing
-        if: env.HAS_API_KEY != 'true'
+        if: env.HAS_API_KEY != 'true' && steps.published.outputs.already != 'true'
         uses: rubygems/configure-rubygems-credentials@v2.1.0
 
       - name: Push the gem (trusted publishing)
-        if: env.HAS_API_KEY != 'true'
+        if: env.HAS_API_KEY != 'true' && steps.published.outputs.already != 'true'
         run: gem push pkg/*.gem
 
       # The two pushes are separate steps on purpose: a step-level `env` would
       # override the credential the action above exported with an empty string.
       - name: Push the gem (API key)
-        if: env.HAS_API_KEY == 'true'
+        if: env.HAS_API_KEY == 'true' && steps.published.outputs.already != 'true'
         env:
           GEM_HOST_API_KEY: ${{ secrets.RUBYGEMS_API_KEY }}
         run: gem push pkg/*.gem
