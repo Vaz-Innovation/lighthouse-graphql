@@ -6,6 +6,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-23
+
+Release tooling only: the library is unchanged from `0.1.0`. The packaged gem differs because
+`spec.files` ships the README and this file.
+
+### Changed
+
+- The release workflow asks RubyGems whether the version is already published and skips the
+  push if it is. RubyGems refuses to overwrite a version, so without that check a release that
+  failed *after* the push — a flaky GitHub API call, a changelog section that did not parse —
+  could never be re-run to completion.
+- The README carries gem, CI and license badges.
+
 ## [0.1.0] - 2026-09-23
 
 First release on RubyGems. Everything below is what the gem ships with; the library
@@ -43,5 +56,6 @@ had been running inside a private monorepo as a path gem before being extracted.
 - Config-driven extension seams: `Lighthouse.configure`, `resolver_namespaces`,
   `on_error`, and `DirectiveRegistry.register` for app-defined directives.
 
-[Unreleased]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Vaz-Innovation/lighthouse-graphql/releases/tag/v0.1.0
