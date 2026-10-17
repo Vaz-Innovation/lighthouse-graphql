@@ -80,6 +80,7 @@ require_relative 'namespaces'
   directive_resolvers/cache_resolvers
   directive_resolvers/validator_resolver
   directive_resolvers/event_resolver
+  directive_resolvers/convert_empty_strings_resolver
   directives/arguments/base
   directives/arguments/filters
   directives/arguments/order_by

@@ -15,6 +15,7 @@ module Lighthouse::GraphQL::FieldResolverStack
     steps = directive_steps(type, field_def, directives, opts)
     steps << convention_step(type, field_def, root_kind) if root_kind && !resolving_directive?(directives)
     steps << validator_step(type, field_def, opts) if input_validation?(field_def, directives)
+    steps << empty_strings_step(type, field_def, opts) if empty_string_conversion?(field_def, directives)
 
     steps.each_with_index.sort_by { |(order, _), index| [order, index] }.each { |(_, step), _| step.call }
   end
@@ -51,6 +52,19 @@ module Lighthouse::GraphQL::FieldResolverStack
   def validator_step(type, field_def, opts)
     resolver = Lighthouse::GraphQL::DirectiveResolvers::ValidatorDirectiveResolver
     [Lighthouse::DirectiveRegistry.default.resolution_order('validator'),
+     -> { resolver.new(field_def, type, nil, opts).define_resolver(type) }]
+  end
+
+  # Without @convertEmptyStringsToNull on the field itself, an argument or input
+  # type that carries it (or Config.convert_empty_strings_to_null) still converts.
+  def empty_string_conversion?(field_def, directives)
+    directives.none? { |d| d.name == 'convertEmptyStringsToNull' } &&
+      Lighthouse::GraphQL::DirectiveResolvers::ConvertEmptyStringsToNullDirectiveResolver.implicit?(field_def)
+  end
+
+  def empty_strings_step(type, field_def, opts)
+    resolver = Lighthouse::GraphQL::DirectiveResolvers::ConvertEmptyStringsToNullDirectiveResolver
+    [Lighthouse::DirectiveRegistry.default.resolution_order(resolver.directive_name),
      -> { resolver.new(field_def, type, nil, opts).define_resolver(type) }]
   end
 end

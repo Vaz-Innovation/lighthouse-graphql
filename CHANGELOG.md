@@ -28,6 +28,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `@feature(name:, when:)` shows a field or object type only while a feature flag is in that
   state, checked per query through graphql-ruby's visibility. It uses Flipper by default;
   `Config.feature_checker` and `Config.feature_actor` change that.
+- `@convertEmptyStringsToNull` on an argument, input field or field, or on every field with
+  `Config.convert_empty_strings_to_null`, turns incoming `""` into `null`.
 
 ## [0.2.1] - 2026-10-17
 

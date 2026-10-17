@@ -318,6 +318,33 @@ type Query {
 }
 ```
 
+### `@convertEmptyStringsToNull`
+
+Replaces incoming empty strings `""` with `null`, before any resolver sees them —
+directive resolvers (`@create`, `@all` filters, …), `@field`, `Queries::` /
+`Mutations::` classes and `@validator` alike. On an argument or an input field it
+converts that one input; on a field it converts every input of the field, nested
+input objects and lists included. Non-null inputs (`String!`) pass unchanged when
+the directive is only on the field: placing it on the non-null argument or input
+field itself forces the conversion.
+
+```graphql
+type Mutation {
+  createPost(title: String @convertEmptyStringsToNull, body: String): Post! @create
+  signUp(input: SignUpInput!): User! @create @convertEmptyStringsToNull
+}
+
+input SignUpInput {
+  name: String          # "" becomes null on signUp, but not where no directive applies
+  nickname: String @convertEmptyStringsToNull   # on every field taking SignUpInput
+  email: String!        # unchanged; add the directive here to force it
+}
+```
+
+A directive on an input field applies wherever the input type is used; one on a
+field affects only that field. To enable it for every field, set
+[`convert_empty_strings_to_null`](configuration.md#convert_empty_strings_to_null).
+
 ---
 
 ## Mutation directives

@@ -27,12 +27,13 @@ module Lighthouse
       schema_cache schema_cache_path watch_sdl persisted_queries persisted_queries_store persisted_queries_ttl
       persisted_queries_manifest persisted_queries_only on_error directive_map authenticated_user policy_user authorizer
       feature_checker feature_actor
+      convert_empty_strings_to_null
     ].freeze
 
     class << self
       attr_writer :sdl_folder, :resolver_namespaces, :on_error, :authenticated_user, :policy_user, :authorizer, :cache_store,
                   :transactional_mutations, :schema_cache, :watch_sdl, :persisted_queries, :persisted_queries_store, :persisted_queries_only,
-                  :feature_checker, :feature_actor
+                  :convert_empty_strings_to_null, :feature_checker, :feature_actor
 
       def sdl_folder
         @sdl_folder ||= (defined?(Rails) && Rails.respond_to?(:root) ? Rails.root.join('graphql').to_s : nil)
@@ -84,6 +85,10 @@ module Lighthouse
       def watch_sdl = @watch_sdl || false
       def persisted_queries = @persisted_queries || false
       def persisted_queries_only = @persisted_queries_only || false
+
+      # Make every field behave as if it carried @convertEmptyStringsToNull. Read
+      # when the schema is built, so set it in an initializer.
+      def convert_empty_strings_to_null = @convert_empty_strings_to_null || false
 
       def persisted_queries_store
         @persisted_queries_store || cache_store

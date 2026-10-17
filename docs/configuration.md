@@ -101,6 +101,18 @@ config.persisted_queries_manifest = Rails.root.join('persisted-queries.json')  #
 config.persisted_queries_only = Rails.env.production?  # run nothing else
 ```
 
+### `convert_empty_strings_to_null`
+
+Makes every field behave as if it carried
+[`@convertEmptyStringsToNull`](directives.md#convertemptystringstonull): empty
+strings sent for nullable inputs arrive as `nil`, non-null inputs unchanged.
+Defaults to `false`. It is read when the schema is built, so set it in the
+initializer.
+
+```ruby
+config.convert_empty_strings_to_null = true
+```
+
 ### `transactional_mutations`
 
 Whether `@create` / `@update` / `@createMany` / `@updateMany` run in a database

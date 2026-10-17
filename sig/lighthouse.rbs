@@ -116,6 +116,9 @@ module Lighthouse
     def self.persisted_queries_only: () -> bool
     def self.persisted_queries_only=: (bool? enabled) -> bool?
 
+    def self.convert_empty_strings_to_null: () -> bool
+    def self.convert_empty_strings_to_null=: (bool? enabled) -> bool?
+
     def self.on_error: () -> _ErrorHandler
     def self.on_error=: (_ErrorHandler? handler) -> _ErrorHandler?
     def self.handle_error: (StandardError error, ?context? context) -> void

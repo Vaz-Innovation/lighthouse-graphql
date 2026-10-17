@@ -56,11 +56,13 @@ class Lighthouse::DirectiveRegistry
 
   # Application order for wrapping/resolution directives on a field. Lower is
   # applied first (innermost, closest to the data); higher is applied last
-  # (outermost, so it executes first). From the outside in: authentication,
+  # (outermost, so it executes first). From the outside in: empty strings
+  # converted to null (so everything below sees the converted arguments), authentication,
   # authorization, argument validation, then @cache (so a cache hit is still
   # authorized and validated), @clearCache (which acts once the resolver
   # succeeded), @event (likewise), and finally the data resolver (0).
   RESOLUTION_ORDER = {
+    'convertEmptyStringsToNull' => 6,
     'guard' => 5, 'auth' => 5,
     'canFind' => 4, 'canModel' => 4, 'canQuery' => 4, 'canResolved' => 4, 'canRoot' => 4,
     'validator' => 3,
@@ -176,7 +178,7 @@ class Lighthouse::DirectiveRegistry
     CanFindDirectiveResolver CanModelDirectiveResolver CanQueryDirectiveResolver
     CanResolvedDirectiveResolver CanRootDirectiveResolver
     CacheDirectiveResolver ClearCacheDirectiveResolver EventDirectiveResolver
-    ValidatorDirectiveResolver
+    ValidatorDirectiveResolver ConvertEmptyStringsToNullDirectiveResolver
   ].freeze
 
   # Argument-builder filter/sort directives.
