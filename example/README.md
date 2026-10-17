@@ -46,6 +46,8 @@ checks `persisted-queries.json` against the schema.
 | GraphiQL, routed in development only | [`app/controllers/graphiql_controller.rb`](app/controllers/graphiql_controller.rb), [`app/views/graphiql/show.html.erb`](app/views/graphiql/show.html.erb) |
 | Queries resolved by convention (`Query.searchPosts` → `Queries::SearchPosts`) | [`app/graphql/queries/`](app/graphql/queries) |
 | Mutations resolved by convention (`Mutation.publishPost` → `Mutations::PublishPost`) | [`app/graphql/mutations/`](app/graphql/mutations) |
+| Subscriptions resolved by convention (`Subscription.postCreated` → `Subscriptions::PostCreated`), `GraphQL::Schema::Subscription`s, plain and with the Lighthouse concern | [`app/graphql/subscriptions/`](app/graphql/subscriptions) |
+| The ActionCable socket: `GraphqlChannel` runs the operations, `Connection` identifies `current_user` by the API token | [`app/channels/`](app/channels), [`config/cable.yml`](config/cable.yml) |
 | `@builder` classes | [`app/graphql/builders/`](app/graphql/builders) |
 | `@validator` contracts (Dry::Validation) | [`app/graphql/validators/`](app/graphql/validators) |
 | Policies behind `@canFind`, `@canModel`, `@canRoot` | [`app/policies/`](app/policies) |
@@ -66,8 +68,40 @@ The classes under `app/graphql` were generated with `bin/rails g lighthouse:quer
 | [`requests/graphql/mutations_spec.rb`](spec/requests/graphql/mutations_spec.rb) | `@create`, `@update`, `@delete`, `@validator`, model validation errors, nested mutations (`connect`, `create`, `sync`) with rollback, `@inject`, `@rename`, a `Mutations::` class |
 | [`requests/graphql/caching_spec.rb`](spec/requests/graphql/caching_spec.rb) | `@cacheControl` headers, `@cache` and `@clearCache` |
 | [`requests/graphql/persisted_queries_spec.rb`](spec/requests/graphql/persisted_queries_spec.rb) | Automatic persisted queries over POST and GET (with `Cache-Control` and `ETag`), the trusted-operations manifest |
+| [`channels/graphql_channel_spec.rb`](spec/channels/graphql_channel_spec.rb), [`channels/application_cable/connection_spec.rb`](spec/channels/application_cable/connection_spec.rb) | `GraphqlChannel` with ActionCable's test helpers: a subscription is registered and streamed, a guest is refused by `authorized?`, unsubscribing deletes it; the connection's token |
+| [`subscriptions/delivery_spec.rb`](spec/subscriptions/delivery_spec.rb) | `@broadcast` end to end over ActionCable's pub/sub: `createPost` reaches the `postCreated` subscribers (drafts only their author and admins, `NO_UPDATE`), `publishPost` the `postPublished` ones for that author, a failed or refused mutation nothing, a closed socket stops receiving |
 | [`tasks/lighthouse_tasks_spec.rb`](spec/tasks/lighthouse_tasks_spec.rb) | `lighthouse:cache`, `lighthouse:clear_cache`, `lighthouse:ide_helper`, `lighthouse:persisted_queries:verify` |
 | [`graphql/app_schema_spec.rb`](spec/graphql/app_schema_spec.rb) | The types and arguments Lighthouse generates |
+
+## Subscriptions
+
+`graphql/schema.graphql` declares two, over ActionCable (`AppSchema` is built with
+`GraphQL::Subscriptions::ActionCableSubscriptions`):
+
+- `postCreated`: broadcast by `createPost`. Signed-in users only, and a draft
+  reaches only its author and admins.
+- `postPublished(authorId: ID)`: broadcast by `publishPost`. Open to guests; the
+  optional `authorId` narrows it to one author.
+
+Both are `GraphQL::Schema::Subscription` classes, in the two styles: `PostCreated`
+is plain graphql-ruby (`authorized?`, `update` returning `NO_UPDATE`), and
+`PostPublished` includes the `Lighthouse::GraphQL::Subscription` concern for PHP
+Lighthouse's field-wide topic and `filter?`. To try them, sign in with a
+token from `db:seed` (`?token=` or an `Authorization` header, as on `/graphql`), and
+open a socket with [`wscat`](https://github.com/websockets/wscat):
+
+```shell
+wscat -c 'ws://localhost:3000/cable?token=<token from db:seed>' -s actioncable-v1-json
+> {"command":"subscribe","identifier":"{\"channel\":\"GraphqlChannel\"}"}
+> {"command":"message","identifier":"{\"channel\":\"GraphqlChannel\"}","data":"{\"action\":\"execute\",\"query\":\"subscription { postPublished { title } }\"}"}
+```
+
+then publish a draft through `POST /graphql` (`mutation { publishPost(id: 3) { id } }`)
+and the update arrives on the socket. `config/cable.yml` uses the `async` adapter in
+development, which keeps everything in one process; use a shared adapter in
+production (see [docs/subscriptions.md](../docs/subscriptions.md)). The specs use the
+`test` adapter, which is `async` underneath, so the delivery specs exercise the real
+streams.
 
 ## Opt-in features this app turns on
 

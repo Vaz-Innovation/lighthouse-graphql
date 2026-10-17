@@ -11,7 +11,9 @@ require 'action_controller/railtie'
 # require "action_mailbox/engine"
 # require "action_text/engine"
 require 'action_view/railtie'
-# require "action_cable/engine"
+require 'action_cable/engine'
+# Broadcasts carry the posts that mutations return as GlobalIDs (ActiveJob would load this too).
+require 'global_id/railtie'
 # require "rails/test_unit/railtie"
 
 # Require the gems listed in Gemfile, including any gems

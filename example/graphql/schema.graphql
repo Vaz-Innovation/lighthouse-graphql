@@ -46,6 +46,7 @@ type Mutation {
     @canModel(ability: "create")
     @create
     @inject(context: "current_user.id", name: "author_id")
+    @broadcast(subscription: "postCreated")
 
   "Edit a post. Only its author or an admin may (PostPolicy#update?)."
   updatePost(input: UpdatePostInput! @spread): Post!
@@ -58,7 +59,7 @@ type Mutation {
   deletePost(id: ID! @whereKey): Post @guard @canFind(ability: "destroy", find: "id") @delete
 
   "Publish a post — resolved by Mutations::PublishPost."
-  publishPost(id: ID!): Post! @guard @canFind(ability: "publish", find: "id")
+  publishPost(id: ID!): Post! @guard @canFind(ability: "publish", find: "id") @broadcast(subscription: "postPublished")
 
   "Comment on a post as the signed-in user."
   addComment(postId: ID! @rename(attribute: "post_id"), body: String!): Comment!
@@ -68,4 +69,16 @@ type Mutation {
 
   "Add a tag, and drop the cached tag list."
   createTag(name: String!): Tag! @guard @create @clearCache(type: "Query", field: "tags")
+}
+
+# Subscriptions arrive over ActionCable (app/channels/graphql_channel.rb). Each is a
+# GraphQL::Schema::Subscription in app/graphql/subscriptions (postCreated is plain
+# graphql-ruby, postPublished includes Lighthouse's concern), and a mutation
+# announces what it did with @broadcast. Guide: ../docs/subscriptions.md
+type Subscription {
+  "A post was written: drafts reach their author and admins only. Requires a token."
+  postCreated: Post!
+
+  "A post went public, optionally only by one author."
+  postPublished(authorId: ID): Post!
 }

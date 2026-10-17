@@ -1,0 +1,12 @@
+# Action Cable carries GraphQL subscriptions (app/channels/graphql_channel.rb).
+# `async` keeps everything in one process, which is enough for development. In
+# production use a shared adapter (solid_cable, redis, postgresql): a broadcast
+# is often triggered from a job or another process than the one holding the sockets.
+development:
+  adapter: async
+
+test:
+  adapter: test
+
+production:
+  adapter: async

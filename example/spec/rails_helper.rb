@@ -19,6 +19,8 @@ RSpec.configure do |config|
 
   config.include FactoryBot::Syntax::Methods
   config.include GraphqlHelpers, type: :request
+  config.include LiveCable, :live_cable
+  config.after(:each, :live_cable) { close_live_clients }
 
   # @cache entries and persisted queries live in Rails.cache (a memory store in test).
   config.before { Rails.cache.clear }
