@@ -1,8 +1,20 @@
 # frozen_string_literal: true
 
-# The base class for the classes `Subscription.postUpdated` resolves to
-# (Subscriptions::PostUpdated), with PHP Lighthouse's GraphQLSubscription hooks
-# mapped onto graphql-ruby's GraphQL::Schema::Subscription:
+require 'active_support/concern'
+require 'active_support/core_ext/class/attribute'
+
+# PHP Lighthouse's subscription model, as a concern a plain graphql-ruby
+# subscription includes. The class is written as graphql-ruby's guide has it,
+# and gains the hooks of PHP Lighthouse's GraphQLSubscription, as
+# `include Lighthouse::GraphQL::Controller` gives a controller its `execute`:
+#
+#   class Subscriptions::PostUpdated < GraphQL::Schema::Subscription
+#     include Lighthouse::GraphQL::Subscription
+#
+#     argument :author_id, ID, required: false
+#
+#     def filter?(post, author_id: nil) = author_id.nil? || post.author_id.to_s == author_id
+#   end
 #
 #   PHP Lighthouse                    here                                  graphql-ruby
 #   authorize(Subscriber, Request)    authorize?(**args)                    authorized? (initial request only)
@@ -10,28 +22,42 @@
 #   resolve($root, $args, ...)        resolve_payload(root, **args)         update's return value
 #   encodeTopic / decodeTopic         self.topic_for(arguments:, field:, scope:)
 #
-# `object`, `context` and `field` are available in every hook, and
-# `context` is the subscriber's: graphql-ruby stores it with the subscription
-# and replays it for each update, so `context[:current_user]` is the
-# subscriber. Everything graphql-ruby offers still works: `subscribe` (an
-# initial payload), `unsubscribe`, `subscription_scope`, `ready?`.
+# `object`, `context` and `field` are available in every hook, and `context`
+# is the subscriber's: graphql-ruby stores it with the subscription and
+# replays it for each update, so `context[:current_user]` is the subscriber.
 #
-# Unlike a plain GraphQL::Schema::Subscription, every subscriber of the field
-# shares one topic (the field name and its scope, not its arguments), which is
-# PHP Lighthouse's model: a trigger reaches all of them and `filter?` decides
-# who gets it, from the subscriber's own arguments. `topic_by :arguments` turns
-# graphql-ruby's exact-argument matching back on.
-class Lighthouse::GraphQL::Subscription < GraphQL::Schema::Subscription
-  class << self
-    # :field (the default) or :arguments. See `topic_for`.
-    def topic_by(mode = nil)
-      if mode
-        raise ArgumentError, "topic_by takes :field or :arguments, not #{mode.inspect}" unless %i[field arguments].include?(mode)
+# Precedence: the concern sits between the class and GraphQL::Schema::Subscription,
+# so a class that defines `update` or `authorized?` itself wins, and its
+# `filter?`, `resolve_payload` or `authorize?` are not called unless it calls
+# `super`. Everything else graphql-ruby offers (`subscribe`, `unsubscribe`,
+# `subscription_scope`, `ready?`) is untouched.
+#
+# Unlike a plain subscription, every subscriber of the field shares one topic
+# (the field name and its scope, not its arguments), which is PHP Lighthouse's
+# model: a trigger reaches all of them and `filter?` decides who gets it, from
+# the subscriber's own arguments. `topic_by :arguments` turns graphql-ruby's
+# exact-argument matching back on.
+module Lighthouse::GraphQL::Subscription
+  extend ActiveSupport::Concern
 
-        @topic_by = mode
-      else
-        @topic_by || (superclass.respond_to?(:topic_by) ? superclass.topic_by : :field)
-      end
+  included do
+    unless self < ::GraphQL::Schema::Subscription
+      raise Lighthouse::DefinitionError,
+            "#{self} includes Lighthouse::GraphQL::Subscription, which is for subclasses of GraphQL::Schema::Subscription " \
+            '(class Subscriptions::PostUpdated < GraphQL::Schema::Subscription).'
+    end
+
+    class_attribute :lighthouse_topic_by, instance_accessor: false, instance_predicate: false, default: :field
+  end
+
+  class_methods do
+    # :field (the default) or :arguments. See `topic_for`. Inherited by subclasses.
+    def topic_by(mode = nil)
+      return lighthouse_topic_by unless mode
+
+      raise ArgumentError, "topic_by takes :field or :arguments, not #{mode.inspect}" unless %i[field arguments].include?(mode)
+
+      self.lighthouse_topic_by = mode
     end
 
     # The stream a subscription belongs to, and the one a trigger addresses.
@@ -82,6 +108,13 @@ class Lighthouse::GraphQL::Subscription < GraphQL::Schema::Subscription
   end
 
   def update(**args)
-    filter?(object, **args) ? resolve_payload(object, **args) : NO_UPDATE
+    filter?(object, **args) ? resolve_payload(object, **args) : ::GraphQL::Schema::Subscription::NO_UPDATE
   end
+end
+
+# What a Subscription field with no class of its own resolves to: graphql-ruby's
+# subscription with the concern, so every subscriber gets every broadcast
+# unchanged.
+Lighthouse::GraphQL::Subscription::Default = Class.new(GraphQL::Schema::Subscription) do
+  include Lighthouse::GraphQL::Subscription
 end

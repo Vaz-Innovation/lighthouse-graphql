@@ -36,7 +36,7 @@ different contracts, so they live apart ([resolvers.md](resolvers.md)):
 | `builders` | `['Builders']` | `@builder` classes |
 | `validators` | `['Validators']` | `@validator` contracts |
 | `events` | `['Events']` | Classes `@event(dispatch:)` names ([events.md](events.md)) |
-| `subscriptions` | `['Subscriptions']` | `Lighthouse::GraphQL::Subscription` (or `GraphQL::Schema::Subscription`) classes for `Subscription` fields, and `@subscription(class:)` ([subscriptions.md](subscriptions.md)) |
+| `subscriptions` | `['Subscriptions']` | `GraphQL::Schema::Subscription` classes (optionally including `Lighthouse::GraphQL::Subscription`) for `Subscription` fields, and `@subscription(class:)` ([subscriptions.md](subscriptions.md)) |
 
 ```ruby
 config.namespaces = { queries: ['Api::Queries'] }   # the other kinds keep their defaults

@@ -506,7 +506,8 @@ Any other name is an error: `Cannot omit the global scope …`.
 ## Subscriptions
 
 Fields of the `Subscription` type resolve to a `Subscriptions::` class by
-convention, like queries and mutations, on top of graphql-ruby's subscriptions;
+convention, like queries and mutations: a plain graphql-ruby
+`GraphQL::Schema::Subscription` (`authorized?`, `subscribe`, `update`, ...).
 `@subscription` names another one, and `@broadcast` triggers a subscription from
 a mutation. The backend (ActionCable, ...) is the schema's; see
 [subscriptions.md](subscriptions.md).
@@ -519,9 +520,9 @@ directive @subscription(class: String!) on FIELD_DEFINITION
 
 Names the class a `Subscription` field resolves to, when it does not follow the
 convention (`postUpdated` → `Subscriptions::PostUpdated`). The class inherits from
-`Lighthouse::GraphQL::Subscription` (or `GraphQL::Schema::Subscription`) and is
-looked up in `Config.namespaces[:subscriptions]`; a name with `::` is used as it
-is.
+`GraphQL::Schema::Subscription` (which may `include Lighthouse::GraphQL::Subscription`,
+the optional concern with PHP Lighthouse's `filter?` hooks) and is looked up in
+`Config.namespaces[:subscriptions]`; a name with `::` is used as it is.
 
 ```graphql
 type Subscription {
@@ -537,8 +538,12 @@ directive @broadcast(subscription: String!, shouldQueue: Boolean) repeatable on 
 
 Once the field has resolved, triggers the `subscription` field of the
 `Subscription` type with the result as its root, so its subscribers are updated,
-each passing through the class's `filter?`. A failed mutation, or a `nil` result,
-broadcasts nothing. An unknown subscription name is a
+each passing through the class's `update` (or `filter?`). The class's
+`self.trigger_arguments(root, context)` says which subscribers' arguments the
+trigger must equal: none are needed for a field without arguments, and a plain
+class with a required argument and no `trigger_arguments` is reported as a
+`Lighthouse::DefinitionError`. A failed mutation, or a `nil` result, broadcasts
+nothing. An unknown subscription name is a
 `Lighthouse::DefinitionError` when the schema is built. `shouldQueue` performs the
 trigger in an ActiveJob; without it, `Config.queue_broadcasts` (default `false`)
 decides.

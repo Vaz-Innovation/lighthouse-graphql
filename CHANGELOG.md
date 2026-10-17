@@ -37,11 +37,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `@withoutGlobalScopes(names:)` lifts a model's default scope conditions when the client passes
   `true`. Each name is a `without_<name>` scope or a column.
 - Subscriptions (`docs/subscriptions.md`), on graphql-ruby's subscriptions: `Subscription`
-  fields resolve to `Subscriptions::` classes by convention, or to the class `@subscription(class:)` names, or work
-  with no class at all. `Lighthouse::GraphQL::Subscription` adds the PHP-style hooks `authorize?`,
-  `filter?` and `resolve_payload`. `@broadcast(subscription:, shouldQueue:)` triggers a subscription
-  once a mutation succeeds, inline or in an ActiveJob (`Config.queue_broadcasts`,
-  `Config.broadcast_queue`). `rails generate lighthouse:subscription` writes a subscription class.
+  fields resolve to plain `GraphQL::Schema::Subscription` classes in `Subscriptions::` by convention,
+  or to the class `@subscription(class:)` names, or work with no class at all.
+  `@broadcast(subscription:, shouldQueue:)` triggers a subscription once a mutation succeeds,
+  inline or in an ActiveJob (`Config.queue_broadcasts`, `Config.broadcast_queue`), with the class's
+  `self.trigger_arguments(root, context)` and `trigger_scope`; a plain class with required arguments
+  and no `trigger_arguments` (which could never reach a subscriber) is reported as a
+  `Lighthouse::DefinitionError`. The optional concern `Lighthouse::GraphQL::Subscription` adds PHP
+  Lighthouse's `authorize?`, `filter?` and `resolve_payload` hooks. `rails generate lighthouse:subscription`
+  writes a `GraphQL::Schema::Subscription` (`--lighthouse` to include the concern). The example app
+  has real ActionCable subscriptions (`GraphqlChannel`) with channel and end-to-end delivery specs.
 
 ## [0.2.1] - 2026-10-17
 

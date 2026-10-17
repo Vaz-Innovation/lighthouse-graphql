@@ -2,13 +2,14 @@
 
 Most fields need no Ruby: a directive (`@all`, `@find`, `@paginate`, `@create`,
 …) or the default attribute reader resolves them. For the rest, Lighthouse looks
-up a class by name. There are three kinds of class, and they are not
+up a class by name. There are several kinds of class, and they are not
 interchangeable. Each kind has its own contract and its own folder:
 
 | Kind | Folder / namespace | Contract | Used by |
 | --- | --- | --- | --- |
 | Query | `app/graphql/queries` · `Queries::` | `GraphQL::Schema::Resolver` | `Query` fields |
 | Mutation | `app/graphql/mutations` · `Mutations::` | `GraphQL::Schema::Mutation` | `Mutation` fields |
+| Subscription | `app/graphql/subscriptions` · `Subscriptions::` | `GraphQL::Schema::Subscription` | `Subscription` fields ([subscriptions.md](subscriptions.md)) |
 | Builder | `app/graphql/builders` · `Builders::` | `call(relation, args, context)` → relation | `@builder` |
 
 Validators (`app/graphql/validators`) are the fourth kind. They are covered in
@@ -167,6 +168,7 @@ end
 ```shell
 bin/rails generate lighthouse:query LatestPosts        # app/graphql/queries/latest_posts.rb
 bin/rails generate lighthouse:mutation PublishPost     # app/graphql/mutations/publish_post.rb
+bin/rails generate lighthouse:subscription PostUpdated # app/graphql/subscriptions/post_updated.rb
 bin/rails generate lighthouse:builder Published        # app/graphql/builders/published.rb
 bin/rails generate lighthouse:validator CreatePostInput # app/graphql/validators/create_post_input_validator.rb
 ```

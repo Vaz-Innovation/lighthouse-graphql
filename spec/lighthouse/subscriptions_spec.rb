@@ -8,20 +8,26 @@ ActiveJob::Base.logger = Logger.new(nil)
 # Fixture classes a Subscription field resolves to by convention (Subscriptions::PostUpdated
 # for Subscription.postUpdated) or through @subscription(class:).
 module Subscriptions
-  # PHP Lighthouse's filter(): the subscriber's `author` argument narrows the broadcast.
-  class PostUpdated < Lighthouse::GraphQL::Subscription
+  # PHP Lighthouse's filter(), with the concern: the subscriber's `author` argument narrows the broadcast.
+  class PostUpdated < GraphQL::Schema::Subscription
+    include Lighthouse::GraphQL::Subscription
+
     def filter?(post, author: nil)
       author.nil? || post.author_id.to_s == author.to_s
     end
   end
 
-  class AdminPosts < Lighthouse::GraphQL::Subscription
+  class AdminPosts < GraphQL::Schema::Subscription
+    include Lighthouse::GraphQL::Subscription
+
     def authorize?(**)
       context[:admin] == true
     end
   end
 
-  class ShoutedPosts < Lighthouse::GraphQL::Subscription
+  class ShoutedPosts < GraphQL::Schema::Subscription
+    include Lighthouse::GraphQL::Subscription
+
     def resolve_payload(post, **)
       post.tap { |p| p.title = p.title.upcase }
     end
@@ -34,16 +40,72 @@ module Subscriptions
     def self.trigger_arguments(post, _context) = { author: post.author_id.to_s }
   end
 
-  class ExactPosts < Lighthouse::GraphQL::Subscription
+  class ExactPosts < GraphQL::Schema::Subscription
+    include Lighthouse::GraphQL::Subscription
+
     topic_by :arguments
 
     def self.trigger_arguments(post, _context) = { author: post.author_id.to_s }
   end
 
-  class Scoped < Lighthouse::GraphQL::Subscription
+  class Scoped < GraphQL::Schema::Subscription
+    include Lighthouse::GraphQL::Subscription
+
     subscription_scope :tenant
 
     def self.trigger_scope(post, _context) = "tenant-#{post.author_id}"
+  end
+
+  # Plain graphql-ruby subscriptions, with nothing of Lighthouse's in them.
+  # No arguments: the default topic and the default `{}` trigger already match.
+  class PlainCreated < GraphQL::Schema::Subscription
+  end
+
+  # update skips the subscribers the broadcast is not for.
+  class PlainFiltered < GraphQL::Schema::Subscription
+    def update(**)
+      object.title.start_with?(context[:prefix].to_s) ? object : NO_UPDATE
+    end
+  end
+
+  # subscribe answers the subscription request itself.
+  class PlainWithSubscribe < GraphQL::Schema::Subscription
+    def subscribe(**)
+      Post.new(title: 'Welcome')
+    end
+  end
+
+  class PlainAdmin < GraphQL::Schema::Subscription
+    def authorized?(**)
+      raise GraphQL::ExecutionError, 'Admins only.' unless context[:admin]
+
+      true
+    end
+  end
+
+  class PlainScoped < GraphQL::Schema::Subscription
+    subscription_scope :tenant
+
+    def self.trigger_scope(post, _context) = "tenant-#{post.author_id}"
+  end
+
+  # Arguments, and a trigger_arguments to match them.
+  class PlainByAuthor < GraphQL::Schema::Subscription
+    def self.trigger_arguments(post, _context) = { author: post.author_id.to_s }
+  end
+
+  # A required argument and no trigger_arguments: nobody could ever be updated.
+  class PlainNoTrigger < GraphQL::Schema::Subscription
+  end
+
+  # Optional arguments, no trigger_arguments: argument-less subscribers are updated.
+  class PlainOptional < GraphQL::Schema::Subscription
+  end
+
+  class ExactNoTrigger < GraphQL::Schema::Subscription
+    include Lighthouse::GraphQL::Subscription
+
+    topic_by :arguments
   end
 
   class NotASubscription
@@ -53,8 +115,14 @@ end
 
 module Blog; end
 
-class Blog::Announcements < Lighthouse::GraphQL::Subscription
+class Blog::Announcements < GraphQL::Schema::Subscription
+  include Lighthouse::GraphQL::Subscription
+
   def resolve_payload(post, **) = post.tap { |p| p.title = "Announced: #{p.title}" }
+end
+
+class Blog::PlainAnnouncements < GraphQL::Schema::Subscription
+  def update(**) = object.tap { |post| post.title = "Plain: #{post.title}" }
 end
 
 RSpec.describe 'Subscriptions (@subscription, @broadcast)' do
@@ -78,6 +146,20 @@ RSpec.describe 'Subscriptions (@subscription, @broadcast)' do
         announce(title: String!): Post @create(model: "Post") @broadcast(subscription: "announcements")
         failToCreate(title: String): Post @field(resolver: "SubscriptionsSpecFailing") @broadcast(subscription: "postCreated")
         scopedPost(title: String!, author_id: Int): Post @create(model: "Post") @broadcast(subscription: "scoped")
+        plainPost(title: String!, author_id: Int): Post
+          @create(model: "Post")
+          @broadcast(subscription: "plainCreated")
+          @broadcast(subscription: "plainFiltered")
+          @broadcast(subscription: "plainWithSubscribe")
+          @broadcast(subscription: "plainAdmin")
+          @broadcast(subscription: "plainScoped")
+          @broadcast(subscription: "plainByAuthor")
+          @broadcast(subscription: "plainOptional")
+          @broadcast(subscription: "plainAnnouncements")
+        misconfiguredPost(title: String!, author_id: Int): Post
+          @create(model: "Post")
+          @broadcast(subscription: "plainNoTrigger")
+          @broadcast(subscription: "exactNoTrigger")
       }
 
       type Subscription {
@@ -89,6 +171,16 @@ RSpec.describe 'Subscriptions (@subscription, @broadcast)' do
         exactPosts(author: ID!): Post
         announcements: Post @subscription(class: "Blog::Announcements")
         scoped: Post
+        plainCreated: Post
+        plainFiltered: Post
+        plainWithSubscribe: Post
+        plainAdmin: Post
+        plainScoped: Post
+        plainByAuthor(author: ID!): Post
+        plainNoTrigger(author: ID!): Post
+        plainOptional(author: ID): Post
+        exactNoTrigger(author: ID!): Post
+        plainAnnouncements: Post @subscription(class: "Blog::PlainAnnouncements")
       }
 
       type Post {
@@ -283,8 +375,8 @@ RSpec.describe 'Subscriptions (@subscription, @broadcast)' do
       expect(titles('one')).to eq(['Announced: Hi'])
     end
 
-    it 'is the Lighthouse subscription itself when there is none: the update is the broadcast root' do
-      expect(Lighthouse::GraphQL::Broadcasting.subscription_class(schema, 'postCreated')).to eq(Lighthouse::GraphQL::Subscription)
+    it 'is the default subscription (with the concern) when there is none: the update is the broadcast root' do
+      expect(Lighthouse::GraphQL::Broadcasting.subscription_class(schema, 'postCreated')).to eq(Lighthouse::GraphQL::Subscription::Default)
     end
 
     it 'must be a GraphQL::Schema::Subscription' do
@@ -308,6 +400,174 @@ RSpec.describe 'Subscriptions (@subscription, @broadcast)' do
 
       expect { Lighthouse::GraphQL::SchemaFactory.build_base_schema(sdl: bad, schema_options: { using: using }) }
         .to raise_error(Lighthouse::DefinitionError, /@subscription is for fields of the Subscription type, not Query.oops/)
+    end
+  end
+
+  describe 'a plain GraphQL::Schema::Subscription' do
+    def plain_post(title, author_id: nil)
+      mutate("mutation { plainPost(title: #{title.to_json}, author_id: #{author_id || 'null'}) { id } }")
+    end
+
+    it 'is found by convention, and a field without arguments is updated out of the box' do
+      subscribe('subscription { plainCreated { title } }', id: 'one')
+      subscribe('subscription { plainCreated { title } }', id: 'two')
+
+      plain_post('Hello')
+
+      expect(titles('one')).to eq(['Hello'])
+      expect(titles('two')).to eq(['Hello'])
+      expect(Lighthouse::GraphQL::Broadcasting.subscription_class(schema, 'plainCreated')).to eq(Subscriptions::PlainCreated)
+    end
+
+    it 'is the one @subscription(class:) names, with its own update' do
+      subscribe('subscription { plainAnnouncements { title } }', id: 'one')
+
+      plain_post('Hi')
+
+      expect(titles('one')).to eq(['Plain: Hi'])
+    end
+
+    it 'answers the subscription request with subscribe, and still receives the updates' do
+      initial = subscribe('subscription { plainWithSubscribe { title } }', id: 'one')
+
+      expect(initial.dig('data', 'plainWithSubscribe', 'title')).to eq('Welcome')
+
+      plain_post('Later')
+
+      expect(titles('one')).to eq(['Later'])
+    end
+
+    it 'skips the subscribers its update turns down with NO_UPDATE' do
+      subscribe('subscription { plainFiltered { title } }', id: 'rails', context: { prefix: 'Rails' })
+      subscribe('subscription { plainFiltered { title } }', id: 'ruby', context: { prefix: 'Ruby' })
+
+      plain_post('Rails 8')
+
+      expect(titles('rails')).to eq(['Rails 8'])
+      expect(backend.payloads_for('ruby')).to be_empty
+    end
+
+    it 'refuses a subscription its authorized? raises for, registering nothing, and serves the others' do
+      refused = subscribe('subscription { plainAdmin { title } }', id: 'guest', context: { admin: false })
+      subscribe('subscription { plainAdmin { title } }', id: 'admin', context: { admin: true })
+
+      plain_post('Secret')
+
+      expect(refused['errors'].first['message']).to eq('Admins only.')
+      expect(backend.subscription_ids).to eq(['admin'])
+      expect(titles('admin')).to eq(['Secret'])
+    end
+
+    it 'is scoped with subscription_scope and trigger_scope' do
+      subscribe('subscription { plainScoped { title } }', id: 'mine', context: { tenant: 'tenant-3' })
+      subscribe('subscription { plainScoped { title } }', id: 'theirs', context: { tenant: 'tenant-4' })
+
+      plain_post('Hello', author_id: 3)
+
+      expect(titles('mine')).to eq(['Hello'])
+      expect(backend.payloads_for('theirs')).to be_empty
+    end
+
+    it 'is matched by the arguments its trigger_arguments returns' do
+      subscribe('subscription { plainByAuthor(author: "3") { title } }', id: 'owner')
+      subscribe('subscription { plainByAuthor(author: "4") { title } }', id: 'stranger')
+
+      plain_post('Hello', author_id: 3)
+
+      expect(titles('owner')).to eq(['Hello'])
+      expect(backend.payloads_for('stranger')).to be_empty
+    end
+
+    it 'updates only the argument-less subscribers of a field with optional arguments and no trigger_arguments' do
+      subscribe('subscription { plainOptional { title } }', id: 'everyone')
+      subscribe('subscription { plainOptional(author: "3") { title } }', id: 'owner')
+
+      plain_post('Hello', author_id: 3)
+
+      expect(titles('everyone')).to eq(['Hello'])
+      expect(backend.payloads_for('owner')).to be_empty
+    end
+
+    describe 'with required arguments but no trigger_arguments' do
+      let(:errors) { [] }
+
+      before do
+        Lighthouse.configure { |c| c.on_error = ->(error, _context) { errors << error } }
+        subscribe('subscription { plainNoTrigger(author: "3") { title } }', id: 'one')
+        subscribe('subscription { exactNoTrigger(author: "3") { title } }', id: 'two')
+      end
+
+      it 'reports each class that could never reach a subscriber, and triggers nothing' do
+        result = mutate('mutation { misconfiguredPost(title: "Hello", author_id: 3) { id } }')
+
+        expect(result.dig('data', 'misconfiguredPost', 'id')).to be_present
+        expect(errors.map(&:class)).to eq([Lighthouse::DefinitionError] * 2)
+        expect(errors.first.message)
+          .to match(/plainNoTrigger.*can reach nobody.*Subscriptions::PlainNoTrigger.*requires "author".*self\.trigger_arguments\(root, context\)/)
+        expect(errors.last.message).to match(/exactNoTrigger.*Subscriptions::ExactNoTrigger/)
+        expect(backend.deliveries).to be_empty
+      end
+
+      it 'raises under the default error handling of a test environment' do
+        Lighthouse.configure { |c| c.on_error = ->(error, _context) { raise error } }
+
+        expect { schema.execute('mutation { misconfiguredPost(title: "Hello") { id } }') }
+          .to raise_error(Lighthouse::DefinitionError, /can reach nobody/)
+      end
+    end
+  end
+
+  describe 'the concern Lighthouse::GraphQL::Subscription' do
+    it 'refuses a class that is not a GraphQL::Schema::Subscription' do
+      expect { Class.new { include Lighthouse::GraphQL::Subscription } }
+        .to raise_error(Lighthouse::DefinitionError, /is for subclasses of GraphQL::Schema::Subscription/)
+    end
+
+    it 'gives the class a field-wide topic, inherited by its subclasses, and exact arguments on request' do
+      parent = Class.new(GraphQL::Schema::Subscription) { include Lighthouse::GraphQL::Subscription }
+      child = Class.new(parent) { topic_by :arguments }
+      grandchild = Class.new(child)
+
+      expect([parent.topic_by, child.topic_by, grandchild.topic_by]).to eq(%i[field arguments arguments])
+      expect { parent.topic_by :other }.to raise_error(ArgumentError, /:field or :arguments/)
+    end
+
+    it 'leaves a plain subscription without its class methods' do
+      plain = Class.new(GraphQL::Schema::Subscription)
+
+      expect(plain).not_to respond_to(:topic_by)
+      expect(plain).not_to respond_to(:trigger_arguments)
+    end
+
+    it 'yields to an update the class defines itself, and its own authorized? can call super' do
+      klass = Class.new(GraphQL::Schema::Subscription) do
+        include Lighthouse::GraphQL::Subscription
+
+        def filter?(*, **) = raise('never called: the class has its own update')
+        def update(**) = :its_own
+        def authorized?(**) = super && context[:allowed]
+      end
+      instance = klass.allocate
+
+      expect(instance.update).to eq(:its_own)
+      expect(klass.instance_method(:authorized?).super_method.owner).to eq(Lighthouse::GraphQL::Subscription)
+    end
+
+    it 'runs filter? and resolve_payload through the concern, next to a subscribe of the class' do
+      stub_const('Subscriptions::PlainCreated', Class.new(GraphQL::Schema::Subscription) do
+        include Lighthouse::GraphQL::Subscription
+
+        def subscribe(**) = Post.new(title: 'Welcome')
+        def filter?(post, **) = post.title != 'skip'
+        def resolve_payload(post, **) = post.tap { |p| p.title = "#{p.title}!" }
+      end)
+      initial = subscribe('subscription { plainCreated { title } }', id: 'one')
+
+      mutate('mutation { plainPost(title: "skip") { id } }')
+      mutate('mutation { plainPost(title: "keep") { id } }')
+
+      expect(initial.dig('data', 'plainCreated', 'title')).to eq('Welcome')
+      expect(titles('one')).to eq(['keep!'])
     end
   end
 

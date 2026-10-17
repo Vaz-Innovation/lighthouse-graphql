@@ -6,10 +6,10 @@ require_relative 'base'
 # or, without the directive, by convention: `Subscription.postUpdated`
 # resolves to `Subscriptions::PostUpdated`, looked up in
 # Config.namespaces[:subscriptions] at call time so code reloading keeps
-# working. The class is a GraphQL::Schema::Subscription (see
-# Lighthouse::GraphQL::Subscription for PHP Lighthouse's hooks). A field
-# with no class still works: it is a Lighthouse::GraphQL::Subscription whose
-# update is the broadcast root, which is all `@broadcast` needs.
+# working. The class is a GraphQL::Schema::Subscription, which may include
+# Lighthouse::GraphQL::Subscription for PHP Lighthouse's hooks. A field
+# with no class still works: it is a Lighthouse::GraphQL::Subscription::Default
+# whose update is the broadcast root, which is all `@broadcast` needs.
 #
 # graphql-ruby registers a subscription through the class its field was
 # built from, which a field built from SDL has not. The field is therefore
@@ -41,11 +41,10 @@ class Lighthouse::GraphQL::DirectiveResolvers::SubscriptionDirectiveResolver < L
   # conventional one, else the default.
   def subscription_class
     klass = find_class
-    return Lighthouse::GraphQL::Subscription unless klass
+    return Lighthouse::GraphQL::Subscription::Default unless klass
 
     unless klass.is_a?(Class) && klass < ::GraphQL::Schema::Subscription
-      raise Lighthouse::DefinitionError, "#{klass} resolves #{location}, so it must inherit from GraphQL::Schema::Subscription " \
-                                         '(or Lighthouse::GraphQL::Subscription).'
+      raise Lighthouse::DefinitionError, "#{klass} resolves #{location}, so it must inherit from GraphQL::Schema::Subscription."
     end
 
     klass

@@ -45,13 +45,26 @@ RSpec.describe 'lighthouse:query, :mutation, :subscription, :builder and :valida
     expect(klass.superclass).to eq(GraphQL::Schema::Mutation)
   end
 
-  it 'generates a Lighthouse::GraphQL::Subscription in app/graphql/subscriptions with its hooks' do
+  it 'generates a GraphQL::Schema::Subscription in app/graphql/subscriptions with authorized? and trigger_arguments' do
     output = generate(Lighthouse::Generators::SubscriptionGenerator, 'GeneratedPostUpdated')
 
+    source = File.read(File.join(root, 'app/graphql/subscriptions/generated_post_updated.rb'))
     klass = load_generated('app/graphql/subscriptions/generated_post_updated.rb', 'Subscriptions::GeneratedPostUpdated')
-    expect(klass.superclass).to eq(Lighthouse::GraphQL::Subscription)
-    expect(klass.instance_methods(false)).to contain_exactly(:authorize?, :filter?, :resolve_payload)
+    expect(klass.superclass).to eq(GraphQL::Schema::Subscription)
+    expect(klass.instance_methods(false)).to contain_exactly(:authorized?)
+    expect(klass.trigger_arguments(Object.new, nil)).to eq({})
+    expect(source).to include('# def subscribe(**args)', '# def update(**args)', 'NO_UPDATE')
     expect(output).to include('Subscription.generatedPostUpdated resolves to Subscriptions::GeneratedPostUpdated')
+  end
+
+  it 'includes Lighthouse::GraphQL::Subscription, with its hooks, given --lighthouse' do
+    output = generate(Lighthouse::Generators::SubscriptionGenerator, 'GeneratedHooked', '--lighthouse')
+
+    klass = load_generated('app/graphql/subscriptions/generated_hooked.rb', 'Subscriptions::GeneratedHooked')
+    expect(klass.superclass).to eq(GraphQL::Schema::Subscription)
+    expect(klass).to include(Lighthouse::GraphQL::Subscription)
+    expect(klass.instance_methods(false)).to contain_exactly(:authorize?, :filter?, :resolve_payload)
+    expect(output).to include('Subscription.generatedHooked resolves to Subscriptions::GeneratedHooked')
   end
 
   it 'generates a builder in app/graphql/builders that returns the relation it gets' do

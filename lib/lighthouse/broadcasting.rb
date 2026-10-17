@@ -12,6 +12,8 @@ module Lighthouse::GraphQL::Broadcasting
     return unless backend?(schema, name)
 
     klass = subscription_class(schema, name)
+    return unless triggerable?(schema, name, klass)
+
     arguments = klass.respond_to?(:trigger_arguments) ? klass.trigger_arguments(root, context) : {}
     scope = klass.respond_to?(:trigger_scope) ? klass.trigger_scope(root, context) : nil
 
@@ -20,6 +22,44 @@ module Lighthouse::GraphQL::Broadcasting
     else
       trigger(schema, name, arguments, root, scope)
     end
+  end
+
+  # Can a trigger of `klass` reach anybody? graphql-ruby delivers to the
+  # subscribers whose arguments equal the trigger's. A class with exact-argument
+  # topics (a plain GraphQL::Schema::Subscription, or topic_by :arguments) that
+  # leaves `trigger_arguments` at the default `{}`, on a field with a required
+  # argument, therefore never reaches a single subscriber: each of them passed
+  # that argument. That is certain, so it is reported through Config.on_error
+  # (raised in a test environment, logged otherwise) and nothing is triggered.
+  # Arguments that are all optional are not reported: argument-less subscribers
+  # do match `{}`, which can be exactly what the class wants.
+  def triggerable?(schema, name, klass)
+    field = subscription_field(schema, name)
+    required = field ? required_arguments(field) : []
+    return true if required.empty? || trigger_arguments_defined?(klass)
+
+    Lighthouse::Config.handle_error(
+      Lighthouse::DefinitionError.new(
+        "@broadcast(subscription: #{name.inspect}) can reach nobody: #{klass} matches subscribers by exact arguments, " \
+        "but #{field.owner.graphql_name}.#{field.name} requires #{required.map { |arg| arg.graphql_name.inspect }.join(', ')} " \
+        'and the class defines no `self.trigger_arguments(root, context)` saying what to trigger with. ' \
+        "Define it, e.g. `def self.trigger_arguments(root, _context) = { #{required.first.graphql_name.underscore}: root.id.to_s }`, " \
+        'or include Lighthouse::GraphQL::Subscription for one topic per field, filtered by `filter?`.'
+      )
+    )
+    false
+  end
+
+  # Does a trigger of `klass` need its own trigger_arguments to match anyone?
+  # Not for the field-wide topic of a class including Lighthouse::GraphQL::Subscription.
+  def trigger_arguments_defined?(klass)
+    return true if klass < Lighthouse::GraphQL::Subscription && klass.topic_by == :field
+
+    klass.respond_to?(:trigger_arguments) && klass.method(:trigger_arguments).owner != Lighthouse::GraphQL::Subscription::ClassMethods
+  end
+
+  def required_arguments(field)
+    field.arguments.values.select { |arg| arg.type.non_null? && !arg.default_value? }
   end
 
   # Trigger the subscription now. Misuse (arguments the field does not take, a
@@ -71,7 +111,7 @@ module Lighthouse::GraphQL::Broadcasting
 
   # The class the field stands for (see SubscriptionDirectiveResolver).
   def subscription_class(schema, name)
-    subscription_field(schema, name)&.resolver || Lighthouse::GraphQL::Subscription
+    subscription_field(schema, name)&.resolver || Lighthouse::GraphQL::Subscription::Default
   end
 
   # Every @broadcast in the schema must name a field of its Subscription type.
