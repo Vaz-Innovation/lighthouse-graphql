@@ -85,10 +85,10 @@ jobs:
           bundler-cache: true
           working-directory: example
 
-      - name: Prepare the database
-        run: bin/rails db:prepare
-        env:
-          RAILS_ENV: test
+      # db:test:prepare loads the schema only: db:prepare would also run
+      # db/seeds.rb on a new database, and the specs expect it empty.
+      - name: Prepare the test database
+        run: bin/rails db:test:prepare
 
       - name: End-to-end tests
         run: bundle exec rspec
