@@ -150,7 +150,11 @@ Things to know:
 
 - Shared caches only store `GET` responses, and the generated route is
   `POST /graphql`. Add `get '/graphql', to: 'graphql#execute'` and send cacheable
-  queries (ideally persisted queries) over `GET`.
+  queries over `GET`, ideally as [persisted queries](performance.md#persisted-queries),
+  whose hash fits in a URL.
+- The pagination types Lighthouse generates (`paginatorInfo`, `data`, `pageInfo`,
+  `edges`, `node`) inherit their parent field's `maxAge`, as in PHP Lighthouse,
+  so a paginated field is as cacheable as its `@cacheControl` says.
 - With a `public` max-age, Rack's ETag middleware adds an `ETag`, so clients can
   revalidate with `If-None-Match`.
 - Rails normalizes `no-cache, private` to `no-cache`. `no-cache` already forces

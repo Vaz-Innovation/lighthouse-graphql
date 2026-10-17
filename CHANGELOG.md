@@ -65,6 +65,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The integration suites of PHP Lighthouse for nested mutations (belongsTo, hasOne, hasMany,
   belongsToMany, morphTo, morphOne, morphMany, morphToMany), the model mutation directives,
   `@all` and `@paginate`, ported to RSpec against the same models (spec/integration).
+- **Opt-in options for large schemas and high traffic**, all off by default (docs/performance.md):
+  - `config.schema_cache` caches the built schema document in `tmp/cache/lighthouse`, Bootsnap
+    style: content-addressed (SDL, versions, registered directives, manipulator source, config),
+    so it invalidates itself; atomic writes; `bin/rails lighthouse:cache` / `lighthouse:clear_cache`.
+    About 1.8x faster schema builds on large schemas.
+  - `config.watch_sdl` adds the SDL folder to Rails' watched dirs, so editing a `.graphql` file
+    reloads the schema in development (it previously needed a server restart).
+  - `config.persisted_queries`: Apollo-compatible Automatic Persisted Queries
+    (`PersistedQueries.execute`, used by the generated controller), with a TTL, a store, a
+    manifest of trusted operations (Apollo's format or `{ sha256 => query }`) served from memory,
+    `persisted_queries_only` as an allowlist, and `bin/rails lighthouse:persisted_queries:verify`
+    to check the manifest against the schema in CI.
 - `@cacheControl(maxAge:, scope:, inheritMaxAge:)` computes the response's `Cache-Control`
   header from the selected fields (PHP Lighthouse's / Apollo's rules);
   `Lighthouse::GraphQL::CacheControl.apply(response, result)` sets it, and the generated
@@ -94,6 +106,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (N+1); it now batches with ActiveRecord's preloader.
 - The relationship directives and `@find` raised "Dataloader is not running" on schemas without
   `GraphQL::Dataloader`; they now load directly there.
+- Generated pagination wrappers made every paginated field `no-cache` under `@cacheControl`;
+  they now inherit the parent's maxAge, as in PHP Lighthouse.
 - An explicit `null` directive argument (`@paginate(maxCount: null)`) failed to build the
   schema: graphql-ruby passes it on as a NullValue node. Lighthouse maps it to nil.
 

@@ -89,6 +89,27 @@ RSpec.describe '@cacheControl' do
     expect(response.headers).to eq('Cache-Control' => 'max-age=10, public')
   end
 
+  describe 'with pagination' do
+    let(:paginated) do
+      build_schema(<<~GRAPHQL)
+        type Query {
+          widgets: [Widget!]! @paginate(model: "Widget") @cacheControl(maxAge: 30)
+          widgetConnection: [Widget!]! @paginate(model: "Widget", type: CONNECTION) @cacheControl(maxAge: 20)
+        }
+        type Widget { id: ID! email: String }
+      GRAPHQL
+    end
+
+    def paginated_header(query)
+      Lighthouse::GraphQL::CacheControl.header(paginated.execute(query))
+    end
+
+    it "lets the generated wrappers inherit the field's maxAge, as PHP Lighthouse does" do
+      expect(paginated_header('{ widgets(first: 5) { paginatorInfo { total } data { id email } } }')).to eq('max-age=30, public')
+      expect(paginated_header('{ widgetConnection(first: 5) { pageInfo { hasNextPage } edges { cursor node { id } } } }')).to eq('max-age=20, public')
+    end
+  end
+
   it 'computes nothing for a schema without @cacheControl' do
     plain = build_schema("type Query { a: String @field(resolver: \"CacheControlSpecTrue\") }")
 

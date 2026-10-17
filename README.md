@@ -145,6 +145,7 @@ including base types and configuration.
 | [Mutations](docs/mutations.md) | `@create`, `@update`, `@upsert`, `@delete` (and `*Many`), nested mutations on every kind of association, `@spread`, `@inject` |
 | [Validation](docs/validation.md) | Model validations, `@validator` with Dry::Validation contracts |
 | [Authentication & authorization](docs/authorization.md) | `@guard`, `@canFind` / `@canModel` / `@canQuery` / `@canResolved` / `@canRoot` (Pundit by default) |
+| [Performance at scale](docs/performance.md) | Opt-in schema cache, SDL reloading in development, persisted queries (APQ) and trusted-document allowlists |
 | [Caching](docs/caching.md) | `@cache`, `@cacheKey`, `@clearCache` (Rails.cache), `@cacheControl` (HTTP) |
 | [Apollo Federation](docs/federation.md) | `@key`, `resolve_reference`, the `ReferenceResolver` registry |
 | [Custom directives](docs/custom-directives.md) | The contracts, the registry, writing your own directive |

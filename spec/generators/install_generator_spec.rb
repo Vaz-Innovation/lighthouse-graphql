@@ -125,7 +125,7 @@ RSpec.describe Lighthouse::Generators::InstallGenerator do
     it 'replaces them with --force' do
       run_generator('--force')
 
-      expect(read('app/controllers/graphql_controller.rb')).to include('AppSchema.execute(')
+      expect(read('app/controllers/graphql_controller.rb')).to include("PersistedQueries.execute(\n      AppSchema,")
     end
   end
 

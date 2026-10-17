@@ -31,6 +31,23 @@ Lighthouse.configure do |config|
   # Run @create/@update/@createMany/@updateMany in a database transaction.
   # config.transactional_mutations = true
 
+  # --- For large schemas and high traffic (all off by default) ---------------
+  # Cache the built schema document in tmp/cache, keyed by the SDL and
+  # everything that shapes it; warm it at deploy with `bin/rails lighthouse:cache`.
+  # config.schema_cache = Rails.env.production?
+
+  # Reload the app (and so the schema) when a .graphql file changes.
+  # config.watch_sdl = Rails.env.development?
+
+  # Automatic Persisted Queries (Apollo's protocol). Add a GET route too, so
+  # hashed queries can be cached by CDNs: get "/graphql", to: "graphql#execute"
+  # config.persisted_queries = true
+  # config.persisted_queries_ttl = 1.week.to_i
+  # A manifest of trusted operations from your client build, served by hash;
+  # with persisted_queries_only, nothing else may run.
+  # config.persisted_queries_manifest = Rails.root.join('persisted-queries.json')
+  # config.persisted_queries_only = Rails.env.production?
+
   # Called when a directive or resolver swallows an error. The default raises in
   # test and logs otherwise.
   # config.on_error = ->(error, _context) { Rails.error.report(error) }

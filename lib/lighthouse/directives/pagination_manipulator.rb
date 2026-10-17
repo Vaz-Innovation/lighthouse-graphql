@@ -96,11 +96,16 @@ module Lighthouse
               return sdl
             end
 
-          new(document).manipulate
+          new(document, cache_control: sdl.gsub(/directive\s+@cacheControl/, '').include?('@cacheControl')).manipulate
         end
 
-        def initialize(document)
+        # With @cacheControl in use, the generated wrappers (paginatorInfo, data,
+        # pageInfo, edges, node) take their parent's maxAge, as in PHP Lighthouse:
+        # they are not entities of their own, so they must not turn a cacheable
+        # page into `no-cache`.
+        def initialize(document, cache_control: false)
           @document = document
+          @inherit = cache_control ? ' @cacheControl(inheritMaxAge: true)' : ''
           @defined = document.definitions.filter_map { |d| d.name if d.respond_to?(:name) && !d.class.name.end_with?('Extension') }
           @generated = {}
         end
@@ -162,9 +167,9 @@ module Lighthouse
             "A paginated list of #{item} items."
             type #{item}#{suffix} {
               "Pagination information about the list of items."
-              paginatorInfo: #{info}!
+              paginatorInfo: #{info}!#{@inherit}
               "A list of #{item} items."
-              data: [#{item}!]!
+              data: [#{item}!]!#{@inherit}
             }
           GRAPHQL
         end
@@ -174,9 +179,9 @@ module Lighthouse
             "A paginated list of #{item} edges."
             type #{item}Connection {
               "Pagination information about the list of edges."
-              pageInfo: PageInfo!
+              pageInfo: PageInfo!#{@inherit}
               "A list of #{item} edges."
-              edges: [#{item}Edge!]!
+              edges: [#{item}Edge!]!#{@inherit}
             }
           GRAPHQL
         end
@@ -186,7 +191,7 @@ module Lighthouse
             "An edge that contains a node of type #{item} and a cursor."
             type #{item}Edge {
               "The #{item} node."
-              node: #{item}!
+              node: #{item}!#{@inherit}
               "A unique cursor that can be used for pagination."
               cursor: String!
             }

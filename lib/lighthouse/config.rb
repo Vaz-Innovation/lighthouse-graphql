@@ -24,7 +24,10 @@ module Lighthouse
       attr_writer :sdl_folder, :resolver_namespaces, :on_error,
                   :authenticated_user, :policy_user, :authorizer,
                   :cache_store, :transactional_mutations,
-                  :pagination_default_count, :pagination_max_count
+                  :pagination_default_count, :pagination_max_count,
+                  :schema_cache, :schema_cache_path, :watch_sdl,
+                  :persisted_queries, :persisted_queries_store, :persisted_queries_ttl,
+                  :persisted_queries_manifest, :persisted_queries_only
 
       def sdl_folder
         @sdl_folder ||= (defined?(Rails) && Rails.respond_to?(:root) ? File.join(Rails.root, 'graphql') : nil)
@@ -60,6 +63,27 @@ module Lighthouse
           else
             ActiveSupport::Cache::MemoryStore.new
           end
+      end
+
+      # --- Scale options: all off by default ----------------------------------
+      #
+      # schema_cache          cache the built schema document in tmp/cache (SchemaCache)
+      # schema_cache_path     where; default Rails.root/tmp/cache/lighthouse
+      # watch_sdl             reload the app (and so the schema) when a .graphql file changes
+      # persisted_queries     accept Apollo's Automatic Persisted Queries (PersistedQueries)
+      # persisted_queries_store     where APQ keeps queries; default cache_store
+      # persisted_queries_ttl       how long they live there (seconds; nil: until evicted)
+      # persisted_queries_manifest  a manifest of trusted operations, served by hash
+      # persisted_queries_only      reject any operation not in the manifest
+      attr_reader :schema_cache_path, :persisted_queries_ttl, :persisted_queries_manifest
+
+      def schema_cache = @schema_cache || false
+      def watch_sdl = @watch_sdl || false
+      def persisted_queries = @persisted_queries || false
+      def persisted_queries_only = @persisted_queries_only || false
+
+      def persisted_queries_store
+        @persisted_queries_store || cache_store
       end
 
       # Pagination defaults, overridden by a directive's defaultCount / maxCount.
@@ -125,6 +149,14 @@ module Lighthouse
         @transactional_mutations = nil
         @pagination_default_count = nil
         @pagination_max_count = nil
+        @schema_cache = nil
+        @schema_cache_path = nil
+        @watch_sdl = nil
+        @persisted_queries = nil
+        @persisted_queries_store = nil
+        @persisted_queries_ttl = nil
+        @persisted_queries_manifest = nil
+        @persisted_queries_only = nil
         @on_error = nil
         @directive_map = nil
         @authenticated_user = nil

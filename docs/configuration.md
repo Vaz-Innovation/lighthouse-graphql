@@ -85,6 +85,21 @@ config.pagination_default_count = 25
 config.pagination_max_count = 100
 ```
 
+### `schema_cache`, `schema_cache_path`, `watch_sdl`, `persisted_queries*`
+
+Options for large schemas and high traffic, all off by default. See
+[performance.md](performance.md).
+
+```ruby
+config.schema_cache = Rails.env.production?            # cache the built schema in tmp/cache
+config.watch_sdl = Rails.env.development?              # reload when a .graphql file changes
+config.persisted_queries = true                        # Apollo's Automatic Persisted Queries
+config.persisted_queries_store = Rails.cache           # where APQ keeps queries (default: cache_store)
+config.persisted_queries_ttl = 1.week.to_i             # how long they live there
+config.persisted_queries_manifest = Rails.root.join('persisted-queries.json')  # trusted operations
+config.persisted_queries_only = Rails.env.production?  # run nothing else
+```
+
 ### `transactional_mutations`
 
 Whether `@create` / `@update` / `@createMany` / `@updateMany` run in a database

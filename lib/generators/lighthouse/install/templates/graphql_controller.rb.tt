@@ -6,8 +6,12 @@ class GraphqlController < ApplicationController
   # protect_from_forgery with: :null_session
 
   def execute
-    result = <%= schema_name %>.execute(
-      params[:query],
+    # PersistedQueries.execute resolves Apollo-style persisted queries when
+    # config.persisted_queries is on, and otherwise runs params[:query] as is.
+    result = Lighthouse::GraphQL::PersistedQueries.execute(
+      <%= schema_name %>,
+      query: params[:query],
+      extensions: params[:extensions],
       variables: prepare_variables(params[:variables]),
       operation_name: params[:operationName],
       context: {

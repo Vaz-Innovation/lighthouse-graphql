@@ -8,13 +8,9 @@ module Lighthouse
       def build(sdl_string, **opts)
         # Decided on the app's SDL: once definitions are injected, every schema mentions it.
         uses_cache_control = sdl_string.to_s.gsub(/directive\s+@cacheControl/, '').include?('@cacheControl')
-        # Contribute SDL definitions for any registered directive the schema uses
-        # but hasn't declared, so the app doesn't hand-declare every directive.
-        sdl_string = inject_directive_definitions(sdl_string)
-        # Augment SDL: convert list-typed fields with relationship directives
-        # (e.g. `roles: [Role!]! @belongsToMany`) into connection types
-        # (`roles: RoleConnection!`) and generate missing Connection/Edge types.
-        sdl_string = augment_sdl_with_connections(sdl_string)
+        # The manipulated document — from the schema cache when it is enabled
+        # and fresh (see SchemaCache), else built now.
+        document = Lighthouse::GraphQL::SchemaCache.document(sdl_string) { |sdl| manipulate(sdl) }
         impl =
           if defined?(::SchemaImplementation)
             ::SchemaImplementation.new
@@ -55,14 +51,16 @@ module Lighthouse
             end.new
           end
 
-        final_sdl = sdl_string
         base_types = opts.delete(:base_types) || {}
         using = opts.delete(:using) || {}
         schema_class = opts.delete(:schema_class) || ::GraphQL::Schema
 
         # Build using the provided base class so federation / custom schema behavior
         # is preserved through class hierarchy.
-        schema = schema_class.from_definition(final_sdl, default_resolve: impl, base_types: base_types, using: using)
+        # The document is handed over through `parser:`, graphql-ruby's public
+        # hook, so it is not parsed again.
+        schema = schema_class.from_definition('', parser: prebuilt_parser(document), default_resolve: impl,
+                                                  base_types: base_types, using: using)
 
         # Make to_definition delegate to federation_sdl when available.
         if schema.respond_to?(:federation_sdl)
@@ -119,6 +117,21 @@ module Lighthouse
         schema.query_analyzer(Lighthouse::GraphQL::CacheControl::Analyzer) if uses_cache_control
 
         schema
+      end
+
+      # A "parser" returning a document that is already parsed. A module, not
+      # an object: graphql-ruby checks `defined?(parser::SchemaParser)`, which on
+      # a plain object builds a TypeError message by inspecting it — the whole
+      # document, quadratically slow on a large schema.
+      def prebuilt_parser(document)
+        Module.new { define_singleton_method(:parse) { |*| document } }
+      end
+
+      # The SDL as the schema is built from it: directive definitions injected
+      # (so apps don't hand-declare Lighthouse's directives), then every
+      # registered manipulator run (pagination types, whereConditions inputs, ...).
+      def manipulate(sdl)
+        augment_sdl_with_connections(inject_directive_definitions(sdl))
       end
 
       def post_process(schema, impl, **_opts)

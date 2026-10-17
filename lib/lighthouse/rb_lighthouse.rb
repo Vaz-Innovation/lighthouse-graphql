@@ -33,6 +33,8 @@ require 'graphql'
   contracts/arg_builder
   sdl_loader
   schema_generator
+  schema_cache
+  persisted_queries
   schema_factory
   schema_implementation
   resolver_dispatch

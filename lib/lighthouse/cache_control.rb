@@ -43,7 +43,7 @@ module Lighthouse
       # or GraphQL::Query), or nil when the schema does not use @cacheControl.
       def header(result)
         query = result.respond_to?(:query) ? result.query : result
-        query&.context&.[](CONTEXT_KEY)
+        query.respond_to?(:context) ? query.context[CONTEXT_KEY] : nil
       end
 
       # Set the header on a Rails (or Rack) response; a no-op without one.
