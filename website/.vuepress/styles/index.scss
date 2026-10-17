@@ -1,0 +1,21 @@
+h1,
+h2,
+h3 {
+  font-weight: 400;
+}
+
+// Hero
+.vp-hero-image {
+  max-height: 10rem;
+}
+
+.vp-hero-title {
+  font-family: var(--vp-font-family-heading);
+  font-weight: 700;
+}
+
+// Code blocks keep a dark background in light mode too, as on lighthouse-php.com.
+div[class*='language-'] {
+  background-color: var(--code-c-bg) !important;
+  border-radius: 6px;
+}

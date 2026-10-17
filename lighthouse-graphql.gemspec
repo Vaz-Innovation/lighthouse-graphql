@@ -25,7 +25,7 @@ Gem::Specification.new do |spec|
   spec.metadata = {
     'source_code_uri' => spec.homepage,
     'changelog_uri' => "#{spec.homepage}/blob/main/CHANGELOG.md",
-    'documentation_uri' => "#{spec.homepage}/tree/main/docs",
+    'documentation_uri' => 'https://vaz-innovation.github.io/lighthouse-graphql/',
     'rubygems_mfa_required' => 'true'
   }
 

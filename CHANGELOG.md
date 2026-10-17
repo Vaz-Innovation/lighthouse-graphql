@@ -6,6 +6,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- A documentation site, built from `docs/` with VuePress as PHP Lighthouse builds its own,
+  and published to GitHub Pages on every push to `main`:
+  <https://vaz-innovation.github.io/lighthouse-graphql/>.
+
 ## [0.2.0] - 2026-10-17
 
 ### Added

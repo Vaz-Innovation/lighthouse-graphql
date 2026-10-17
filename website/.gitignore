@@ -1,0 +1,6 @@
+node_modules/
+# Copied from ../docs by scripts/sync-docs.js on every build.
+/docs/
+.vuepress/.temp/
+.vuepress/.cache/
+.vuepress/dist/

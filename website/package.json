@@ -1,0 +1,20 @@
+{
+  "name": "lighthouse-graphql-website",
+  "private": true,
+  "description": "The documentation site of lighthouse-graphql, built from ../docs with VuePress.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "sync": "node scripts/sync-docs.js",
+    "dev": "npm run sync && vuepress dev .",
+    "build": "npm run sync && vuepress build ."
+  },
+  "devDependencies": {
+    "@vuepress/bundler-vite": "2.0.0-rc.31",
+    "@vuepress/plugin-search": "2.0.0-rc.137",
+    "@vuepress/theme-default": "2.0.0-rc.137",
+    "sass-embedded": "1.105.0",
+    "vue": "3.5.43",
+    "vuepress": "2.0.0-rc.31"
+  }
+}

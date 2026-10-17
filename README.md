@@ -142,6 +142,9 @@ are the library's end-to-end suite. See [example/README.md](example/README.md).
 
 ## Documentation
 
+**Read it at [vaz-innovation.github.io/lighthouse-graphql](https://vaz-innovation.github.io/lighthouse-graphql/)**,
+or as Markdown in [`docs/`](docs):
+
 | Guide | What it covers |
 | --- | --- |
 | [Getting started](docs/getting-started.md) | Install, base types, building & serving the schema |

@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Lighthouse GraphQL Rails">
+  <defs>
+    <linearGradient id="beam" x1="0" x2="1">
+      <stop offset="0" stop-color="#ffd166" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#ffd166" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <path d="M70 34 L124 18 L124 54 Z" fill="url(#beam)"/>
+  <path d="M52 22 L64 10 L76 22 Z" fill="#cc342d"/>
+  <rect x="50" y="22" width="28" height="22" rx="3" fill="#2b2644"/>
+  <rect x="55" y="27" width="18" height="12" rx="2" fill="#ffd166"/>
+  <path d="M50 44 H78 L86 112 H42 Z" fill="#f4f1f8" stroke="#2b2644" stroke-width="4" stroke-linejoin="round"/>
+  <path d="M47.4 66 H80.6 L82.5 82 H45.5 Z" fill="#cc342d"/>
+  <path d="M44.3 94 H83.7 L85.2 106 H42.8 Z" fill="#cc342d"/>
+  <rect x="58" y="96" width="12" height="16" rx="6" fill="#2b2644"/>
+  <path d="M24 116 H104" stroke="#2b2644" stroke-width="6" stroke-linecap="round"/>
+</svg>

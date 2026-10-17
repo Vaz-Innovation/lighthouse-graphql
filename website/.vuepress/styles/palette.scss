@@ -1,0 +1,18 @@
+// The default theme's colours, in Lighthouse's style: one accent, dark code blocks.
+:root {
+  --vp-c-accent: #cc342d;
+  --vp-c-accent-bg: #cc342d;
+  --vp-c-accent-hover: #a82a24;
+  --vp-c-accent-soft: rgb(204 52 45 / 12%);
+  --vp-font-family-heading: 'Miriam Libre', sans-serif;
+  --vp-font-family: 'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --code-c-bg: #2b2644;
+}
+
+[data-theme='dark'] {
+  --vp-c-accent: #f0706a;
+  --vp-c-accent-bg: #cc342d;
+  --vp-c-accent-hover: #f58f8a;
+  --vp-c-accent-soft: rgb(240 112 106 / 16%);
+  --code-c-bg: #1f1b33;
+}

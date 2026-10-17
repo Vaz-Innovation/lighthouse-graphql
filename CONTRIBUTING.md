@@ -92,6 +92,20 @@ controller, policies, cache store and generated classes. Add one there when a fe
 depends on Rails itself (requests, headers, the reloader, rake tasks), and keep the
 app a readable example: it is also what users look at to see how the pieces fit.
 
+## Documentation site
+
+[`docs/`](./docs) holds the guides as plain Markdown, which ships in the gem and reads well on
+GitHub. [`website/`](./website) turns them into the site at
+<https://vaz-innovation.github.io/lighthouse-graphql/> with VuePress, as PHP Lighthouse builds
+lighthouse-php.com: `website/.vuepress/config.js` has the navbar and the sidebar,
+`website/README.md` the home page. A new guide needs an entry in the sidebar.
+
+```bash
+cd website && npm install
+npm run dev      # http://localhost:8080/lighthouse-graphql/, reloads as you edit
+npm run build    # what the Docs workflow publishes to GitHub Pages on every push to main
+```
+
 ## Commits
 
 [Conventional Commits](https://www.conventionalcommits.org/):
