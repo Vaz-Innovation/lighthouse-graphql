@@ -66,6 +66,7 @@ type Mutation {
     @guard
     @create
     @inject(context: "current_user.id", name: "author_id")
+    @broadcast(subscription: "commentAdded")
 
   "Add a tag, and drop the cached tag list."
   createTag(name: String!): Tag! @guard @create @clearCache(type: "Query", field: "tags")
@@ -73,7 +74,7 @@ type Mutation {
 
 # Subscriptions arrive over ActionCable (app/channels/graphql_channel.rb). Each is a
 # GraphQL::Schema::Subscription in app/graphql/subscriptions (postCreated is plain
-# graphql-ruby, postPublished includes Lighthouse's concern), and a mutation
+# graphql-ruby, postPublished and commentAdded include Lighthouse's concern), and a mutation
 # announces what it did with @broadcast. Guide: ../docs/subscriptions.md
 type Subscription {
   "A post was written: drafts reach their author and admins only. Requires a token."
@@ -81,4 +82,7 @@ type Subscription {
 
   "A post went public, optionally only by one author."
   postPublished(authorId: ID): Post!
+
+  "A comment was added: to any post, or only to the post given."
+  commentAdded(postId: ID): Comment!
 }

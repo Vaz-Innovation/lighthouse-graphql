@@ -69,24 +69,28 @@ The classes under `app/graphql` were generated with `bin/rails g lighthouse:quer
 | [`requests/graphql/caching_spec.rb`](spec/requests/graphql/caching_spec.rb) | `@cacheControl` headers, `@cache` and `@clearCache` |
 | [`requests/graphql/persisted_queries_spec.rb`](spec/requests/graphql/persisted_queries_spec.rb) | Automatic persisted queries over POST and GET (with `Cache-Control` and `ETag`), the trusted-operations manifest |
 | [`channels/graphql_channel_spec.rb`](spec/channels/graphql_channel_spec.rb), [`channels/application_cable/connection_spec.rb`](spec/channels/application_cable/connection_spec.rb) | `GraphqlChannel` with ActionCable's test helpers: a subscription is registered and streamed, a guest is refused by `authorized?`, unsubscribing deletes it; the connection's token |
-| [`subscriptions/delivery_spec.rb`](spec/subscriptions/delivery_spec.rb) | `@broadcast` end to end over ActionCable's pub/sub: `createPost` reaches the `postCreated` subscribers (drafts only their author and admins, `NO_UPDATE`), `publishPost` the `postPublished` ones for that author, a failed or refused mutation nothing, a closed socket stops receiving |
+| [`subscriptions/delivery_spec.rb`](spec/subscriptions/delivery_spec.rb) | `@broadcast` end to end over ActionCable's pub/sub: `createPost` reaches the `postCreated` subscribers (drafts only their author and admins, `NO_UPDATE`), `publishPost` the `postPublished` ones for that author, `addComment` the `commentAdded` ones with no `postId` or that post's (a draft's only to its author and admins), a failed or refused mutation nothing, a closed socket stops receiving |
 | [`tasks/lighthouse_tasks_spec.rb`](spec/tasks/lighthouse_tasks_spec.rb) | `lighthouse:cache`, `lighthouse:clear_cache`, `lighthouse:ide_helper`, `lighthouse:persisted_queries:verify` |
 | [`graphql/app_schema_spec.rb`](spec/graphql/app_schema_spec.rb) | The types and arguments Lighthouse generates |
 
 ## Subscriptions
 
-`graphql/schema.graphql` declares two, over ActionCable (`AppSchema` is built with
+`graphql/schema.graphql` declares three, over ActionCable (`AppSchema` is built with
 `GraphQL::Subscriptions::ActionCableSubscriptions`):
 
 - `postCreated`: broadcast by `createPost`. Signed-in users only, and a draft
   reaches only its author and admins.
 - `postPublished(authorId: ID)`: broadcast by `publishPost`. Open to guests; the
   optional `authorId` narrows it to one author.
+- `commentAdded(postId: ID)`: broadcast by `addComment`. Without `postId` it
+  carries every new comment, with it only that post's; comments on a draft reach
+  only its author and admins.
 
-Both are `GraphQL::Schema::Subscription` classes, in the two styles: `PostCreated`
+All are `GraphQL::Schema::Subscription` classes, in the two styles: `PostCreated`
 is plain graphql-ruby (`authorized?`, `update` returning `NO_UPDATE`), and
-`PostPublished` includes the `Lighthouse::GraphQL::Subscription` concern for PHP
-Lighthouse's field-wide topic and `filter?`. To try them, sign in with a
+`PostPublished` and `CommentAdded` include the `Lighthouse::GraphQL::Subscription`
+concern for PHP Lighthouse's field-wide topic and `filter?`, which is what lets an
+optional argument narrow one trigger per subscriber. To try them, sign in with a
 token from `db:seed` (`?token=` or an `Authorization` header, as on `/graphql`), and
 open a socket with [`wscat`](https://github.com/websockets/wscat):
 

@@ -96,6 +96,72 @@ RSpec.describe 'Subscriptions over ActionCable', :live_cable, type: :request do
     end
   end
 
+  describe 'commentAdded, broadcast by addComment' do
+    let(:commented_post) { create(:post, author: author) }
+    let(:other_post) { create(:post, author: author) }
+
+    def comment_on(target, body)
+      graphql(%(mutation { addComment(postId: #{target.id}, body: "#{body}") { id } }), as: reader)
+    end
+
+    def bodies(client)
+      client.updates.pluck('commentAdded').pluck('body')
+    end
+
+    it 'delivers a comment to the subscribers without postId and to those of its post only' do
+      everyone = live_client
+      of_post = live_client
+      of_other_post = live_client
+      everyone.execute('subscription { commentAdded { body post { id } author { id } } }')
+      of_post.execute("subscription { commentAdded(postId: #{commented_post.id}) { body } }")
+      of_other_post.execute("subscription { commentAdded(postId: #{other_post.id}) { body } }")
+
+      comment_on(commented_post, 'Nice post')
+
+      expect(wait_until { everyone.updates.any? && of_post.updates.any? }).to be(true)
+      settle
+      expect(everyone.updates).to eq(
+        [{ 'commentAdded' => { 'body' => 'Nice post', 'post' => { 'id' => commented_post.id.to_s }, 'author' => { 'id' => reader.id.to_s } } }]
+      )
+      expect(bodies(of_post)).to eq(['Nice post'])
+      expect(of_other_post.updates).to be_empty
+    end
+
+    it 'keeps each post\'s subscribers to its own comments, while those without postId hear them all' do
+      everyone = live_client
+      of_post = live_client
+      of_other_post = live_client
+      everyone.execute('subscription { commentAdded { body } }')
+      of_post.execute("subscription { commentAdded(postId: #{commented_post.id}) { body } }")
+      of_other_post.execute("subscription { commentAdded(postId: #{other_post.id}) { body } }")
+
+      comment_on(commented_post, 'Nice post')
+      comment_on(other_post, 'Also nice')
+
+      expect(wait_until { everyone.updates.size == 2 && of_post.updates.any? && of_other_post.updates.any? }).to be(true)
+      settle
+      expect(bodies(everyone)).to eq(['Nice post', 'Also nice'])
+      expect(bodies(of_post)).to eq(['Nice post'])
+      expect(bodies(of_other_post)).to eq(['Also nice'])
+    end
+
+    it 'keeps the comments on a draft to its author and admins' do
+      draft = create(:post, :draft, author: author)
+      mine = live_client(user: author)
+      admins = live_client(user: admin)
+      guest = live_client
+      [mine, admins, guest].each { |client| client.execute('subscription { commentAdded { body } }') }
+
+      comment_on(draft, 'Early feedback')
+
+      expect(wait_until { mine.updates.any? && admins.updates.any? }).to be(true)
+      settle
+      expect(bodies(mine)).to eq(['Early feedback'])
+      expect(bodies(admins)).to eq(['Early feedback'])
+      expect(guest.updates).to be_empty
+    end
+  end
+
   describe 'closing the socket' do
     it 'unregisters its subscriptions, so nothing is delivered any more' do
       client = live_client
