@@ -7,7 +7,10 @@ const repo = 'Vaz-Innovation/lighthouse-graphql'
 
 // The guides in ../docs, grouped as PHP Lighthouse groups its own.
 const sidebar = [
-  { text: 'Getting Started', children: ['/docs/getting-started.md', '/docs/configuration.md'] },
+  {
+    text: 'Getting Started',
+    children: ['/docs/motivation.md', '/docs/getting-started.md', '/docs/configuration.md'],
+  },
   {
     text: 'The Basics',
     children: [

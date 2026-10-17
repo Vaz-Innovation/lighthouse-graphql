@@ -39,7 +39,7 @@ paginate, walk a relationship, or read an attribute. Lighthouse — like its PHP
 inspiration — captures those patterns as **directives** you attach in the schema,
 and falls back to a sensible default reader for plain fields. You write Ruby only
 for the genuinely custom parts (`@field(resolver: "...")`), and your schema stays
-the single source of truth.
+the single source of truth. [Motivation](docs/motivation.md) explains the idea in depth.
 
 ### Inspirations
 
@@ -147,6 +147,7 @@ or as Markdown in [`docs/`](docs):
 
 | Guide | What it covers |
 | --- | --- |
+| [Motivation](docs/motivation.md) | Where Lighthouse comes from, why the schema comes first, and why directives fit Active Record |
 | [Getting started](docs/getting-started.md) | Install, base types, building & serving the schema |
 | [Directives reference](docs/directives.md) | Every built-in directive, grouped by purpose |
 | [Relationships](docs/relationships.md) | `@hasMany`, `@belongsTo`, `@belongsToMany`, `@hasOne`, the `@morph*` variants, batching and `type:` pagination |

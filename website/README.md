@@ -8,8 +8,8 @@ actions:
   - text: Get Started →
     link: /docs/getting-started.md
     type: primary
-  - text: Directives
-    link: /docs/directives.md
+  - text: Why Lighthouse?
+    link: /docs/motivation.md
     type: secondary
 features:
   - title: 📜 SDL First

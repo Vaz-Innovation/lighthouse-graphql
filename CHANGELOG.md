@@ -11,6 +11,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A documentation site, built from `docs/` with VuePress as PHP Lighthouse builds its own,
   and published to GitHub Pages on every push to `main`:
   <https://vaz-innovation.github.io/lighthouse-graphql/>.
+- `docs/motivation.md`: where Lighthouse comes from, why the schema comes first, and why
+  directives work so well on Active Record — and when something else fits better.
 
 ## [0.2.0] - 2026-10-17
 
