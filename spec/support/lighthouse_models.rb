@@ -82,7 +82,7 @@ module LH
   TABLES = %w[lh_companies lh_teams lh_users lh_tasks lh_posts lh_roles lh_role_user lh_images lh_tags
               lh_taggables lh_custom_primary_keys lh_categories lh_comments].freeze
 
-  class Record < ActiveRecord::Base
+  class Record < ApplicationRecord
     self.abstract_class = true
   end
 
@@ -242,9 +242,17 @@ module JsonSubset
 
   def match?(expected, actual)
     case expected
-    when Hash then actual.is_a?(Hash) && expected.all? { |k, v| actual.key?(k.to_s) && match?(v, actual[k.to_s]) }
-    when Array then actual.is_a?(Array) && expected.size == actual.size && expected.zip(actual).all? { |e, a| match?(e, a) }
+    when Hash then match_hash?(expected, actual)
+    when Array then match_array?(expected, actual)
     else expected == actual
     end
+  end
+
+  def match_hash?(expected, actual)
+    actual.is_a?(Hash) && expected.all? { |k, v| actual.key?(k.to_s) && match?(v, actual[k.to_s]) }
+  end
+
+  def match_array?(expected, actual)
+    actual.is_a?(Array) && expected.size == actual.size && expected.zip(actual).all? { |e, a| match?(e, a) }
   end
 end

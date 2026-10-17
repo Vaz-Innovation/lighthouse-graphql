@@ -9,7 +9,7 @@ class CacheSpecCounter
 
     def call(obj, args, _ctx)
       self.calls += 1
-      "#{obj&.respond_to?(:title) ? obj.title : 'root'}:#{args[:n]}:#{calls}"
+      "#{obj.respond_to?(:title) ? obj.title : 'root'}:#{args[:n]}:#{calls}"
     end
   end
 end
@@ -60,22 +60,27 @@ RSpec.describe '@cache, @cacheKey and @clearCache' do
   end
 
   let(:schema) { build_schema(sdl, dataloader: true) }
+  let(:errors) { [] }
   let!(:first) { Post.create!(title: 'First', published: true) }
   let!(:second) { Post.create!(title: 'Second') }
 
   before do
     CacheSpecCounter.calls = 0
     stub_const('CacheSpecTrue', Class.new { def self.call(*) = true })
-    stub_const('CacheSpecProfile', Class.new { def self.call(_o, _a, ctx) = { 'username' => ctx[:username] } })
+    stub_const('CacheSpecProfile', Class.new { def self.call(_obj, _args, ctx) = { 'username' => ctx[:username] } })
     stub_const('CacheSpecUnserializable', Class.new { def self.call(*) = Class.new })
     stub_const('PostPolicy', Class.new do
-      def initialize(user, record) = (@user, @record = user, record)
+      def initialize(user, record)
+        (@user = user
+         @record = record)
+      end
+
       def show? = @user == :admin || @record.published
     end)
     Lighthouse.configure do |c|
       c.authenticated_user = ->(ctx) { ctx[:current_user] }
       c.policy_user = ->(ctx) { ctx[:current_user] }
-      c.on_error = ->(error, _ctx) { (@errors ||= []) << error }
+      c.on_error = ->(error, _ctx) { errors << error }
     end
   end
 
@@ -133,14 +138,14 @@ RSpec.describe '@cache, @cacheKey and @clearCache' do
       expect(value("{ guarded(id: #{second.id}) { title } }", current_user: :admin)).to eq('title' => 'Second')
 
       result = run("{ guarded(id: #{second.id}) { title } }", current_user: :reader)
-      expect(result['errors'].map { |e| e['message'] }).to eq(['This action is unauthorized.'])
+      expect(result['errors'].pluck('message')).to eq(['This action is unauthorized.'])
     end
 
     it 'reports a value the store cannot serialize, and returns it uncached' do
       result = run('{ unserializable }')
 
       expect(result['data']).to have_key('unserializable')
-      expect(@errors.map(&:class)).to eq([TypeError])
+      expect(errors.map(&:class)).to eq([TypeError])
     end
   end
 

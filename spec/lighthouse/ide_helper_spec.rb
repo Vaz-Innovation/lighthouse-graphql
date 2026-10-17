@@ -79,21 +79,22 @@ RSpec.describe Lighthouse::IdeHelper do
       Rake.application = Rake::Application.new
       Rake::Task.define_task(:environment)
       load File.expand_path('../../lib/lighthouse/tasks/lighthouse.rake', __dir__)
-      Dir.mktmpdir do |dir|
-        @dir = dir
-        example.run
-      end
+      example.run
     ensure
       Rake.application = Rake::Application.new
     end
 
+    let(:sdl_dir) { Dir.mktmpdir }
+
+    after { FileUtils.remove_entry(sdl_dir) }
+
     it 'writes the files to OUTPUT using the configured sdl_folder' do
-      File.write(File.join(@dir, 'schema.graphql'), sdl)
-      allow(Lighthouse::Config).to receive(:sdl_folder).and_return(@dir)
-      stub_const('ENV', ENV.to_h.merge('OUTPUT' => File.join(@dir, 'out')))
+      File.write(File.join(sdl_dir, 'schema.graphql'), sdl)
+      allow(Lighthouse::Config).to receive(:sdl_folder).and_return(sdl_dir)
+      stub_const('ENV', ENV.to_h.merge('OUTPUT' => File.join(sdl_dir, 'out')))
 
       expect { Rake::Task['lighthouse:ide_helper'].invoke }.to output(/Wrote .*schema-directives\.graphql/).to_stdout
-      expect(File).to exist(File.join(@dir, 'out', described_class::PROGRAMMATIC_TYPES_FILE))
+      expect(File).to exist(File.join(sdl_dir, 'out', described_class::PROGRAMMATIC_TYPES_FILE))
     end
   end
 end

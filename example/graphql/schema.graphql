@@ -1,0 +1,71 @@
+# The API of a small blog, written the Lighthouse way: the schema says what each
+# field does through directives, and Ruby is only written where there is real
+# logic (app/graphql/queries, mutations, builders, validators; app/policies).
+# Every *.graphql file in this folder is part of the schema.
+# Directives reference: ../docs/directives.md
+
+type Query {
+  "The signed-in user — resolved by Queries::Me. Requires `Authorization: Bearer <token>`."
+  me: User! @guard
+
+  "Find a user by id."
+  user(id: ID! @eq): User @find
+
+  "Users, a page at a time, optionally filtered by name."
+  users(name: String @like, orderBy: [UserOrderByClause!] @orderBy): [User!]! @paginate(defaultCount: 10)
+
+  "Published posts, newest first, with dynamic filters. A public, CDN-cacheable list."
+  posts(
+    where: _ @whereConditions(columns: ["title", "author_id"])
+    orderBy: [PostOrderByClause!] @orderBy
+  ): [Post!]! @paginate(defaultCount: 10) @builder(class: "Published") @cacheControl(maxAge: 60)
+
+  "The same posts as a Relay-style connection."
+  feed: [Post!]! @paginate(type: CONNECTION, defaultCount: 5) @builder(class: "Published") @cacheControl(maxAge: 60)
+
+  "A single published post."
+  post(id: ID! @eq): Post @find(scopes: ["published"]) @cacheControl(maxAge: 30)
+
+  "How many posts are published."
+  publishedPostCount: Int! @count(model: "Post", scopes: ["published"])
+
+  "Every tag. Kept in Rails.cache for five minutes; createTag clears it."
+  tags: [Tag!]! @all @cache(maxAge: 300) @cacheControl(maxAge: 300)
+
+  "Full-text-ish search over published posts — resolved by Queries::SearchPosts."
+  searchPosts(term: String!): [Post!]!
+}
+
+type Mutation {
+  "Create an account. Validators::Mutation::SignUpValidator checks the arguments first."
+  signUp(name: String!, email: String!): User! @create @validator
+
+  "Write a post as the signed-in user, tagging it in the same request (a nested mutation)."
+  createPost(input: CreatePostInput! @spread): Post!
+    @guard
+    @canModel(ability: "create")
+    @create
+    @inject(context: "current_user.id", name: "author_id")
+
+  "Edit a post. Only its author or an admin may (PostPolicy#update?)."
+  updatePost(input: UpdatePostInput! @spread): Post!
+    @guard
+    @canFind(ability: "update", find: "input.id")
+    @update
+    @clearCache(type: "Post", idSource: { argument: "input.id" })
+
+  "Delete a post (PostPolicy#destroy?)."
+  deletePost(id: ID! @whereKey): Post @guard @canFind(ability: "destroy", find: "id") @delete
+
+  "Publish a post — resolved by Mutations::PublishPost."
+  publishPost(id: ID!): Post! @guard @canFind(ability: "publish", find: "id")
+
+  "Comment on a post as the signed-in user."
+  addComment(postId: ID! @rename(attribute: "post_id"), body: String!): Comment!
+    @guard
+    @create
+    @inject(context: "current_user.id", name: "author_id")
+
+  "Add a tag, and drop the cached tag list."
+  createTag(name: String!): Tag! @guard @create @clearCache(type: "Query", field: "tags")
+}

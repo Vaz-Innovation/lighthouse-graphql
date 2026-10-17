@@ -7,33 +7,26 @@ require 'generators/lighthouse/builder_generator'
 require 'generators/lighthouse/validator_generator'
 
 RSpec.describe 'lighthouse:query, :mutation, :builder and :validator generators' do
-  around do |example|
-    Dir.mktmpdir do |dir|
-      @root = dir
-      example.run
-    end
-  end
+  let(:root) { Dir.mktmpdir }
+
+  after { FileUtils.remove_entry(root) }
 
   def generate(generator, *args)
-    original, $stdout = $stdout, StringIO.new
-    generator.start(args, destination_root: @root)
+    original = $stdout
+    $stdout = StringIO.new
+    generator.start(args, destination_root: root)
     $stdout.string
   ensure
     $stdout = original
   end
 
-  # Load a generated file and return the class it defines; removes it afterwards.
+  # Evaluate a generated file inside an anonymous module, so the constants it
+  # defines never leak into Object, and return the class it defines.
   def load_generated(path, constant)
-    load File.join(@root, path)
-    @loaded = constant
-    Object.const_get(constant)
-  end
-
-  after do
-    next unless @loaded
-
-    *parents, name = @loaded.split('::')
-    parents.reduce(Object) { |mod, part| mod.const_get(part) }.send(:remove_const, name)
+    file = File.join(root, path)
+    sandbox = Module.new
+    sandbox.module_eval(File.read(file), file)
+    sandbox.const_get(constant)
   end
 
   it 'generates a GraphQL::Schema::Resolver in app/graphql/queries' do
@@ -72,7 +65,8 @@ RSpec.describe 'lighthouse:query, :mutation, :builder and :validator generators'
     generate(Lighthouse::Generators::QueryGenerator, 'Feed')
     generate(Lighthouse::Generators::BuilderGenerator, 'Scoped', '--namespace=Scopes')
 
-    expect(File.read(File.join(@root, 'app/graphql/api/queries/feed.rb')).sub("# frozen_string_literal: true\n\n", '')).to match(/\Amodule Api\n  module Queries\n.*    class Feed < GraphQL::Schema::Resolver/m)
-    expect(File).to exist(File.join(@root, 'app/graphql/scopes/scoped.rb'))
+    feed = File.read(File.join(root, 'app/graphql/api/queries/feed.rb')).sub("# frozen_string_literal: true\n\n", '')
+    expect(feed).to match(/\Amodule Api\n  module Queries\n.*    class Feed < GraphQL::Schema::Resolver/m)
+    expect(File).to exist(File.join(root, 'app/graphql/scopes/scoped.rb'))
   end
 end

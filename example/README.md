@@ -1,0 +1,82 @@
+# Example app
+
+A small blog API built with Lighthouse on Rails 8.1. It does two jobs:
+
+- **An example.** It shows what a real app looks like: an SDL-first schema, a
+  little Ruby where there is real logic, Pundit policies and opt-in performance
+  features.
+- **The end-to-end suite.** Its specs drive the real `POST /graphql` and
+  `GET /graphql` endpoints through the gem in `..`, so a change to the library
+  is tested the way an app uses it.
+
+## Running it
+
+```shell
+cd example
+bin/setup --skip-server      # bundle install + database
+bin/rails db:seed            # sample users, posts and tags; prints two API tokens
+bin/rails server
+```
+
+In development, **GraphiQL** is at <http://localhost:3000/graphiql>. It has the schema
+docs (including the types Lighthouse generates) and a query explorer. To sign in,
+paste a token from `db:seed` into its Headers tab:
+`{ "Authorization": "Bearer <token>" }`.
+
+Or with curl:
+
+```shell
+curl -s localhost:3000/graphql -H 'Content-Type: application/json' \
+  -d '{"query":"{ posts(first: 5) { data { title author { name } tags { name } } paginatorInfo { total } } }"}'
+
+curl -s localhost:3000/graphql -H 'Content-Type: application/json' -H 'Authorization: Bearer <token from db:seed>' \
+  -d '{"query":"mutation { createPost(input: { title: \"Hello\", tags: { connect: [1], create: [{ name: \"new\" }] } }) { id tags { name } } }"}'
+```
+
+Run the end-to-end suite with `bundle exec rspec`, or `bin/ci`, which also
+checks `persisted-queries.json` against the schema.
+
+## Where things are
+
+| What | Where |
+| --- | --- |
+| The schema, split by domain | [`graphql/`](graphql) |
+| Lighthouse's configuration | [`config/initializers/lighthouse.rb`](config/initializers/lighthouse.rb) |
+| The endpoint (`current_user` in the context, `Cache-Control`) | [`app/controllers/graphql_controller.rb`](app/controllers/graphql_controller.rb) |
+| GraphiQL, routed in development only | [`app/controllers/graphiql_controller.rb`](app/controllers/graphiql_controller.rb), [`app/views/graphiql/show.html.erb`](app/views/graphiql/show.html.erb) |
+| Queries resolved by convention (`Query.searchPosts` → `Queries::SearchPosts`) | [`app/graphql/queries/`](app/graphql/queries) |
+| Mutations resolved by convention (`Mutation.publishPost` → `Mutations::PublishPost`) | [`app/graphql/mutations/`](app/graphql/mutations) |
+| `@builder` classes | [`app/graphql/builders/`](app/graphql/builders) |
+| `@validator` contracts (Dry::Validation) | [`app/graphql/validators/`](app/graphql/validators) |
+| Policies behind `@canFind`, `@canModel`, `@canRoot` | [`app/policies/`](app/policies) |
+| Trusted operations, served by hash | [`persisted-queries.json`](persisted-queries.json) |
+
+The classes under `app/graphql` were generated with `bin/rails g lighthouse:query`,
+`:mutation`, `:builder` and `:validator`, and the setup with
+`bin/rails g lighthouse:install`.
+
+## What the specs cover
+
+| Spec | Lighthouse features |
+| --- | --- |
+| [`requests/graphql/queries_spec.rb`](spec/requests/graphql/queries_spec.rb) | `@find`, `@paginate` (paginator and Relay connection), `@like`, `@orderBy`, `@whereConditions`, `@builder`, `scopes:`, `@count`, a `Queries::` class |
+| [`requests/graphql/cursor_connection_spec.rb`](spec/requests/graphql/cursor_connection_spec.rb) | Relay cursor pagination on a relationship (`User.comments`, `@hasMany(type: CONNECTION)`): `pageInfo`, `after`, and a client loop that walks every page |
+| [`requests/graphql/relationships_spec.rb`](spec/requests/graphql/relationships_spec.rb) | `@belongsTo`, `@hasMany` (paginated too), `@belongsToMany`, `@count(relation:)`, and no N+1: the number of SQL queries does not grow with the number of records |
+| [`requests/graphql/authorization_spec.rb`](spec/requests/graphql/authorization_spec.rb) | `@guard`, `@canRoot`, `@canFind` with Pundit |
+| [`requests/graphql/mutations_spec.rb`](spec/requests/graphql/mutations_spec.rb) | `@create`, `@update`, `@delete`, `@validator`, model validation errors, nested mutations (`connect`, `create`, `sync`) with rollback, `@inject`, `@rename`, a `Mutations::` class |
+| [`requests/graphql/caching_spec.rb`](spec/requests/graphql/caching_spec.rb) | `@cacheControl` headers, `@cache` and `@clearCache` |
+| [`requests/graphql/persisted_queries_spec.rb`](spec/requests/graphql/persisted_queries_spec.rb) | Automatic persisted queries over POST and GET (with `Cache-Control` and `ETag`), the trusted-operations manifest |
+| [`tasks/lighthouse_tasks_spec.rb`](spec/tasks/lighthouse_tasks_spec.rb) | `lighthouse:cache`, `lighthouse:clear_cache`, `lighthouse:ide_helper`, `lighthouse:persisted_queries:verify` |
+| [`graphql/app_schema_spec.rb`](spec/graphql/app_schema_spec.rb) | The types and arguments Lighthouse generates |
+
+## Opt-in features this app turns on
+
+Lighthouse leaves them off by default. Here, each one is turned on where it is
+meant to be used (see the initializer):
+
+- `config.watch_sdl` in development: edit a `.graphql` file, and the next request
+  sees it, with no restart.
+- `config.schema_cache` in production: run `bin/rails lighthouse:cache` at deploy
+  time to warm it.
+- `config.persisted_queries`, with a `GET /graphql` route, so CDNs can cache
+  responses, plus `config.persisted_queries_manifest`.

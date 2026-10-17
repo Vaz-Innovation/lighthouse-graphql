@@ -51,3 +51,47 @@ jobs:
             exit 1
           fi
           echo "package contains every tracked source file"
+
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.4'
+          bundler-cache: true
+
+      # One configuration for the gem and the example app (example/.rubocop.yml inherits it).
+      - name: RuboCop
+        run: bundle exec rubocop
+
+  example:
+    runs-on: ubuntu-latest
+
+    # The example Rails app is the end-to-end suite: its specs drive the real
+    # /graphql endpoint through the gem in this checkout (`path: '..'`).
+    defaults:
+      run:
+        working-directory: example
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.4'
+          bundler-cache: true
+          working-directory: example
+
+      - name: Prepare the database
+        run: bin/rails db:prepare
+        env:
+          RAILS_ENV: test
+
+      - name: End-to-end tests
+        run: bundle exec rspec
+
+      - name: Persisted queries match the schema
+        run: bin/rails lighthouse:persisted_queries:verify

@@ -50,16 +50,12 @@ module Mutations
   end
 end
 
-module Builders
-  class Published
-    def self.call(relation, _args, _ctx) = relation.where(published: true)
-  end
+class Builders::Published
+  def self.call(relation, _args, _ctx) = relation.where(published: true)
 end
 
-module Custom
-  class Greeting < GraphQL::Schema::Resolver
-    def resolve(**) = 'custom namespace'
-  end
+class Custom::Greeting < GraphQL::Schema::Resolver
+  def resolve(**) = 'custom namespace'
 end
 
 RSpec.describe 'Query and Mutation resolver classes' do
@@ -106,7 +102,7 @@ RSpec.describe 'Query and Mutation resolver classes' do
     end
 
     it 'still resolve by convention under wrapping directives, which run first' do
-      expect(run('{ guardedGreeting(name: "Ada") }')['errors'].map { |e| e['message'] }).to eq(['Unauthenticated.'])
+      expect(run('{ guardedGreeting(name: "Ada") }')['errors'].pluck('message')).to eq(['Unauthenticated.'])
       expect(run('{ guardedGreeting(name: "Ada") }', current_user: :someone))
         .to eq('data' => { 'guardedGreeting' => 'Hi Ada' })
     end
@@ -114,7 +110,7 @@ RSpec.describe 'Query and Mutation resolver classes' do
     it "run the resolver's authorized? hook" do
       result = run('{ greeting(name: "stranger") }')
 
-      expect(result['errors'].map { |e| e['message'] }).to eq(['Strangers are not greeted.'])
+      expect(result['errors'].pluck('message')).to eq(['Strangers are not greeted.'])
     end
 
     it 'resolve @field(resolver:) in the queries namespace' do

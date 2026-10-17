@@ -1,0 +1,22 @@
+source 'https://rubygems.org'
+
+gem 'puma', '>= 5.0'
+gem 'rails', '~> 8.1.4'
+gem 'sqlite3', '>= 2.1'
+
+# The library this app demonstrates, straight from this repository.
+gem 'lighthouse-graphql', path: '..'
+
+# Optional integrations Lighthouse uses when an app has them: Pundit backs the
+# @can* directives, Dry::Validation the @validator contracts.
+gem 'dry-validation', '~> 1.10'
+gem 'pundit', '~> 2.4'
+
+# Windows does not include zoneinfo files, so bundle the tzinfo-data gem
+gem 'tzinfo-data', platforms: %i[windows jruby]
+
+group :development, :test do
+  gem 'debug', platforms: %i[mri windows], require: 'debug/prelude'
+  gem 'factory_bot_rails', '~> 6.4'
+  gem 'rspec-rails', '~> 8.0'
+end

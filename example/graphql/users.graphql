@@ -1,0 +1,32 @@
+"Someone who writes posts and comments."
+type User @cacheControl(maxAge: 300) {
+  id: ID!
+  name: String!
+  "Visible to the user themselves and to admins only (UserPolicy#view_email?)."
+  email: String @canRoot(ability: "view_email")
+  role: String!
+  "Their posts, published or not — a plain list, loaded in one query per page of users."
+  posts: [Post!]! @hasMany
+  postsCount: Int! @count(relation: "posts")
+  """
+  Their comments, oldest first, as a Relay cursor connection:
+  comments(first: 10, after: $cursor) { edges { cursor node { body } } pageInfo { hasNextPage endCursor } }.
+  Pass the last page's endCursor as `after` to get the next one.
+  """
+  comments: [Comment!]! @hasMany(type: CONNECTION, defaultCount: 10, scopes: ["chronological"])
+}
+
+enum UserOrderColumn {
+  NAME
+  CREATED_AT
+}
+
+input UserOrderByClause {
+  column: UserOrderColumn!
+  order: SortOrder! = ASC
+}
+
+enum SortOrder {
+  ASC
+  DESC
+}

@@ -20,17 +20,19 @@ module Lighthouse
       validators: ['Validators']
     }.freeze
 
+    # Every setting reset! forgets, so the next read falls back to its default.
+    SETTINGS = %i[
+      sdl_folder resolver_namespaces namespaces cache_store transactional_mutations pagination_default_count pagination_max_count
+      schema_cache schema_cache_path watch_sdl persisted_queries persisted_queries_store persisted_queries_ttl
+      persisted_queries_manifest persisted_queries_only on_error directive_map authenticated_user policy_user authorizer
+    ].freeze
+
     class << self
-      attr_writer :sdl_folder, :resolver_namespaces, :on_error,
-                  :authenticated_user, :policy_user, :authorizer,
-                  :cache_store, :transactional_mutations,
-                  :pagination_default_count, :pagination_max_count,
-                  :schema_cache, :schema_cache_path, :watch_sdl,
-                  :persisted_queries, :persisted_queries_store, :persisted_queries_ttl,
-                  :persisted_queries_manifest, :persisted_queries_only
+      attr_writer :sdl_folder, :resolver_namespaces, :on_error, :authenticated_user, :policy_user, :authorizer, :cache_store,
+                  :transactional_mutations, :schema_cache, :watch_sdl, :persisted_queries, :persisted_queries_store, :persisted_queries_only
 
       def sdl_folder
-        @sdl_folder ||= (defined?(Rails) && Rails.respond_to?(:root) ? File.join(Rails.root, 'graphql') : nil)
+        @sdl_folder ||= (defined?(Rails) && Rails.respond_to?(:root) ? Rails.root.join('graphql').to_s : nil)
       end
 
       def directive_map
@@ -75,7 +77,7 @@ module Lighthouse
       # persisted_queries_ttl       how long they live there (seconds; nil: until evicted)
       # persisted_queries_manifest  a manifest of trusted operations, served by hash
       # persisted_queries_only      reject any operation not in the manifest
-      attr_reader :schema_cache_path, :persisted_queries_ttl, :persisted_queries_manifest
+      attr_accessor :schema_cache_path, :persisted_queries_ttl, :persisted_queries_manifest
 
       def schema_cache = @schema_cache || false
       def watch_sdl = @watch_sdl || false
@@ -88,12 +90,12 @@ module Lighthouse
 
       # Pagination defaults, overridden by a directive's defaultCount / maxCount.
       # Without a default count, paginated fields require `first`.
-      attr_reader :pagination_default_count, :pagination_max_count
+      attr_accessor :pagination_default_count, :pagination_max_count
 
       # Run @create/@update/... in a database transaction, so a failing record
       # (e.g. the third of five in @createMany) leaves nothing behind.
       def transactional_mutations
-        @transactional_mutations.nil? ? true : @transactional_mutations
+        @transactional_mutations.nil? || @transactional_mutations
       end
 
       # Hook invoked when a directive/resolver swallows an error. Defaults to
@@ -137,40 +139,19 @@ module Lighthouse
         yield(self) if block_given?
       end
 
-      def [](k)
-        public_send(k)
+      def [](key)
+        public_send(key)
       end
 
       def reset!
-        @sdl_folder = nil
-        @resolver_namespaces = nil
-        @namespaces = nil
-        @cache_store = nil
-        @transactional_mutations = nil
-        @pagination_default_count = nil
-        @pagination_max_count = nil
-        @schema_cache = nil
-        @schema_cache_path = nil
-        @watch_sdl = nil
-        @persisted_queries = nil
-        @persisted_queries_store = nil
-        @persisted_queries_ttl = nil
-        @persisted_queries_manifest = nil
-        @persisted_queries_only = nil
-        @on_error = nil
-        @directive_map = nil
-        @authenticated_user = nil
-        @policy_user = nil
-        @authorizer = nil
+        SETTINGS.each { |setting| instance_variable_set("@#{setting}", nil) }
       end
 
       private
 
       def default_authorizer
         lambda do |user, record, ability, args = []|
-          unless defined?(::Pundit)
-            raise 'Lighthouse: configure `Config.authorizer` to use the @can* directives (Pundit not detected).'
-          end
+          raise 'Lighthouse: configure `Config.authorizer` to use the @can* directives (Pundit not detected).' unless defined?(::Pundit)
 
           check = ::Pundit.policy!(user, record).method("#{ability}?")
           check.arity.zero? ? check.call : check.call(*args)

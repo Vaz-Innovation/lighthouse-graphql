@@ -2,24 +2,22 @@
 
 module Validators
   # Default name for a field validator: Validators::<ParentType>::<Field>Validator.
-  module Mutation
-    class SignUpValidator < Dry::Validation::Contract
-      option :graphql_context, optional: true
+  class Mutation::SignUpValidator < Dry::Validation::Contract
+    option :graphql_context, optional: true
 
-      params do
-        required(:email).filled(:string)
-        required(:password).filled(:string)
-        optional(:password_confirmation).maybe(:string)
-      end
+    params do
+      required(:email).filled(:string)
+      required(:password).filled(:string)
+      optional(:password_confirmation).maybe(:string)
+    end
 
-      rule(:password_confirmation) do
-        key.failure('must match password') if value && value != values[:password]
-      end
+    rule(:password_confirmation) do
+      key.failure('must match password') if value && value != values[:password]
+    end
 
-      rule(:email) do
-        reserved = graphql_context && graphql_context[:reserved_emails]
-        key.failure('is reserved') if reserved&.include?(value)
-      end
+    rule(:email) do
+      reserved = graphql_context && graphql_context[:reserved_emails]
+      key.failure('is reserved') if reserved&.include?(value)
     end
   end
 

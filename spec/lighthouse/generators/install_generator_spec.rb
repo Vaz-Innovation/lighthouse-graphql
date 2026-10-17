@@ -4,31 +4,32 @@ require 'tmpdir'
 require 'generators/lighthouse/install/install_generator'
 
 RSpec.describe Lighthouse::Generators::InstallGenerator do
-  around do |example|
-    Dir.mktmpdir do |dir|
-      @root = dir
-      FileUtils.mkdir_p(File.join(dir, 'config'))
-      File.write(File.join(dir, 'config/routes.rb'), "Rails.application.routes.draw do\nend\n")
-      File.write(File.join(dir, '.gitignore'), "/log/*\n")
-      example.run
-    end
+  let(:root) { Dir.mktmpdir }
+
+  before do
+    FileUtils.mkdir_p(File.join(root, 'config'))
+    File.write(File.join(root, 'config/routes.rb'), "Rails.application.routes.draw do\nend\n")
+    File.write(File.join(root, '.gitignore'), "/log/*\n")
   end
+
+  after { FileUtils.remove_entry(root) }
 
   def run_generator(*args)
     capture = StringIO.new
-    original, $stdout = $stdout, capture
-    described_class.start(args, destination_root: @root)
+    original = $stdout
+    $stdout = capture
+    described_class.start(args, destination_root: root)
     capture.string
   ensure
     $stdout = original
   end
 
   def read(path)
-    File.read(File.join(@root, path))
+    File.read(File.join(root, path))
   end
 
   def exist?(path)
-    File.exist?(File.join(@root, path))
+    File.exist?(File.join(root, path))
   end
 
   it 'creates the initializer, starter schema, schema class, controller and IDE config' do
@@ -74,8 +75,8 @@ RSpec.describe Lighthouse::Generators::InstallGenerator do
   end
 
   it 'keeps an existing schema instead of adding the starter one' do
-    FileUtils.mkdir_p(File.join(@root, 'graphql'))
-    File.write(File.join(@root, 'graphql/mine.graphql'), "type Query { a: String }\n")
+    FileUtils.mkdir_p(File.join(root, 'graphql'))
+    File.write(File.join(root, 'graphql/mine.graphql'), "type Query { a: String }\n")
 
     run_generator
 
@@ -93,15 +94,15 @@ RSpec.describe Lighthouse::Generators::InstallGenerator do
     expect(exist?('graphql.config.yml')).to be(false)
   end
 
-  context "in an app set up by graphql-ruby's graphql:install" do
+  context "when the app was set up by graphql-ruby's graphql:install" do
     let(:graphql_ruby_controller) do
       "class GraphqlController < ApplicationController\n  def execute\n    DemoSchema.execute(params[:query])\n  end\nend\n"
     end
 
     before do
-      FileUtils.mkdir_p(File.join(@root, 'app/controllers'))
-      File.write(File.join(@root, 'app/controllers/graphql_controller.rb'), graphql_ruby_controller)
-      File.write(File.join(@root, 'config/routes.rb'),
+      FileUtils.mkdir_p(File.join(root, 'app/controllers'))
+      File.write(File.join(root, 'app/controllers/graphql_controller.rb'), graphql_ruby_controller)
+      File.write(File.join(root, 'config/routes.rb'),
                  "Rails.application.routes.draw do\n  post \"/graphql\", to: \"graphql#execute\"\nend\n")
     end
 
@@ -114,8 +115,8 @@ RSpec.describe Lighthouse::Generators::InstallGenerator do
     end
 
     it 'keeps an existing schema class of the same name' do
-      FileUtils.mkdir_p(File.join(@root, 'app/graphql'))
-      File.write(File.join(@root, 'app/graphql/app_schema.rb'), "class AppSchema < GraphQL::Schema\nend\n")
+      FileUtils.mkdir_p(File.join(root, 'app/graphql'))
+      File.write(File.join(root, 'app/graphql/app_schema.rb'), "class AppSchema < GraphQL::Schema\nend\n")
 
       run_generator
 
@@ -137,7 +138,7 @@ RSpec.describe Lighthouse::Generators::InstallGenerator do
           t.string :email
         end
       end
-      stub_const('User', Class.new(ActiveRecord::Base) { self.table_name = 'users' })
+      stub_const('User', Class.new(ApplicationRecord) { self.table_name = 'users' })
       User.create!(name: 'Ada Lovelace', email: 'ada@example.com')
       User.create!(name: 'Alan Turing', email: 'alan@example.com')
     end
@@ -147,7 +148,7 @@ RSpec.describe Lighthouse::Generators::InstallGenerator do
     it 'builds and answers the queries it advertises' do
       run_generator
       schema = Lighthouse::GraphQL::RbLightHouse.get_schema(
-        sdl_folder: File.join(@root, 'graphql'),
+        sdl_folder: File.join(root, 'graphql'),
         options: { using: { GraphQL::Dataloader => {} } }
       )
 

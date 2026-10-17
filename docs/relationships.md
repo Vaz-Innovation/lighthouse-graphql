@@ -86,6 +86,29 @@ type User {
 
 `defaultCount` and `maxCount` work as on `@paginate`.
 
+### Paginating many parents at once
+
+With the Dataloader, a paginated relation loads the pages of **every parent** of
+a level together, as PHP Lighthouse does: `{ users { posts(first: 5) { … } } }`
+costs one query for the pages, plus one for the totals if the client selects
+`paginatorInfo` or `pageInfo` — however many users there are. The same goes for
+`@paginate` on a nested field.
+
+- **Pages.** A window function numbers each parent's rows in the field's order
+  (`@orderBy`, else the primary key), and one query keeps the rows of the
+  requested page: `ROW_NUMBER() OVER (PARTITION BY posts.user_id ORDER BY …)`.
+  PHP Lighthouse uses a `UNION ALL` of one query per parent instead; a window
+  function keeps the SQL the same size for 3 parents or 3,000.
+- **Totals.** One `GROUP BY` counts every parent's related records, with the same
+  scopes and filters as the page. The count only runs when a total is asked for,
+  and never for `SIMPLE`, which fetches one extra row instead.
+
+This needs window functions: PostgreSQL, MySQL 8+, MariaDB 10.2+ or SQLite 3.25+.
+A relation falls back to one query per parent on other databases, without the
+Dataloader, and when its rows can't be numbered per parent: a composite key, an
+association scope that reads the owner (`has_many :x, ->(owner) { … }`), or
+`DISTINCT`. The pages are the same either way.
+
 ## Renaming relations
 
 By default the relation name is the field name, snake_cased. When they differ,

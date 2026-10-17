@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>GraphiQL · Lighthouse example</title>
+    <style>
+      body { margin: 0; height: 100vh; overflow: hidden; }
+      #graphiql { height: 100vh; }
+    </style>
+    <link rel="stylesheet" href="https://unpkg.com/graphiql@3.8.3/graphiql.min.css">
+    <link rel="stylesheet" href="https://unpkg.com/@graphiql/plugin-explorer@3.2.6/dist/style.css">
+    <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/graphiql@3.8.3/graphiql.min.js"></script>
+    <script crossorigin src="https://unpkg.com/@graphiql/plugin-explorer@3.2.6/dist/index.umd.js"></script>
+  </head>
+  <body>
+    <div id="graphiql">Loading GraphiQL…</div>
+    <script>
+      const root = ReactDOM.createRoot(document.getElementById('graphiql'));
+      root.render(
+        React.createElement(GraphiQL, {
+          fetcher: GraphiQL.createFetcher({ url: <%= raw json_escape(endpoint.to_json) %> }),
+          defaultQuery: <%= raw json_escape(default_query.to_json) %>,
+          plugins: [GraphiQLPluginExplorer.explorerPlugin()],
+          // Keep the Authorization header pasted in the Headers tab across reloads.
+          shouldPersistHeaders: true,
+          defaultEditorToolsVisibility: true,
+        })
+      );
+    </script>
+  </body>
+</html>

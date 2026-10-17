@@ -3,68 +3,40 @@
 require_relative 'base'
 require_relative 'builder_applier'
 
-module Lighthouse
-  module GraphQL
-    module DirectiveResolvers
-      class AllDirectiveResolver < BaseDirectiveResolver
-        def self.directive_name = 'all'
-        def self.definition = 'directive @all(model: String) on FIELD_DEFINITION'
+class Lighthouse::GraphQL::DirectiveResolvers::AllDirectiveResolver < Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
+  def self.directive_name = 'all'
+  def self.definition = 'directive @all(model: String, scopes: [String!]) on FIELD_DEFINITION'
 
-        def define_resolver(target_type_class)
-          field_name = @field_def.name
+  def define_resolver(target_type_class)
+    model_class = constantize_model(extract_model_name || @field_def.type.unwrap.graphql_name)
+    me = self
 
-          resolver_instance = self
-          field_ast_node = @field_def.ast_node
+    install(target_type_class, lambda do |_obj, arguments, ctx|
+      me.send(:resolve_all, model_class, arguments, ctx)
+    end)
+  end
 
-          method_name = "resolve_field_#{field_name}"
+  private
 
-          model_name_static = extract_model_name || @field_def.type.unwrap.graphql_name
-          model_class_static = constantize_model(model_name_static)
+  def resolve_all(model_class, arguments, ctx)
+    return [] unless model_class
 
-          target_type_class.define_singleton_method(method_name) do |_obj, arguments, ctx|
-            model_class = model_class_static
-            return [] unless model_class
+    # apply simple pagination args if present
+    args = arguments.respond_to?(:to_h) ? arguments.to_h : {}
+    relation = apply_scopes(model_class.all)
 
-            # apply simple pagination args if present
-            args = arguments.respond_to?(:to_h) ? arguments.to_h : {}
-            relation = model_class.all
+    relation = Lighthouse::GraphQL::DirectiveResolvers::BuilderApplier.apply(relation, @field_def.ast_node, args, ctx, self)
 
-            relation = DirectiveResolvers::BuilderApplier.apply(relation, field_ast_node, args, ctx, resolver_instance)
+    relation = apply_where_filters(relation, args)
+    relation = relation.limit(args[:first]) if args[:first]
+    relation = relation.offset(args[:offset]) if args[:offset]
+    relation
+  end
 
-            relation = resolver_instance.apply_where_filters(relation, args)
-            relation = relation.limit(args[:first]) if args[:first]
-            relation = relation.offset(args[:offset]) if args[:offset]
-            relation
-          end
+  def extract_model_name
+    arg = @directive_node.arguments&.find { |a| a.name == 'model' }
+    return nil unless arg
 
-          if @field_def.respond_to?(:resolve_proc=)
-            @field_def.resolve_proc = ->(_obj, arguments, ctx) do
-              model_class = model_class_static
-              if model_class.nil?
-                []
-              else
-                args = arguments.respond_to?(:to_h) ? arguments.to_h : {}
-                relation = model_class.all
-
-                relation = DirectiveResolvers::BuilderApplier.apply(relation, field_ast_node, args, ctx, resolver_instance)
-
-                relation = resolver_instance.apply_where_filters(relation, args)
-                relation = relation.limit(args[:first]) if args[:first]
-                relation = relation.offset(args[:offset]) if args[:offset]
-                relation
-              end
-            end
-          end
-        end
-
-        private
-
-        def extract_model_name
-          arg = @directive_node.arguments&.find { |a| a.name == 'model' }
-          return nil unless arg
-          arg.value.respond_to?(:value) ? arg.value.value : arg.value
-        end
-      end
-    end
+    arg.value.respond_to?(:value) ? arg.value.value : arg.value
   end
 end

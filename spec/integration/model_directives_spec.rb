@@ -108,8 +108,12 @@ RSpec.describe 'Model mutation directives' do
     it 'updates the existing belongsTo through @upsert' do
       task = LH::Task.create!(name: 'Original name')
 
-      result = graphql('mutation ($id: ID!, $name: String!) { createPost(input: { title: "My post", task: { id: $id, name: $name } }) { task { id name } } }',
-                       { 'id' => task.id, 'name' => 'Updated via directive' })
+      query = <<~GRAPHQL
+        mutation ($id: ID!, $name: String!) {
+          createPost(input: { title: "My post", task: { id: $id, name: $name } }) { task { id name } }
+        }
+      GRAPHQL
+      result = graphql(query, { 'id' => task.id, 'name' => 'Updated via directive' })
 
       expect_data(result, 'createPost' => { 'task' => { 'id' => task.id.to_s, 'name' => 'Updated via directive' } })
       expect(task.reload.name).to eq('Updated via directive')
@@ -197,7 +201,8 @@ RSpec.describe 'Model mutation directives' do
       LH::User.create!(name: 'user')
       LH::Task.create!(id: 3, name: 'task')
 
-      expect_data(graphql('mutation { updateUserTask(input: { id: 1, name: "foo", updateTask: { id: 3, name: "Uniq" } }) { name tasks { id name } } }'),
+      query = 'mutation { updateUserTask(input: { id: 1, name: "foo", updateTask: { id: 3, name: "Uniq" } }) { name tasks { id name } } }'
+      expect_data(graphql(query),
                   'updateUserTask' => { 'name' => 'foo', 'tasks' => [{ 'id' => 3, 'name' => 'Uniq' }] })
     end
 
@@ -206,7 +211,12 @@ RSpec.describe 'Model mutation directives' do
       LH::Task.create!(id: 3, name: 'a')
       LH::Task.create!(id: 4, name: 'b')
 
-      expect_data(graphql('mutation { updateUserTasks(input: { id: 1, name: "foo", updateTask: [{ id: 3, name: "Uniq" }, { id: 4, name: "Foo" }] }) { tasks { id name } } }'),
+      query = <<~GRAPHQL
+        mutation {
+          updateUserTasks(input: { id: 1, name: "foo", updateTask: [{ id: 3, name: "Uniq" }, { id: 4, name: "Foo" }] }) { tasks { id name } }
+        }
+      GRAPHQL
+      expect_data(graphql(query),
                   'updateUserTasks' => { 'tasks' => [{ 'id' => 3, 'name' => 'Uniq' }, { 'id' => 4, 'name' => 'Foo' }] })
     end
   end
@@ -294,7 +304,12 @@ RSpec.describe 'Model mutation directives' do
       user = LH::User.create!(id: 1, name: 'user')
       LH::Task.create!(id: 1, name: 'old', user: user)
 
-      expect_data(graphql('mutation { updateUser(input: { id: 1, name: "foo", tasks: [{ id: 1, name: "updated" }, { id: 2, name: "new" }] }) { name tasks { id name } } }'),
+      query = <<~GRAPHQL
+        mutation {
+          updateUser(input: { id: 1, name: "foo", tasks: [{ id: 1, name: "updated" }, { id: 2, name: "new" }] }) { name tasks { id name } }
+        }
+      GRAPHQL
+      expect_data(graphql(query),
                   'updateUser' => { 'name' => 'foo', 'tasks' => [{ 'id' => 1, 'name' => 'updated' }, { 'id' => 2, 'name' => 'new' }] })
     end
 
@@ -327,7 +342,7 @@ RSpec.describe 'Model mutation directives' do
     end
 
     it 'refuses empty identifying columns when the schema is built' do
-      expect { build_schema("type User { id: ID! }\ntype Mutation { upsertUser(name: String!): User @upsert(identifyingColumns: []) }" + LH::PLACEHOLDER_QUERY) }
+      expect { build_schema("type User { id: ID! }\ntype Mutation { upsertUser(name: String!): User @upsert(identifyingColumns: []) }#{LH::PLACEHOLDER_QUERY}") }
         .to raise_error(Lighthouse::DefinitionError, /identifyingColumns must not be empty/)
     end
 
@@ -342,7 +357,12 @@ RSpec.describe 'Model mutation directives' do
       user = LH::User.create!(name: 'user')
       task = LH::Task.create!(name: 'existing-task', difficulty: 1, user: user)
 
-      expect_data(graphql("mutation { updateUserByTaskName(input: { id: #{user.id}, tasks: [{ name: \"existing-task\", difficulty: 2 }] }) { tasks { name difficulty } } }"),
+      query = <<~GRAPHQL
+        mutation {
+          updateUserByTaskName(input: { id: #{user.id}, tasks: [{ name: "existing-task", difficulty: 2 }] }) { tasks { name difficulty } }
+        }
+      GRAPHQL
+      expect_data(graphql(query),
                   'updateUserByTaskName' => { 'tasks' => [{ 'name' => 'existing-task', 'difficulty' => 2 }] })
       expect(task.reload.difficulty).to eq(2)
       expect(LH::Task.count).to eq(1)
@@ -353,7 +373,14 @@ RSpec.describe 'Model mutation directives' do
       first = LH::Task.create!(name: 'first-existing-task', difficulty: 1, user: user)
       second = LH::Task.create!(name: 'second-existing-task', difficulty: 1, user: user)
 
-      graphql("mutation { updateUserManyByTaskName(input: { id: #{user.id}, tasks: [{ name: \"first-existing-task\", difficulty: 2 }, { name: \"second-existing-task\", difficulty: 3 }] }) { id } }")
+      graphql(<<~GRAPHQL)
+        mutation {
+          updateUserManyByTaskName(input: {
+            id: #{user.id}
+            tasks: [{ name: "first-existing-task", difficulty: 2 }, { name: "second-existing-task", difficulty: 3 }]
+          }) { id }
+        }
+      GRAPHQL
 
       expect([first.reload.difficulty, second.reload.difficulty]).to eq([2, 3])
       expect(LH::Task.count).to eq(2)
@@ -377,7 +404,8 @@ RSpec.describe 'Model mutation directives' do
       graphql('mutation { upsertUsers(inputs: [{ email: "foo@te.st", name: "bar" }, { email: "baz@te.st", name: "qux" }]) { email } }')
       expect(LH::User.count).to eq(2)
 
-      expect_data(graphql('mutation { upsertUsers(inputs: [{ email: "foo@te.st", name: "updated" }, { email: "baz@te.st", name: "qux" }]) { email name } }'),
+      query = 'mutation { upsertUsers(inputs: [{ email: "foo@te.st", name: "updated" }, { email: "baz@te.st", name: "qux" }]) { email name } }'
+      expect_data(graphql(query),
                   'upsertUsers' => [{ 'email' => 'foo@te.st', 'name' => 'updated' }, { 'email' => 'baz@te.st', 'name' => 'qux' }])
       expect(LH::User.count).to eq(2)
     end
@@ -450,8 +478,9 @@ RSpec.describe 'Model mutation directives' do
     end
 
     it 'refuses to run without a filter argument' do
-      expect(error_messages(graphql('mutation { deleteUserByEither { id } }'))).to eq(['Would modify all models, use an argument to filter.'])
-      expect(error_messages(graphql('mutation { deleteUserUnfiltered(id: 1) { id } }'))).to eq(['Would modify all models, use an argument to filter.'])
+      refusal = ['Would modify all models, use an argument to filter.']
+      expect(error_messages(graphql('mutation { deleteUserByEither { id } }'))).to eq(refusal)
+      expect(error_messages(graphql('mutation { deleteUserUnfiltered(id: 1) { id } }'))).to eq(refusal)
     end
 
     it 'filters with the arguments that have a filter directive, ignoring the others' do
@@ -474,7 +503,8 @@ RSpec.describe 'Model mutation directives' do
       task = LH::Task.create!(name: 'task')
       post = LH::Post.create!(title: 'p', task: task)
 
-      expect_data(graphql("mutation { updateTask(id: #{task.id}, deletePost: false) { post { id } } }"), 'updateTask' => { 'post' => { 'id' => post.id.to_s } })
+      expect_data(graphql("mutation { updateTask(id: #{task.id}, deletePost: false) { post { id } } }"),
+                  'updateTask' => { 'post' => { 'id' => post.id.to_s } })
       expect_data(graphql("mutation { updateTask(id: #{task.id}, deletePost: true) { post { id } } }"), 'updateTask' => { 'post' => nil })
       expect(LH::Post.count).to eq(0)
     end

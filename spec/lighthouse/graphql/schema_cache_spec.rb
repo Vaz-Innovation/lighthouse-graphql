@@ -16,16 +16,14 @@ RSpec.describe Lighthouse::GraphQL::SchemaCache do
     GRAPHQL
   end
 
-  around do |example|
-    Dir.mktmpdir do |dir|
-      @dir = dir
-      Lighthouse.configure { |c| c.schema_cache_path = dir }
-      example.run
-    end
-  end
+  let(:cache_dir) { Dir.mktmpdir }
+
+  before { Lighthouse.configure { |c| c.schema_cache_path = cache_dir } }
+
+  after { FileUtils.remove_entry(cache_dir) }
 
   def cache_files
-    Dir[File.join(@dir, 'schema-*.bin')]
+    Dir[File.join(cache_dir, 'schema-*.bin')]
   end
 
   def enable!

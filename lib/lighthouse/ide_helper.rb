@@ -2,92 +2,97 @@
 
 require 'fileutils'
 
-module Lighthouse
-  # Writes the SDL an IDE needs to understand a Lighthouse schema, mirroring PHP
-  # Lighthouse's `lighthouse:ide-helper`:
-  #
-  # - schema-directives.graphql — a definition for every registered directive
-  #   (built-in and app-registered) the app's SDL does not declare itself, so
-  #   the IDE can validate and autocomplete them.
-  # - programmatic-types.graphql — the types the manipulation phase generates
-  #   (Connection/Edge/Paginator types, PaginatorInfo, whereConditions inputs,
-  #   ...), which exist in the executable schema but in no .graphql file.
-  #
-  # Point your IDE's graphql-config at both files next to your own SDL. Run it
-  # with `bin/rails lighthouse:ide_helper`.
-  module IdeHelper
-    DIRECTIVES_FILE = 'schema-directives.graphql'
-    PROGRAMMATIC_TYPES_FILE = 'programmatic-types.graphql'
+# Writes the SDL an IDE needs to understand a Lighthouse schema, mirroring PHP
+# Lighthouse's `lighthouse:ide-helper`:
+#
+# - schema-directives.graphql — a definition for every registered directive
+#   (built-in and app-registered) the app's SDL does not declare itself, so
+#   the IDE can validate and autocomplete them.
+# - programmatic-types.graphql — the types the manipulation phase generates
+#   (Connection/Edge/Paginator types, PaginatorInfo, whereConditions inputs,
+#   ...), which exist in the executable schema but in no .graphql file.
+#
+# Point your IDE's graphql-config at both files next to your own SDL. Run it
+# with `bin/rails lighthouse:ide_helper`.
+module Lighthouse::IdeHelper
+  DIRECTIVES_FILE = 'schema-directives.graphql'
+  PROGRAMMATIC_TYPES_FILE = 'programmatic-types.graphql'
 
-    TYPE_DEFINITIONS = [
-      ::GraphQL::Language::Nodes::ObjectTypeDefinition,
-      ::GraphQL::Language::Nodes::InputObjectTypeDefinition,
-      ::GraphQL::Language::Nodes::InterfaceTypeDefinition,
-      ::GraphQL::Language::Nodes::UnionTypeDefinition,
-      ::GraphQL::Language::Nodes::EnumTypeDefinition,
-      ::GraphQL::Language::Nodes::ScalarTypeDefinition
-    ].freeze
+  TYPE_DEFINITIONS = [
+    ::GraphQL::Language::Nodes::ObjectTypeDefinition,
+    ::GraphQL::Language::Nodes::InputObjectTypeDefinition,
+    ::GraphQL::Language::Nodes::InterfaceTypeDefinition,
+    ::GraphQL::Language::Nodes::UnionTypeDefinition,
+    ::GraphQL::Language::Nodes::EnumTypeDefinition,
+    ::GraphQL::Language::Nodes::ScalarTypeDefinition
+  ].freeze
 
-    module_function
+  PLACEHOLDER_SCALAR = %("Placeholder for an argument type Lighthouse generates, e.g. with @whereConditions."\nscalar _)
 
-    # Writes both files into `output_dir` and returns their paths.
-    def write(output_dir:, sdl_folder: Lighthouse::Config.sdl_folder, registry: Lighthouse::DirectiveRegistry.default)
-      sdl = sdl_folder && Dir.exist?(sdl_folder.to_s) ? Lighthouse::GraphQL::SDLLoader.load_from_folder(sdl_folder.to_s) : ''
+  module_function
 
-      FileUtils.mkdir_p(output_dir.to_s)
-      {
-        DIRECTIVES_FILE => directives_sdl(sdl, registry: registry),
-        PROGRAMMATIC_TYPES_FILE => programmatic_types_sdl(sdl, registry: registry)
-      }.map do |name, content|
-        path = File.join(output_dir.to_s, name)
-        File.write(path, content)
-        path
-      end
+  # Writes both files into `output_dir` and returns their paths.
+  def write(output_dir:, sdl_folder: Lighthouse::Config.sdl_folder, registry: Lighthouse::DirectiveRegistry.default)
+    sdl = sdl_folder && Dir.exist?(sdl_folder.to_s) ? Lighthouse::GraphQL::SDLLoader.load_from_folder(sdl_folder.to_s) : ''
+
+    FileUtils.mkdir_p(output_dir.to_s)
+    {
+      DIRECTIVES_FILE => directives_sdl(sdl, registry: registry),
+      PROGRAMMATIC_TYPES_FILE => programmatic_types_sdl(sdl, registry: registry)
+    }.map do |name, content|
+      path = File.join(output_dir.to_s, name)
+      File.write(path, content)
+      path
     end
+  end
 
-    def directives_sdl(sdl = '', registry: Lighthouse::DirectiveRegistry.default)
-      generator = Lighthouse::GraphQL::SchemaGenerator
-      definitions = generator.missing_directive_definitions(sdl, registry: registry).sort.map { |_, definition| definition }
-      types = generator.missing_type_definitions(sdl, definitions, registry: registry).sort.map { |_, definition| definition }
-      render(
-        'Directive definitions contributed by Lighthouse and the directives your app registered.',
-        definitions + types
-      )
+  def directives_sdl(sdl = '', registry: Lighthouse::DirectiveRegistry.default)
+    generator = Lighthouse::GraphQL::SchemaGenerator
+    definitions = generator.missing_directive_definitions(sdl, registry: registry).sort.map { |_, definition| definition }
+    types = generator.missing_type_definitions(sdl, definitions, registry: registry).sort.map { |_, definition| definition }
+    render(
+      'Directive definitions contributed by Lighthouse and the directives your app registered.',
+      definitions + types
+    )
+  end
+
+  def programmatic_types_sdl(sdl, registry: Lighthouse::DirectiveRegistry.default)
+    original = type_names(sdl)
+    generated = parse(registry.manipulate_sdl(sdl)).definitions.select do |definition|
+      type_definition?(definition) && original.exclude?(definition.name)
     end
+    generated_sdl = generated.sort_by(&:name).map(&:to_query_string)
+    generated_sdl.unshift(PLACEHOLDER_SCALAR) if undeclared_placeholder?(sdl, original, generated)
 
-    def programmatic_types_sdl(sdl, registry: Lighthouse::DirectiveRegistry.default)
-      original = type_names(sdl)
-      generated = parse(registry.manipulate_sdl(sdl)).definitions.select do |definition|
-        TYPE_DEFINITIONS.any? { |kind| definition.is_a?(kind) } && !original.include?(definition.name)
-      end
-      generated_sdl = generated.sort_by(&:name).map(&:to_query_string)
+    render(
+      'Types the manipulation phase generates (Connection/Paginator types, whereConditions inputs, ...).',
+      generated_sdl
+    )
+  end
 
-      # The manipulation phase replaces the `_` placeholder (`where: _ @whereConditions`),
-      # but the IDE reads the SDL as written, so it needs the placeholder declared.
-      if sdl.to_s.match?(/:\s*\[?\s*_\b/) && !original.include?('_') && generated.none? { |d| d.name == '_' }
-        generated_sdl.unshift(%("Placeholder for an argument type Lighthouse generates, e.g. with @whereConditions."\nscalar _))
-      end
+  # The manipulation phase replaces the `_` placeholder (`where: _ @whereConditions`),
+  # but the IDE reads the SDL as written, so it needs the placeholder declared.
+  def undeclared_placeholder?(sdl, original, generated)
+    sdl.to_s.match?(/:\s*\[?\s*_\b/) && original.exclude?('_') && generated.none? { |d| d.name == '_' }
+  end
 
-      render(
-        'Types the manipulation phase generates (Connection/Paginator types, whereConditions inputs, ...).',
-        generated_sdl
-      )
-    end
+  def type_names(sdl)
+    parse(sdl).definitions.filter_map { |definition| definition.name if type_definition?(definition) }.to_set
+  end
 
-    def type_names(sdl)
-      parse(sdl).definitions.filter_map { |definition| definition.name if TYPE_DEFINITIONS.any? { |kind| definition.is_a?(kind) } }.to_set
-    end
+  def type_definition?(definition)
+    TYPE_DEFINITIONS.any? { |kind| definition.is_a?(kind) }
+  end
 
-    def parse(sdl)
-      ::GraphQL::Language::Parser.parse(sdl.to_s)
-    end
+  def parse(sdl)
+    ::GraphQL::Language::Parser.parse(sdl.to_s)
+  end
 
-    def render(summary, definitions)
-      header = <<~GRAPHQL
-        # Generated by `bin/rails lighthouse:ide_helper` — do not edit; rerun it after changing your schema.
-        # #{summary}
-      GRAPHQL
-      "#{header}\n#{definitions.join("\n\n")}\n"
-    end
+  def render(summary, definitions)
+    header = <<~GRAPHQL
+      # Generated by `bin/rails lighthouse:ide_helper` — do not edit; rerun it after changing your schema.
+      # #{summary}
+    GRAPHQL
+    "#{header}\n#{definitions.join("\n\n")}\n"
   end
 end

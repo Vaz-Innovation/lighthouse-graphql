@@ -28,18 +28,23 @@ ActiveRecord::Schema.define do
   end
 end
 
+# The abstract base a host Rails app's models inherit from.
+class ApplicationRecord < ActiveRecord::Base
+  self.abstract_class = true
+end
+
 # A plain test model used by the argument-builder / ordering specs.
-class Widget < ActiveRecord::Base
+class Widget < ApplicationRecord
 end
 
 # A model with validations, for the mutation, authorization and cache specs.
-class Post < ActiveRecord::Base
+class Post < ApplicationRecord
   validates :title, presence: true, length: { maximum: 20 }
 
   def self.published = where(published: true)
 end
 
-Dir[File.join(__dir__, 'support', '**', '*.rb')].sort.each { |f| require f }
+Dir[File.join(__dir__, 'support', '**', '*.rb')].each { |f| require f }
 
 RSpec.configure do |config|
   config.expect_with(:rspec) { |c| c.syntax = :expect }

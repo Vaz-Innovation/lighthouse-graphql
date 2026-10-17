@@ -50,16 +50,4 @@ Gem::Specification.new do |spec|
   # the federation entity binding only activates when the host app's base types
   # include the ApolloFederation mixins. It is therefore not declared as a hard
   # dependency so non-federated apps can use Lighthouse without it.
-
-  # Development
-  spec.add_development_dependency 'rspec', '~> 3.0'
-  spec.add_development_dependency 'activerecord', '>= 6.0'
-  spec.add_development_dependency 'sqlite3', '>= 1.4'
-  spec.add_development_dependency 'apollo-federation', '~> 3.0'
-  # Exercises the Rails generator and rake task; a Rails host provides it at runtime.
-  spec.add_development_dependency 'railties', '>= 6.0'
-  # Optional integrations, exercised by the specs: Pundit backs the @can* family
-  # by default, and @validator accepts Dry::Validation contracts.
-  spec.add_development_dependency 'pundit', '>= 2.0'
-  spec.add_development_dependency 'dry-validation', '~> 1.10'
 end

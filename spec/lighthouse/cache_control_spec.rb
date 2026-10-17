@@ -111,7 +111,7 @@ RSpec.describe '@cacheControl' do
   end
 
   it 'computes nothing for a schema without @cacheControl' do
-    plain = build_schema("type Query { a: String @field(resolver: \"CacheControlSpecTrue\") }")
+    plain = build_schema('type Query { a: String @field(resolver: "CacheControlSpecTrue") }')
 
     expect(Lighthouse::GraphQL::CacheControl.header(plain.execute('{ a }'))).to be_nil
   end

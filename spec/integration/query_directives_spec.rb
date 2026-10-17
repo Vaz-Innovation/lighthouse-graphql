@@ -146,17 +146,25 @@ RSpec.describe 'Query directives' do
 
       result = graphql('{ userConnection(first: 2) { pageInfo { hasNextPage } edges { node { id } } } }')
 
-      expect_data(result, 'userConnection' => { 'pageInfo' => { 'hasNextPage' => true }, 'edges' => [{ 'node' => { 'id' => '1' } }, { 'node' => { 'id' => '2' } }] })
+      expect_data(result,
+                  'userConnection' => { 'pageInfo' => { 'hasNextPage' => true },
+                                        'edges' => [{ 'node' => { 'id' => '1' } }, { 'node' => { 'id' => '2' } }] })
     end
 
     it 'continues a connection after a cursor, in two queries' do
       users(3)
-      sql = queries_in do
-        @result = graphql('query ($after: String!) { userConnection(first: 2, after: $after) { pageInfo { hasNextPage hasPreviousPage startCursor endCursor total count currentPage lastPage } edges { node { id } } } }',
-                          { 'after' => Base64.strict_encode64('2') })
-      end
+      query = <<~GRAPHQL
+        query ($after: String!) {
+          userConnection(first: 2, after: $after) {
+            pageInfo { hasNextPage hasPreviousPage startCursor endCursor total count currentPage lastPage }
+            edges { node { id } }
+          }
+        }
+      GRAPHQL
+      result = nil
+      sql = queries_in { result = graphql(query, { 'after' => Base64.strict_encode64('2') }) }
 
-      expect_data(@result, 'userConnection' => {
+      expect_data(result, 'userConnection' => {
                     'pageInfo' => { 'hasNextPage' => false, 'hasPreviousPage' => true, 'startCursor' => 'Mw==', 'endCursor' => 'Mw==',
                                     'total' => 3, 'count' => 1, 'currentPage' => 2, 'lastPage' => 2 },
                     'edges' => [{ 'node' => { 'id' => '3' } }]
@@ -165,14 +173,23 @@ RSpec.describe 'Query directives' do
     end
 
     it 'queries an empty connection' do
-      expect(graphql('{ userConnection(first: 5) { pageInfo { count currentPage endCursor hasNextPage hasPreviousPage lastPage startCursor total } edges { node { id } } } }')['data'])
+      query = <<~GRAPHQL
+        {
+          userConnection(first: 5) {
+            pageInfo { count currentPage endCursor hasNextPage hasPreviousPage lastPage startCursor total }
+            edges { node { id } }
+          }
+        }
+      GRAPHQL
+      expect(graphql(query)['data'])
         .to eq('userConnection' => { 'pageInfo' => { 'count' => 0, 'currentPage' => 1, 'endCursor' => nil, 'hasNextPage' => false,
                                                      'hasPreviousPage' => false, 'lastPage' => 1, 'startCursor' => nil, 'total' => 0 },
                                      'edges' => [] })
     end
 
     it 'queries an empty paginator' do
-      expect(graphql('{ users(first: 5) { paginatorInfo { count currentPage firstItem hasMorePages lastItem lastPage perPage total } data { id } } }')['data'])
+      query = '{ users(first: 5) { paginatorInfo { count currentPage firstItem hasMorePages lastItem lastPage perPage total } data { id } } }'
+      expect(graphql(query)['data'])
         .to eq('users' => { 'paginatorInfo' => { 'count' => 0, 'currentPage' => 1, 'firstItem' => nil, 'hasMorePages' => false,
                                                  'lastItem' => nil, 'lastPage' => 1, 'perPage' => 5, 'total' => 0 },
                             'data' => [] })
@@ -181,7 +198,8 @@ RSpec.describe 'Query directives' do
     it 'queries zero items' do
       users(3)
 
-      expect(graphql('{ users(first: 0) { paginatorInfo { count currentPage firstItem hasMorePages lastItem lastPage perPage total } data { id } } }')['data'])
+      query = '{ users(first: 0) { paginatorInfo { count currentPage firstItem hasMorePages lastItem lastPage perPage total } data { id } } }'
+      expect(graphql(query)['data'])
         .to eq('users' => { 'paginatorInfo' => { 'count' => 0, 'currentPage' => 1, 'firstItem' => nil, 'hasMorePages' => false,
                                                  'lastItem' => nil, 'lastPage' => 0, 'perPage' => 0, 'total' => 3 },
                             'data' => [] })
@@ -196,10 +214,14 @@ RSpec.describe 'Query directives' do
 
     it 'paginates simply, in a single query and without a total' do
       users(3)
-      sql = queries_in { @result = graphql('{ usersSimple(first: 10) { paginatorInfo { count currentPage firstItem lastItem perPage hasMorePages } data { id } } }') }
+      query = '{ usersSimple(first: 10) { paginatorInfo { count currentPage firstItem lastItem perPage hasMorePages } data { id } } }'
+      result = nil
+      sql = queries_in { result = graphql(query) }
 
-      expect_data(@result, 'usersSimple' => { 'paginatorInfo' => { 'count' => 3, 'currentPage' => 1, 'firstItem' => 1, 'lastItem' => 3,
-                                                                   'perPage' => 10, 'hasMorePages' => false } })
+      expect_data(result, 'usersSimple' => {
+                    'paginatorInfo' => { 'count' => 3, 'currentPage' => 1, 'firstItem' => 1, 'lastItem' => 3,
+                                         'perPage' => 10, 'hasMorePages' => false }
+                  })
       expect(sql.size).to eq(1)
       expect(schema.types['SimplePaginatorInfo'].fields).not_to have_key('total')
     end
@@ -207,7 +229,8 @@ RSpec.describe 'Query directives' do
     it 'uses the default page for a null page' do
       users(3)
 
-      expect_data(graphql('query ($page: Int) { usersSimple(first: 2, page: $page) { paginatorInfo { currentPage count } data { id } } }', { 'page' => nil }),
+      query = 'query ($page: Int) { usersSimple(first: 2, page: $page) { paginatorInfo { currentPage count } data { id } } }'
+      expect_data(graphql(query, { 'page' => nil }),
                   'usersSimple' => { 'paginatorInfo' => { 'currentPage' => 1, 'count' => 2 } })
     end
 
@@ -232,7 +255,8 @@ RSpec.describe 'Query directives' do
     it 'caps first at Config.pagination_max_count, unless the directive sets maxCount: null' do
       Lighthouse.configure { |c| c.pagination_max_count = 5 }
 
-      expect(error_messages(graphql('{ users(first: 10) { data { id } } }'))).to eq(['Maximum number of 5 requested items exceeded, got 10. Fetch smaller chunks.'])
+      expect(error_messages(graphql('{ users(first: 10) { data { id } } }')))
+        .to eq(['Maximum number of 5 requested items exceeded, got 10. Fetch smaller chunks.'])
       expect(graphql('{ usersUncapped(first: 10) { data { id } } }')['errors']).to be_nil
     end
 
@@ -304,9 +328,10 @@ RSpec.describe 'Query directives' do
       users = Array.new(3) { |i| LH::User.create!(name: "u#{i}") }
       users.each { |user| 2.times { |i| LH::Task.create!(name: "#{user.name}-#{i}", user: user) } }
 
-      sql = queries_in { @result = graphql('{ users { tasks { id } } }') }
+      result = nil
+      sql = queries_in { result = graphql('{ users { tasks { id } } }') }
 
-      expect(@result.dig('data', 'users').map { |u| u['tasks'].size }).to eq([2, 2, 2])
+      expect(result.dig('data', 'users').map { |u| u['tasks'].size }).to eq([2, 2, 2])
       expect(sql.size).to eq(2) # the users, then all their tasks
     end
 
@@ -341,11 +366,20 @@ RSpec.describe 'Query directives' do
       user = LH::User.create!(name: 'u')
       3.times { |i| LH::Task.create!(name: "t#{i}", user: user) }
 
-      result = graphql('{ users { taskPages(first: 2, page: 2) { paginatorInfo { total currentPage } data { name } } taskConnection(first: 1) { pageInfo { hasNextPage endCursor } edges { node { name } } } simpleTasks { data { name } } } }')
+      result = graphql(<<~GRAPHQL)
+        {
+          users {
+            taskPages(first: 2, page: 2) { paginatorInfo { total currentPage } data { name } }
+            taskConnection(first: 1) { pageInfo { hasNextPage endCursor } edges { node { name } } }
+            simpleTasks { data { name } }
+          }
+        }
+      GRAPHQL
 
       expect(result['data']).to eq('users' => [{
                                      'taskPages' => { 'paginatorInfo' => { 'total' => 3, 'currentPage' => 2 }, 'data' => [{ 'name' => 't2' }] },
-                                     'taskConnection' => { 'pageInfo' => { 'hasNextPage' => true, 'endCursor' => 'MQ==' }, 'edges' => [{ 'node' => { 'name' => 't0' } }] },
+                                     'taskConnection' => { 'pageInfo' => { 'hasNextPage' => true, 'endCursor' => 'MQ==' },
+                                                           'edges' => [{ 'node' => { 'name' => 't0' } }] },
                                      'simpleTasks' => { 'data' => [{ 'name' => 't0' }] }
                                    }])
     end

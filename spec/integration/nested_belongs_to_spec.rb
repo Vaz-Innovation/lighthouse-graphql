@@ -278,7 +278,11 @@ RSpec.describe 'Nested mutations: belongsTo' do
     end
 
     it 'upserts through the pivot model' do
-      result = graphql('mutation { upsertUser(input: { name: "foo", rolesPivot: { upsert: [{ role: { upsert: { name: "bar" } } }] } }) { name roles { name } } }')
+      result = graphql(<<~GRAPHQL)
+        mutation {
+          upsertUser(input: { name: "foo", rolesPivot: { upsert: [{ role: { upsert: { name: "bar" } } }] } }) { name roles { name } }
+        }
+      GRAPHQL
 
       expect_data(result, 'upsertUser' => { 'name' => 'foo', 'roles' => [{ 'name' => 'bar' }] })
     end
@@ -323,14 +327,30 @@ RSpec.describe 'Nested mutations: belongsTo' do
     end
 
     it 'creates both with the given ids, then the pivot' do
-      result = graphql('mutation { createRoleUser(input: { id: "1", user: { create: { id: "2", name: "user 1" } }, role: { create: { id: "3", name: "role 1" } } }) { id user { id name } role { id name } } }')
+      result = graphql(<<~GRAPHQL)
+        mutation {
+          createRoleUser(input: {
+            id: "1"
+            user: { create: { id: "2", name: "user 1" } }
+            role: { create: { id: "3", name: "role 1" } }
+          }) { id user { id name } role { id name } }
+        }
+      GRAPHQL
 
       expect_data(result, 'createRoleUser' => { 'id' => '1', 'user' => { 'id' => '2', 'name' => 'user 1' },
                                                 'role' => { 'id' => '3', 'name' => 'role 1' } })
     end
 
     it 'creates them again with new ids when repeated' do
-      query = 'mutation { createRoleUser(input: { meta: "asdf", user: { create: { name: "some username" } }, role: { create: { name: "some rolename" } } }) { id meta user { id name } role { id name } } }'
+      query = <<~GRAPHQL
+        mutation {
+          createRoleUser(input: {
+            meta: "asdf"
+            user: { create: { name: "some username" } }
+            role: { create: { name: "some rolename" } }
+          }) { id meta user { id name } role { id name } }
+        }
+      GRAPHQL
 
       expect_data(graphql(query), 'createRoleUser' => { 'id' => '1', 'meta' => 'asdf', 'user' => { 'id' => '1', 'name' => 'some username' },
                                                         'role' => { 'id' => '1', 'name' => 'some rolename' } })

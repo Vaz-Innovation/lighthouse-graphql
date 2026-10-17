@@ -25,7 +25,8 @@ type Query {
 ```
 
 It returns a plain list. The model defaults to the field's return type (`User`).
-Override it with `@all(model: "Account")`. Combine with
+Override it with `@all(model: "Account")`, and narrow it with model scopes:
+`@all(scopes: ["active"])`. Combine with
 [argument filters](filtering-and-ordering.md) and [`@orderBy`](#orderby) to
 constrain the result.
 
@@ -51,7 +52,7 @@ with filters to fetch one record by criteria.
 
 ```graphql
 type Query {
-  latestPost(authorId: ID! @eq): Post @first
+  latestPost(authorId: ID! @eq): Post @first(scopes: ["published"])
 }
 ```
 
@@ -96,6 +97,7 @@ Return the number of records — of a model, or of a relation on the parent obje
 ```graphql
 type Query {
   userCount: Int! @count(model: "User")
+  activeUserCount: Int! @count(model: "User", scopes: ["active"])
 }
 
 type Account {

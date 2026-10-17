@@ -1,47 +1,47 @@
 # frozen_string_literal: true
 
-module Lighthouse
-  module GraphQL
-    module DirectiveResolvers
-      class AuthDirectiveResolver < BaseDirectiveResolver
-        def self.directive_name = 'auth'
-        def self.definition = 'directive @auth on FIELD_DEFINITION'
+class Lighthouse::GraphQL::DirectiveResolvers::AuthDirectiveResolver < Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
+  def self.directive_name = 'auth'
+  def self.definition = 'directive @auth on FIELD_DEFINITION'
 
-        def define_resolver(target_type_class)
-          field_name = @field_def.name
-          method_name = "resolve_field_#{field_name}"
+  def define_resolver(target_type_class)
+    inner = original_resolver(target_type_class)
 
-          original_singleton =
-            if target_type_class.respond_to?(method_name)
-              target_type_class.method(method_name)
-            end
+    install(target_type_class, lambda do |obj, arguments, ctx|
+      user = ctx && (ctx[:current_user] || ctx['current_user'])
+      raise(::GraphQL::ExecutionError, 'Unauthenticated.') unless user
 
-          original_proc =
-            if @field_def.respond_to?(:resolve_proc)
-              @field_def.resolve_proc
-            end
+      inner.call(obj, arguments, ctx)
+    end)
+  end
 
-          wrapper = lambda do |obj, arguments, ctx|
-            user = ctx && (ctx[:current_user] || ctx['current_user'])
-            raise(::GraphQL::ExecutionError, 'Unauthenticated.') unless user
+  private
 
-            if original_singleton
-              original_singleton.call(obj, arguments, ctx)
-            elsif original_proc
-              original_proc.call(obj, arguments, ctx)
-            elsif obj.respond_to?(field_name)
-              obj.public_send(field_name)
-            else
-              snake = field_name.to_s.underscore
-              obj.respond_to?(snake) ? obj.public_send(snake) : nil
-            end
-          end
+  # The field's resolver so far: an existing `resolve_field_*` method, the
+  # resolve_proc, or the parent's attribute reader.
+  def original_resolver(target_type_class)
+    field_name = @field_def.name
+    original_singleton =
+      (target_type_class.method(resolver_method_name) if target_type_class.respond_to?(resolver_method_name))
 
-          target_type_class.define_singleton_method(method_name, &wrapper)
-          @field_def.resolve_proc = wrapper if @field_def.respond_to?(:resolve_proc=)
-        end
+    original_proc =
+      (@field_def.resolve_proc if @field_def.respond_to?(:resolve_proc))
+
+    lambda do |obj, arguments, ctx|
+      if original_singleton
+        original_singleton.call(obj, arguments, ctx)
+      elsif original_proc
+        original_proc.call(obj, arguments, ctx)
+      else
+        read_attribute(obj, field_name)
       end
     end
   end
-end
 
+  def read_attribute(obj, field_name)
+    return obj.public_send(field_name) if obj.respond_to?(field_name)
+
+    snake = field_name.to_s.underscore
+    obj.respond_to?(snake) ? obj.public_send(snake) : nil
+  end
+end

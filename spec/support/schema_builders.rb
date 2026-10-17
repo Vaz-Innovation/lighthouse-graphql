@@ -6,20 +6,18 @@ require 'apollo-federation'
 # Mirrors what a host app provides via `base_types`: an object type whose
 # default `resolve_reference` looks the entity up by id on the model that shares
 # its GraphQL type name.
-module FederationTestTypes
-  class BaseObject < ::GraphQL::Schema::Object
-    include ApolloFederation::Object
+class FederationTestTypes::BaseObject < GraphQL::Schema::Object
+  include ApolloFederation::Object
 
-    def self.resolve_reference(reference, _context)
-      model = begin
-        Object.const_get(graphql_name)
-      rescue NameError
-        nil
-      end
-      return nil unless model.respond_to?(:find_by)
-
-      model.find_by(id: reference[:id] || reference['id'])
+  def self.resolve_reference(reference, _context)
+    model = begin
+      Object.const_get(graphql_name)
+    rescue NameError
+      nil
     end
+    return nil unless model.respond_to?(:find_by)
+
+    model.find_by(id: reference[:id] || reference['id'])
   end
 end
 

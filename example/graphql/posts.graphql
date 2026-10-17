@@ -1,0 +1,60 @@
+# @cacheControl on a type sets the maxAge of every field that returns it.
+type Post @cacheControl(maxAge: 60) {
+  id: ID!
+  title: String!
+  body: String
+  published: Boolean!
+  author: User! @belongsTo
+  "Comments, paginated: comments(first: 10, page: 1) { data { body } paginatorInfo { total } }."
+  comments: [Comment!]! @hasMany(type: PAGINATOR, defaultCount: 10)
+  tags: [Tag!]! @belongsToMany
+  commentsCount: Int! @count(relation: "comments")
+}
+
+type Comment @cacheControl(maxAge: 60) {
+  id: ID!
+  body: String!
+  author: User! @belongsTo
+  post: Post! @belongsTo
+}
+
+type Tag @cacheControl(maxAge: 300) {
+  id: ID!
+  name: String!
+  posts: [Post!]! @belongsToMany
+}
+
+enum PostOrderColumn {
+  TITLE
+  CREATED_AT
+}
+
+input PostOrderByClause {
+  column: PostOrderColumn!
+  order: SortOrder! = ASC
+}
+
+input CreatePostInput {
+  title: String!
+  body: String
+  published: Boolean
+  "Attach existing tags by id and/or create new ones."
+  tags: TagsBelongsToMany
+}
+
+input UpdatePostInput {
+  id: ID!
+  title: String
+  body: String
+  tags: TagsBelongsToMany
+}
+
+input TagsBelongsToMany {
+  connect: [ID!]
+  sync: [ID!]
+  create: [CreateTagInput!]
+}
+
+input CreateTagInput {
+  name: String!
+}

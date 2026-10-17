@@ -38,20 +38,32 @@ RSpec.describe 'Nested mutations: morphTo' do
   end
 
   it 'connects a morphTo by type and id' do
-    result = graphql('mutation { createImage(input: { url: "foo", imageable: { connect: { type: "LH::Task", id: 1 } } }) { id url imageable { id name } } }')
+    result = graphql(<<~GRAPHQL)
+      mutation {
+        createImage(input: { url: "foo", imageable: { connect: { type: "LH::Task", id: 1 } } }) { id url imageable { id name } }
+      }
+    GRAPHQL
 
     expect_data(result, 'createImage' => { 'id' => '1', 'url' => 'foo', 'imageable' => { 'id' => '1', 'name' => 'first_task' } })
     expect(LH::Image.first.imageable_type).to eq('LH::Task')
   end
 
   it 'connects a morphTo with an enum type' do
-    result = graphql('mutation { createImageWithEnumType(input: { url: "foo", imageable: { connect: { type: TASK, id: 1 } } }) { id url imageable { id name } } }')
+    result = graphql(<<~GRAPHQL)
+      mutation {
+        createImageWithEnumType(input: { url: "foo", imageable: { connect: { type: TASK, id: 1 } } }) { id url imageable { id name } }
+      }
+    GRAPHQL
 
     expect_data(result, 'createImageWithEnumType' => { 'id' => '1', 'url' => 'foo', 'imageable' => { 'id' => '1', 'name' => 'first_task' } })
   end
 
   it 'connects a morphTo while upserting' do
-    result = graphql('mutation { upsertImage(input: { id: 1, url: "foo", imageable: { connect: { type: "Task", id: 1 } } }) { id url imageable { id name } } }')
+    result = graphql(<<~GRAPHQL)
+      mutation {
+        upsertImage(input: { id: 1, url: "foo", imageable: { connect: { type: "Task", id: 1 } } }) { id url imageable { id name } }
+      }
+    GRAPHQL
 
     expect_data(result, 'upsertImage' => { 'id' => '1', 'url' => 'foo', 'imageable' => { 'id' => '1', 'name' => 'first_task' } })
   end
@@ -65,7 +77,12 @@ RSpec.describe 'Nested mutations: morphTo' do
   it 'allows null operations' do
     LH::Image.create!(url: 'bar')
 
-    expect_data(graphql('mutation { updateImage(input: { id: 1, url: "foo", imageable: { connect: null, disconnect: null, delete: null } }) { url imageable { id } } }'),
+    query = <<~GRAPHQL
+      mutation {
+        updateImage(input: { id: 1, url: "foo", imageable: { connect: null, disconnect: null, delete: null } }) { url imageable { id } }
+      }
+    GRAPHQL
+    expect_data(graphql(query),
                 'updateImage' => { 'url' => 'foo', 'imageable' => nil })
   end
 

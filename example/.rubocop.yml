@@ -1,0 +1,11 @@
+# The example app follows the repository's rules (../.rubocop.yml); it is a
+# Rails 8.1 app, so it targets the Ruby that Rails needs rather than the gem's 3.0.
+inherit_from: ../.rubocop.yml
+
+AllCops:
+  TargetRubyVersion: 3.2
+
+# Seeds run from the command line and print the API tokens they create.
+Rails/Output:
+  Exclude:
+    - 'db/seeds.rb'

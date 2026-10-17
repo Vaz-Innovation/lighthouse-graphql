@@ -64,7 +64,9 @@ RSpec.describe Lighthouse::GraphQL::PersistedQueries do
 
     it 'refuses malformed hashes and unknown protocol versions' do
       expect(error(run(extensions: apq('lighthouse:apq:../../etc')))).to eq(%w[PersistedQueryNotSupported PERSISTED_QUERY_NOT_SUPPORTED])
-      expect(error(run(extensions: { 'persistedQuery' => { 'version' => 2, 'sha256Hash' => sha } }))).to eq(%w[PersistedQueryNotSupported PERSISTED_QUERY_NOT_SUPPORTED])
+      expect(error(run(extensions: { 'persistedQuery' => { 'version' => 2,
+                                                           'sha256Hash' => sha } }))).to eq(%w[PersistedQueryNotSupported
+                                                                                               PERSISTED_QUERY_NOT_SUPPORTED])
     end
 
     it 'reads extensions sent as a JSON string, as in a GET request' do
@@ -97,18 +99,15 @@ RSpec.describe Lighthouse::GraphQL::PersistedQueries do
   end
 
   describe 'with a manifest of trusted operations' do
-    around do |example|
-      Dir.mktmpdir do |dir|
-        @manifest = File.join(dir, 'persisted-queries.json')
-        example.run
-      end
-    end
-
+    let(:manifest_dir) { Dir.mktmpdir }
+    let(:manifest) { File.join(manifest_dir, 'persisted-queries.json') }
     let(:other) { '{ widgets { id } }' }
 
+    after { FileUtils.remove_entry(manifest_dir) }
+
     def write_manifest(operations)
-      File.write(@manifest, JSON.generate(operations))
-      FileUtils.touch(@manifest, mtime: Time.now + rand(1..1000)) # a distinct mtime, so it is reloaded
+      File.write(manifest, JSON.generate(operations))
+      FileUtils.touch(manifest, mtime: Time.current + rand(1..1000)) # a distinct mtime, so it is reloaded
     end
 
     before do
@@ -116,7 +115,7 @@ RSpec.describe Lighthouse::GraphQL::PersistedQueries do
                      'operations' => [{ 'id' => sha, 'name' => 'Widgets', 'type' => 'query', 'body' => query }])
       Lighthouse.configure do |c|
         c.persisted_queries = true
-        c.persisted_queries_manifest = @manifest
+        c.persisted_queries_manifest = manifest
       end
     end
 
@@ -157,7 +156,7 @@ RSpec.describe Lighthouse::GraphQL::PersistedQueries do
       around do |example|
         Rake.application = Rake::Application.new
         Rake::Task.define_task(:environment)
-        load File.expand_path('../../lib/lighthouse/tasks/lighthouse.rake', __dir__)
+        load File.expand_path('../../../lib/lighthouse/tasks/lighthouse.rake', __dir__)
         example.run
       ensure
         Rake.application = Rake::Application.new

@@ -1,0 +1,8 @@
+# graphql-config, read by the GraphQL plugins for JetBrains IDEs and VS Code.
+# The two generated files describe Lighthouse's directives and the types it
+# generates; refresh them after changing the schema:
+#   bin/rails lighthouse:ide_helper
+schema:
+  - graphql/**/*.graphql
+  - schema-directives.graphql
+  - programmatic-types.graphql

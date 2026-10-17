@@ -176,12 +176,20 @@ RSpec.describe 'Nested mutations: hasMany' do
     it 'connects and disconnects them by that key' do
       3.times { LH::CustomPrimaryKey.create! }
 
-      created = graphql('mutation { createUser(input: { name: "foo", customPrimaryKeys: { connect: [1, 2, 3] } }) { id customPrimaryKeys { custom_primary_key_id } } }')
+      created = graphql(<<~GRAPHQL)
+        mutation {
+          createUser(input: { name: "foo", customPrimaryKeys: { connect: [1, 2, 3] } }) { id customPrimaryKeys { custom_primary_key_id } }
+        }
+      GRAPHQL
       expect_data(created, 'createUser' => { 'id' => '1', 'customPrimaryKeys' => [{ 'custom_primary_key_id' => '1' },
-                                                                                 { 'custom_primary_key_id' => '2' },
-                                                                                 { 'custom_primary_key_id' => '3' }] })
+                                                                                  { 'custom_primary_key_id' => '2' },
+                                                                                  { 'custom_primary_key_id' => '3' }] })
 
-      updated = graphql('mutation { updateUser(input: { id: 1, customPrimaryKeys: { disconnect: [2] } }) { customPrimaryKeys { custom_primary_key_id } } }')
+      updated = graphql(<<~GRAPHQL)
+        mutation {
+          updateUser(input: { id: 1, customPrimaryKeys: { disconnect: [2] } }) { customPrimaryKeys { custom_primary_key_id } }
+        }
+      GRAPHQL
       expect_data(updated, 'updateUser' => { 'customPrimaryKeys' => [{ 'custom_primary_key_id' => '1' }, { 'custom_primary_key_id' => '3' }] })
     end
   end
@@ -206,7 +214,13 @@ RSpec.describe 'Nested mutations: hasMany' do
       expect(role.users.pluck(:id)).to eq([1])
       LH::User.create!(name: 'other')
 
-      result = graphql('mutation { upsertUser(input: { id: "1", name: "fooz", roles: { upsert: [{ id: "1", name: "baz", users: { sync: ["2"] } }] } }) { id name roles { id name } } }')
+      result = graphql(<<~GRAPHQL)
+        mutation {
+          upsertUser(input: { id: "1", name: "fooz", roles: { upsert: [{ id: "1", name: "baz", users: { sync: ["2"] } }] } }) {
+            id name roles { id name }
+          }
+        }
+      GRAPHQL
 
       expect_data(result, 'upsertUser' => { 'id' => '1', 'name' => 'fooz', 'roles' => [] })
       expect(role.users.reload.pluck(:id)).to eq([2])

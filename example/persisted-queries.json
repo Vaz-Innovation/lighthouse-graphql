@@ -1,0 +1,18 @@
+{
+  "format": "apollo-persisted-query-manifest",
+  "version": 1,
+  "operations": [
+    {
+      "id": "6fb4bbeeaabe216fa2bc4cbd272a5b47fb57943e9b4642ef072e072b81ef1f71",
+      "name": "LatestPosts",
+      "type": "query",
+      "body": "query LatestPosts { feed(first: 5) { edges { node { id title author { name } } } pageInfo { hasNextPage endCursor } } }"
+    },
+    {
+      "id": "93e9bcda250cb3b333b099ca82ac8074bffb7bcbebd7211462abb64f614799e2",
+      "name": "Tags",
+      "type": "query",
+      "body": "query Tags { tags { id name } }"
+    }
+  ]
+}

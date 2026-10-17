@@ -1,0 +1,264 @@
+plugins:
+  - rubocop-performance
+  - rubocop-rails
+  - rubocop-rspec
+  - rubocop-factory_bot
+
+AllCops:
+  NewCops: enable
+  SuggestExtensions: false
+  # TargetRubyVersion comes from the gemspec's required_ruby_version.
+  Exclude:
+    - 'bin/**/*'
+    - 'pkg/**/*'
+    - 'tmp/**/*'
+    - 'vendor/**/*'
+    - 'node_modules/**/*'
+    - 'example/bin/**/*'
+    - 'example/db/schema.rb'
+    - 'example/config/environments/**/*'
+    - 'example/log/**/*'
+    - 'example/public/**/*'
+    - 'example/storage/**/*'
+    - 'example/tmp/**/*'
+    - 'example/vendor/**/*'
+
+Layout/LineLength:
+  Max: 150
+
+Metrics/ClassLength:
+  Max: 175
+
+Metrics/MethodLength:
+  Max: 19
+
+Metrics/AbcSize:
+  Max: 26
+
+Metrics/BlockLength:
+  Max: 30
+  Exclude:
+    - '**/spec/**/*'
+    - '**/routes.rb'
+    - '**/*.gemspec'
+    - 'lib/lighthouse/tasks/*.rake'
+
+RSpec/ExampleLength:
+  Max: 50
+
+# we should bring this down
+RSpec/MultipleExpectations:
+  Max: 7
+
+RSpec/MultipleMemoizedHelpers:
+  Max: 14
+
+# The gem's specs mostly describe a directive ('@cacheControl') or a behaviour
+# across classes, not one class.
+RSpec/DescribeClass:
+  Exclude:
+    - 'spec/**/*'
+
+RSpec/SpecFilePathFormat:
+  CustomTransform:
+    GraphQL: graphql
+
+RSpec/NestedGroups:
+  Enabled: true
+  Max: 4
+
+Style/ClassAndModuleChildren:
+  EnforcedStyle: compact
+  Exclude:
+    - 'example/config/application.rb'
+    # They define the namespaces every other file opens compactly.
+    - 'lib/lighthouse/namespaces.rb'
+    - 'lib/lighthouse/graphql/version.rb'
+
+Style/HashSyntax:
+  Enabled: true
+  EnforcedStyle: no_mixed_keys
+  # Shorthand (`{ x: }`) needs Ruby 3.1; the gem supports 3.0.
+  EnforcedShorthandSyntax: never
+
+# One top-level class or module per file (what Chatwoot/OneClassPerFile does in
+# the original config; RuboCop now ships the cop).
+Style/OneClassPerFile:
+  Enabled: true
+
+Rails/FindEach:
+  Enabled: true
+  Include:
+    - 'example/app/**/*.rb'
+
+# The gem's require name, `require 'lighthouse-graphql'`, matches the gem's name.
+Naming/FileName:
+  Exclude:
+    - 'lib/lighthouse-graphql.rb'
+
+Layout/TrailingEmptyLines:
+  Enabled: true
+
+# Lighthouse's command methods answer their success, and some predicates answer
+# nil; renaming them would break the public API.
+Naming/PredicateMethod:
+  Enabled: false
+
+Style/Documentation:
+  Enabled: false
+
+Style/ExponentialNotation:
+  Enabled: false
+
+Style/FrozenStringLiteralComment:
+  Enabled: false
+
+Style/SymbolArray:
+  Enabled: false
+
+Style/OpenStructUse:
+  Enabled: false
+
+Style/MapToHash:
+  Enabled: false
+
+Style/ReturnNilInPredicateMethodDefinition:
+  Enabled: false
+
+Style/RedundantParentheses:
+  Enabled: false
+
+Style/MultipleComparison:
+  Enabled: false
+
+Style/RedundantReturn:
+  Enabled: false
+
+Style/SafeNavigationChainLength:
+  Enabled: false
+
+Style/RedundantSelfAssignmentBranch:
+  Enabled: false
+
+Style/YAMLFileRead:
+  Enabled: false
+
+Style/RedundantFilterChain:
+  Enabled: false
+
+Style/SuperArguments:
+  Enabled: false
+
+Style/CaseLikeIf:
+  Enabled: false
+
+Lint/SymbolConversion:
+  Enabled: false
+
+Lint/LiteralAsCondition:
+  Enabled: false
+
+Lint/UselessConstantScoping:
+  Enabled: false
+
+Lint/RedundantTypeConversion:
+  Enabled: false
+
+Lint/SafeNavigationConsistency:
+  Enabled: false
+
+Lint/CopDirectiveSyntax:
+  Enabled: false
+
+Layout/LeadingCommentSpace:
+  Enabled: false
+
+Layout/EmptyLinesAroundExceptionHandlingKeywords:
+  Enabled: false
+
+Layout/SpaceAroundOperators:
+  Enabled: false
+
+Layout/ExtraSpacing:
+  Enabled: false
+
+Naming/VariableNumber:
+  Enabled: false
+
+Bundler/OrderedGems:
+  Enabled: false
+
+Performance/StringIdentifierArgument:
+  Enabled: false
+
+Performance/InefficientHashSearch:
+  Enabled: false
+
+Performance/MapMethodChain:
+  Enabled: false
+
+Rails/CompactBlank:
+  Enabled: false
+
+Rails/EnvironmentVariableAccess:
+  Enabled: false
+
+Rails/TimeZoneAssignment:
+  Enabled: false
+
+Rails/RedundantPresenceValidationOnBelongsTo:
+  Enabled: false
+
+Rails/EnvLocal:
+  Enabled: false
+
+Rails/WhereRange:
+  Enabled: false
+
+Rails/EnumSyntax:
+  Enabled: false
+
+Rails/RedundantActiveRecordAllMethod:
+  Enabled: false
+
+Rails/RootPathnameMethods:
+  Enabled: false
+
+Rails/Delegate:
+  Enabled: false
+
+RSpec/MessageSpies:
+  Enabled: false
+
+RSpec/StubbedMock:
+  Enabled: false
+
+RSpec/IndexedLet:
+  Enabled: false
+
+RSpec/NamedSubject:
+  Enabled: false
+
+RSpec/ExampleWording:
+  Enabled: false
+
+RSpec/ReceiveMessages:
+  Enabled: false
+
+RSpec/MissingExpectationTargetMethod:
+  Enabled: false
+
+FactoryBot/SyntaxMethods:
+  Enabled: false
+
+FactoryBot/AssociationStyle:
+  Enabled: false
+
+FactoryBot/ExcessiveCreateList:
+  Enabled: false
+
+FactoryBot/RedundantFactoryOption:
+  Enabled: false
+
+FactoryBot/FactoryAssociationWithStrategy:
+  Enabled: false

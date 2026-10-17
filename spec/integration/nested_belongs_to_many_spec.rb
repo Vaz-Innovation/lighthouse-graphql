@@ -245,8 +245,12 @@ RSpec.describe 'Nested mutations: belongsToMany' do
       LH::Role.create!(name: 'one')
       user.roles << LH::Role.create!(name: 'two')
 
-      result = graphql('mutation ($meta: String) { pivotsUpdateUser(input: { id: 1, roles: { sync: [{ id: 1, meta: $meta }, { id: 2 }] } }) { rolePivots { role { id } meta } } }',
-                       { 'meta' => 'hello' })
+      query = <<~GRAPHQL
+        mutation ($meta: String) {
+          pivotsUpdateUser(input: { id: 1, roles: { sync: [{ id: 1, meta: $meta }, { id: 2 }] } }) { rolePivots { role { id } meta } }
+        }
+      GRAPHQL
+      result = graphql(query, { 'meta' => 'hello' })
 
       expect(pivots(result)).to eq('1' => 'hello', '2' => nil)
     end
@@ -256,8 +260,12 @@ RSpec.describe 'Nested mutations: belongsToMany' do
       LH::Role.create!(name: 'one')
       user.roles << LH::Role.create!(name: 'two')
 
-      result = graphql('mutation ($meta: String) { pivotsUpdateUser(input: { id: 1, roles: { syncWithoutDetaching: [{ id: 1, meta: $meta }] } }) { rolePivots { role { id } meta } } }',
-                       { 'meta' => 'hello' })
+      query = <<~GRAPHQL
+        mutation ($meta: String) {
+          pivotsUpdateUser(input: { id: 1, roles: { syncWithoutDetaching: [{ id: 1, meta: $meta }] } }) { rolePivots { role { id } meta } }
+        }
+      GRAPHQL
+      result = graphql(query, { 'meta' => 'hello' })
 
       expect(pivots(result)).to eq('2' => nil, '1' => 'hello')
     end
@@ -266,8 +274,12 @@ RSpec.describe 'Nested mutations: belongsToMany' do
       LH::User.create!(name: 'user')
       LH::Role.create!(name: 'one')
 
-      result = graphql('mutation ($meta: String) { pivotsUpdateUser(input: { id: 1, roles: { connect: [{ id: 1, meta: $meta }] } }) { rolePivots { role { id } meta } } }',
-                       { 'meta' => 'hello' })
+      query = <<~GRAPHQL
+        mutation ($meta: String) {
+          pivotsUpdateUser(input: { id: 1, roles: { connect: [{ id: 1, meta: $meta }] } }) { rolePivots { role { id } meta } }
+        }
+      GRAPHQL
+      result = graphql(query, { 'meta' => 'hello' })
 
       expect(pivots(result)).to eq('1' => 'hello')
     end

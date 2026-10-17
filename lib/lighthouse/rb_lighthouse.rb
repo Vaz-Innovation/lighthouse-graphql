@@ -1,14 +1,18 @@
 # frozen_string_literal: true
 
 # ActiveSupport core extensions the library relies on (underscore, pluralize,
-# blank?/present?, deep_symbolize_keys). In a Rails host these are already
+# blank?/present?, deep_symbolize_keys, index_by/pluck/exclude?). In a Rails host these are already
 # loaded; requiring them here keeps the gem usable standalone.
 require 'active_support'
 require 'active_support/core_ext/string/inflections'
 require 'active_support/core_ext/object/blank'
 require 'active_support/core_ext/hash/keys'
+require 'active_support/core_ext/enumerable'
+require 'active_support/core_ext/string/exclude'
 require 'set'
 require 'graphql'
+
+require_relative 'namespaces'
 
 ## Load internal dependencies individually so a single missing file
 ## doesn't prevent the rest from loading. Failures are logged but not
@@ -32,6 +36,9 @@ require 'graphql'
   contracts/arg_manipulator
   contracts/arg_builder
   sdl_loader
+  generated_resolvers
+  federation_directives
+  field_resolver_stack
   schema_generator
   schema_cache
   persisted_queries
@@ -41,6 +48,7 @@ require 'graphql'
   caching
   cache_control
   pagination
+  relation_batch
   nested_mutations
   directives/pagination_manipulator
   directives/where_conditions_directive
@@ -70,36 +78,32 @@ require 'graphql'
   directives/registry
   dataloader_sources/association_loader
   dataloader_sources/model_loader
+  dataloader_sources/relation_page_loader
+  dataloader_sources/relation_count_loader
   ide_helper
 ].each do |rel|
-  begin
-    require_relative rel
-  rescue LoadError => e
-    warn("Lighthouse: could not require #{rel}: #{e.message}")
-  end
+  require_relative rel
+rescue LoadError => e
+  warn("Lighthouse: could not require #{rel}: #{e.message}")
 end
 
-require_relative 'railtie' if defined?(::Rails::Railtie)
+require_relative 'railtie' if defined?(Rails::Railtie)
 
-module Lighthouse
-  module GraphQL
-    module RbLightHouse
-      class << self
-        def get_schema(sdl_folder: nil, options: {})
-          base_types = options.delete(:base_types) || {}
-          schema_class = options.delete(:base_schema)
+module Lighthouse::GraphQL::RbLightHouse
+  class << self
+    def get_schema(sdl_folder: nil, options: {})
+      base_types = options.delete(:base_types) || {}
+      schema_class = options.delete(:base_schema)
 
-          Lighthouse::GraphQL::SchemaFactory.build_base_schema(
-            sdl_folder: sdl_folder,
-            base_types: base_types,
-            schema_options: options.merge(schema_class: schema_class)
-          )
-        end
+      Lighthouse::GraphQL::SchemaFactory.build_base_schema(
+        sdl_folder: sdl_folder,
+        base_types: base_types,
+        schema_options: options.merge(schema_class: schema_class)
+      )
+    end
 
-        def configure(&block)
-          Lighthouse::GraphQL::Config.configure(&block) if defined?(Lighthouse::GraphQL::Config)
-        end
-      end
+    def configure(&block)
+      Lighthouse::GraphQL::Config.configure(&block) if defined?(Lighthouse::GraphQL::Config)
     end
   end
 end

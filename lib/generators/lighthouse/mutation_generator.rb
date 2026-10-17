@@ -2,33 +2,29 @@
 
 require_relative 'class_generator'
 
-module Lighthouse
-  module Generators
-    # `rails generate lighthouse:mutation PublishPost` — a GraphQL::Schema::Mutation
-    # that `Mutation.publishPost` resolves to by convention.
-    class MutationGenerator < ClassGenerator
-      desc 'Generate a mutation class (GraphQL::Schema::Mutation) in app/graphql/mutations.'
+# `rails generate lighthouse:mutation PublishPost` — a GraphQL::Schema::Mutation
+# that `Mutation.publishPost` resolves to by convention.
+class Lighthouse::Generators::MutationGenerator < Lighthouse::Generators::ClassGenerator
+  desc 'Generate a mutation class (GraphQL::Schema::Mutation) in app/graphql/mutations.'
 
-      private
+  private
 
-      def kind = :mutations
+  def kind = :mutations
 
-      def body
-        <<~RUBY
-          # Resolves Mutation.#{class_basename.camelize(:lower)}. Keyword arguments are the field's
-          # arguments in snake_case; `object` and `context` are available. Raise
-          # GraphQL::ExecutionError for failures the client should see.
-          class #{class_basename} < GraphQL::Schema::Mutation
-            def resolve(**args)
-              raise NotImplementedError
-            end
-          end
-        RUBY
+  def body
+    <<~RUBY
+      # Resolves Mutation.#{class_basename.camelize(:lower)}. Keyword arguments are the field's
+      # arguments in snake_case; `object` and `context` are available. Raise
+      # GraphQL::ExecutionError for failures the client should see.
+      class #{class_basename} < GraphQL::Schema::Mutation
+        def resolve(**args)
+          raise NotImplementedError
+        end
       end
+    RUBY
+  end
 
-      def usage
-        "Mutation.#{class_basename.camelize(:lower)} resolves to #{full_class_name} — add the field to your SDL without a resolving directive."
-      end
-    end
+  def usage
+    "Mutation.#{class_basename.camelize(:lower)} resolves to #{full_class_name} — add the field to your SDL without a resolving directive."
   end
 end

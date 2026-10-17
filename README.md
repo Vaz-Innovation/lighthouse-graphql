@@ -131,6 +131,13 @@ Prefer to wire it by hand? These are the steps the generator performs.
 See **[docs/getting-started.md](docs/getting-started.md)** for the full setup,
 including base types and configuration.
 
+### Example app
+
+[`example/`](example) is a small blog API built with Lighthouse on Rails 8.1. It shows
+the schema, the generated `Queries::`/`Mutations::`/`Builders::`/`Validators::` classes,
+Pundit policies and the opt-in performance features working together, and its specs
+are the library's end-to-end suite. See [example/README.md](example/README.md).
+
 ---
 
 ## Documentation

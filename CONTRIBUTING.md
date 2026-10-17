@@ -18,8 +18,11 @@ ActiveRecord against in-memory SQLite.
 ```bash
 bundle exec rspec                    # the whole suite
 bundle exec rspec spec/lighthouse/federation_spec.rb
+bundle exec rubocop                  # lint the gem and the example app (-a to autocorrect)
 bundle exec rake build               # package the gem into pkg/
-bundle exec rake                     # default task — the suite
+bundle exec rake                     # default task — the suite, then RuboCop
+
+cd example && bundle install && bin/rails db:prepare && bundle exec rspec   # end-to-end suite
 ```
 
 **There is no committed `Gemfile.lock`, deliberately.** A library resolves against its
@@ -32,6 +35,7 @@ point — it is how a `>= 6.0` dependency bound gets tested rather than asserted
 ```
 lib/lighthouse/
   graphql.rb                  entry point and public surface
+  namespaces.rb               the modules every other file opens compactly
   config.rb                   Lighthouse.configure — resolver namespaces, on_error
   schema_generator.rb         SDL -> graphql-ruby classes; the heart of the build
   schema_factory.rb           assembles the generated types into a Schema
@@ -65,6 +69,14 @@ The registry exists so this is additive — the generator is not edited:
 A directive that is not in `docs/` does not exist as far as users are concerned — the docs are
 the interface.
 
+### Code style
+
+`.rubocop.yml` is the style guide; CI runs it. Files open their class compactly,
+`class Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver`, so lexical
+lookup does not see the enclosing namespaces: refer to other constants by their full
+name (`Lighthouse::Support::Naming`, `::GraphQL::Schema`). A new namespace goes in
+`lib/lighthouse/namespaces.rb`.
+
 ## Testing
 
 Specs build a real schema from SDL and execute real queries against real ActiveRecord models.
@@ -73,6 +85,12 @@ like this one live in the seam between SDL, graphql-ruby's type system, and the 
 only an end-to-end query crosses all three.
 
 When you fix a bug, the regression spec should be the SDL that broke it.
+
+[`example/`](./example) is a Rails app using the gem from this checkout, and its specs
+are the end-to-end suite: they go through the app's real `/graphql` endpoint, with its
+controller, policies, cache store and generated classes. Add one there when a feature
+depends on Rails itself (requests, headers, the reloader, rake tasks), and keep the
+app a readable example: it is also what users look at to see how the pieces fit.
 
 ## Commits
 
@@ -89,7 +107,8 @@ Types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`.
 ## Pull requests
 
 1. Rebase on `main`.
-2. `bundle exec rspec` and `bundle exec rake build` — both green.
+2. `bundle exec rspec`, `bundle exec rubocop`, the example's `bundle exec rspec` and
+   `bundle exec rake build` — all green.
 3. Add a note under `## [Unreleased]` in [CHANGELOG.md](./CHANGELOG.md), written for someone
    deciding whether to upgrade.
 4. Open the PR and say which Ruby you ran against.

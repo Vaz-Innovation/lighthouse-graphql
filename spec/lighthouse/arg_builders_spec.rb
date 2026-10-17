@@ -3,9 +3,11 @@
 RSpec.describe 'Argument builder directives' do
   # Minimal AST stand-ins: an argument node exposes `#name`; a directive node
   # exposes `#arguments` (each with `#name` and `#value`).
-  ArgNode = Struct.new(:name)
-  DirArg = Struct.new(:name, :value)
-  DirNode = Struct.new(:arguments)
+  before do
+    stub_const('ArgNode', Struct.new(:name))
+    stub_const('DirArg', Struct.new(:name, :value))
+    stub_const('DirNode', Struct.new(:arguments))
+  end
 
   def arg(name) = ArgNode.new(name)
   def directive(opts = {}) = DirNode.new(opts.map { |k, v| DirArg.new(k.to_s, v) })
@@ -39,14 +41,14 @@ RSpec.describe 'Argument builder directives' do
   describe 'In' do
     it 'adds an IN clause from a list' do
       sql = mod::In.new(arg('email'), directive).handle_builder(relation, %w[a b]).to_sql
-      expect(sql).to match(/"email" IN/)
+      expect(sql).to include('"email" IN')
     end
   end
 
   describe 'NotIn' do
     it 'adds a NOT IN clause' do
       sql = mod::NotIn.new(arg('email'), directive).handle_builder(relation, %w[a b]).to_sql
-      expect(sql).to match(/"email" NOT IN/)
+      expect(sql).to include('"email" NOT IN')
     end
   end
 
@@ -71,7 +73,7 @@ RSpec.describe 'Argument builder directives' do
 
     it 'supports IS_NULL' do
       sql = mod::Where.new(arg('email'), directive(operator: 'IS_NULL')).handle_builder(relation, true).to_sql
-      expect(sql).to match(/"email" IS NULL/)
+      expect(sql).to include('"email" IS NULL')
     end
   end
 
