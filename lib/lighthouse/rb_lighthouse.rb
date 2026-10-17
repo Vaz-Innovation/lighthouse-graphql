@@ -7,17 +7,23 @@ require 'active_support'
 require 'active_support/core_ext/string/inflections'
 require 'active_support/core_ext/object/blank'
 require 'active_support/core_ext/hash/keys'
+require 'set'
+require 'graphql'
 
 ## Load internal dependencies individually so a single missing file
 ## doesn't prevent the rest from loading. Failures are logged but not
 ## raised so callers can require specific files if needed.
 %w[
   config
+  errors
+  graphql_ruby_patches
   reference_resolver
   support/naming
   support/directive_args
   support/model_resolver
   support/authorization
+  support/arguments
+  support/batching
   where_conditions/operator_map
   contracts/directive
   contracts/field_resolver
@@ -29,19 +35,20 @@ require 'active_support/core_ext/hash/keys'
   schema_generator
   schema_factory
   schema_implementation
-  directives/relation_directive
+  resolver_dispatch
+  caching
+  cache_control
+  pagination
+  nested_mutations
+  directives/pagination_manipulator
   directives/where_conditions_directive
-  directive_resolvers/has_many_resolver
   directive_resolvers/aggregate_resolver
   directive_resolvers/field_resolver
   directive_resolvers/where_conditions_applier
-  directive_resolvers/belongs_to_resolver
   directive_resolvers/all_resolver
   directive_resolvers/find_resolver
   directive_resolvers/paginate_resolver
   directive_resolvers/auth_resolver
-  directive_resolvers/belongs_to_many_resolver
-  directive_resolvers/has_one_resolver
   directive_resolvers/first_resolver
   directive_resolvers/count_resolver
   directive_resolvers/rename_resolver
@@ -49,7 +56,12 @@ require 'active_support/core_ext/hash/keys'
   directive_resolvers/base
   directive_resolvers/resolution
   directive_resolvers/guard_resolver
-  directive_resolvers/can_resolver
+  directive_resolvers/association_resolvers
+  directive_resolvers/can_resolvers
+  directive_resolvers/convention_resolver
+  directive_resolvers/model_mutation_resolver
+  directive_resolvers/cache_resolvers
+  directive_resolvers/validator_resolver
   directives/arguments/base
   directives/arguments/filters
   directives/arguments/order_by

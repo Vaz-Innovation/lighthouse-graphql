@@ -86,6 +86,38 @@ module Lighthouse
         def constantize_model(name)
           Lighthouse::Support::ModelResolver.constantize(name)
         end
+
+        protected
+
+        def directive_arg(name)
+          Lighthouse::Support::DirectiveArgs.literal(@directive_node, name)
+        end
+
+        def resolver_method_name
+          "resolve_field_#{@field_def.name}"
+        end
+
+        # The field's resolver so far, for a directive that wraps it.
+        def capture_inner(target_type_class)
+          Resolution.capture(target_type_class, resolver_method_name, @field_def, @field_def.name)
+        end
+
+        def install(target_type_class, callable)
+          target_type_class.define_singleton_method(resolver_method_name, &callable)
+          @field_def.resolve_proc = callable if @field_def.respond_to?(:resolve_proc=)
+        end
+
+        # The model a directive acts on: its `model:` argument, the `model:` of
+        # another directive on the field (`@count(model: "Post") @canQuery`), or
+        # the field's return type without a generated Paginator/Connection suffix.
+        def model_class
+          sibling = (@field_def.ast_node&.directives || []).filter_map do |d|
+            Lighthouse::Support::DirectiveArgs.literal(d, 'model')
+          end.first
+          name = directive_arg('model') || sibling || @field_def.type.unwrap.graphql_name.sub(/(SimplePaginator|Paginator|Connection)\z/, '')
+          constantize_model(name) || raise(Lighthouse::DefinitionError,
+                                           "@#{@directive_node&.name} on #{@type_def.graphql_name}.#{@field_def.name}: no model #{name}")
+        end
       end
     end
   end

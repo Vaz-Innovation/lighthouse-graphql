@@ -40,6 +40,9 @@ def self.directive_name = 'upcase'
 def self.definition = 'directive @upcase on FIELD_DEFINITION'
 ```
 
+If the definition refers to types of its own (an enum argument, say), return
+them from `def self.type_definitions = { 'Mode' => 'enum Mode { A B }' }`.
+
 Lighthouse injects that `definition` into the schema automatically, so apps never
 hand-declare your directive, and `bin/rails lighthouse:ide_helper` writes it out
 for the IDE (see [IDE support](getting-started.md#ide-support)).

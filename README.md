@@ -139,9 +139,13 @@ including base types and configuration.
 | --- | --- |
 | [Getting started](docs/getting-started.md) | Install, base types, building & serving the schema |
 | [Directives reference](docs/directives.md) | Every built-in directive, grouped by purpose |
-| [Relationships](docs/relationships.md) | `@hasMany`, `@belongsTo`, `@belongsToMany`, `@hasOne` and batching |
+| [Relationships](docs/relationships.md) | `@hasMany`, `@belongsTo`, `@belongsToMany`, `@hasOne`, the `@morph*` variants, batching and `type:` pagination |
 | [Filtering & ordering](docs/filtering-and-ordering.md) | `@eq`/`@where`/`@in`/`@like`, `@whereConditions`, `@orderBy` |
-| [Authentication & authorization](docs/authorization.md) | `@guard`, `@can` (policy-based, Pundit by default) |
+| [Queries, mutations & builders](docs/resolvers.md) | `Queries::` / `Mutations::` classes (graphql-ruby's contract), builders, generators |
+| [Mutations](docs/mutations.md) | `@create`, `@update`, `@upsert`, `@delete` (and `*Many`), nested mutations on every kind of association, `@spread`, `@inject` |
+| [Validation](docs/validation.md) | Model validations, `@validator` with Dry::Validation contracts |
+| [Authentication & authorization](docs/authorization.md) | `@guard`, `@canFind` / `@canModel` / `@canQuery` / `@canResolved` / `@canRoot` (Pundit by default) |
+| [Caching](docs/caching.md) | `@cache`, `@cacheKey`, `@clearCache` (Rails.cache), `@cacheControl` (HTTP) |
 | [Apollo Federation](docs/federation.md) | `@key`, `resolve_reference`, the `ReferenceResolver` registry |
 | [Custom directives](docs/custom-directives.md) | The contracts, the registry, writing your own directive |
 | [Configuration](docs/configuration.md) | `Lighthouse.configure`, namespaces, error handling |

@@ -10,19 +10,35 @@ Lighthouse.configure do |config|
   config.sdl_folder = Rails.root.join('<%= sdl_folder %>').to_s
 <% end -%>
 
-  # Namespaces tried, in order, when a directive argument names a class, e.g.
-  # @field(resolver: "Users::Profile") or @all(model: "User"). Fully-qualified
+  # Where classes named by the schema are looked up, by kind. A Query or Mutation
+  # field without a resolving directive resolves by convention: Query.latestPosts
+  # to Queries::LatestPosts (a GraphQL::Schema::Resolver), Mutation.publishPost
+  # to Mutations::PublishPost (a GraphQL::Schema::Mutation). @builder classes
+  # come from :builders and @validator contracts from :validators. Generate them
+  # with `rails g lighthouse:query|mutation|builder|validator Name`.
+  # config.namespaces = {
+  #   queries: ['Queries'], mutations: ['Mutations'], builders: ['Builders'], validators: ['Validators']
+  # }
+
+  # Namespaces tried, in order, for models (@all(model: "User")) and for
+  # @field(resolver:) on types other than Query and Mutation. Fully-qualified
   # names (containing `::`) are used as-is.
   # config.resolver_namespaces = ['App::Graphql']
+
+  # Store for @cache and @clearCache.
+  # config.cache_store = Rails.cache
+
+  # Run @create/@update/@createMany/@updateMany in a database transaction.
+  # config.transactional_mutations = true
 
   # Called when a directive or resolver swallows an error. The default raises in
   # test and logs otherwise.
   # config.on_error = ->(error, _context) { Rails.error.report(error) }
 
-  # Authorization seams used by @guard and @can (Pundit by default).
+  # Authorization seams used by @guard and the @can* directives (Pundit by default).
   # config.authenticated_user = ->(ctx) { ctx[:current_user] }
   # config.policy_user = ->(ctx) { ctx[:pundit_user] || ctx[:current_user] }
-  # config.authorizer = ->(user, record, ability) { Pundit.policy!(user, record).public_send("#{ability}?") }
+  # config.authorizer = ->(user, record, ability, args = []) { Pundit.policy!(user, record).public_send("#{ability}?", *args) }
 end
 
 # Register app-defined directives and federation reference resolvers inside

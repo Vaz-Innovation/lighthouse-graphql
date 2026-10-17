@@ -18,6 +18,19 @@ module Lighthouse
           end
         end
 
+        # @whereKey — filter by the model's primary key, whatever its column is
+        # named; a list matches any of its values. `deletePosts(ids: [ID!]! @whereKey)`
+        class WhereKey < Base
+          def self.directive_name = 'whereKey'
+          def self.definition = 'directive @whereKey on ARGUMENT_DEFINITION | INPUT_FIELD_DEFINITION'
+
+          def handle_builder(relation, value)
+            return relation if value.nil?
+
+            relation.where(relation.klass.primary_key => value)
+          end
+        end
+
         # @neq — inequality filter.
         class Neq < Base
           def self.directive_name = 'neq'

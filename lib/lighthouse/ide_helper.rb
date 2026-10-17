@@ -46,10 +46,12 @@ module Lighthouse
     end
 
     def directives_sdl(sdl = '', registry: Lighthouse::DirectiveRegistry.default)
-      definitions = Lighthouse::GraphQL::SchemaGenerator.missing_directive_definitions(sdl, registry: registry)
+      generator = Lighthouse::GraphQL::SchemaGenerator
+      definitions = generator.missing_directive_definitions(sdl, registry: registry).sort.map { |_, definition| definition }
+      types = generator.missing_type_definitions(sdl, definitions, registry: registry).sort.map { |_, definition| definition }
       render(
         'Directive definitions contributed by Lighthouse and the directives your app registered.',
-        definitions.sort.map { |_, definition| definition }
+        definitions + types
       )
     end
 

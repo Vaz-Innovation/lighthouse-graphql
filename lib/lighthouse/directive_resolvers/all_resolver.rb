@@ -18,7 +18,7 @@ module Lighthouse
 
           method_name = "resolve_field_#{field_name}"
 
-          model_name_static = extract_model_name || @field_def.type.unwrap.name
+          model_name_static = extract_model_name || @field_def.type.unwrap.graphql_name
           model_class_static = constantize_model(model_name_static)
 
           target_type_class.define_singleton_method(method_name) do |_obj, arguments, ctx|
@@ -63,12 +63,6 @@ module Lighthouse
           arg = @directive_node.arguments&.find { |a| a.name == 'model' }
           return nil unless arg
           arg.value.respond_to?(:value) ? arg.value.value : arg.value
-        end
-
-        def constantize_model(name)
-          return nil unless name
-          name = name.to_s.split('::').last
-          Object.const_get(name) rescue nil
         end
       end
     end

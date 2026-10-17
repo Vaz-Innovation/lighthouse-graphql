@@ -40,8 +40,21 @@ Without it, nested relationships re-introduce N+1 queries.
 
 ## Authorize at the field, early
 
-Use `@auth` (and your own authorization directives) on fields that require it.
-Because `@auth` wraps the resolver, the check runs before any data is loaded.
+Use `@guard` and the `@can*` directives on fields that require them. They wrap the
+resolver, so the check runs before any data is loaded (only `@canResolved`, which
+needs the result, runs after — keep it to fields that don't write).
+
+## Keep queries, mutations and builders apart
+
+A custom `Query` field is a `GraphQL::Schema::Resolver` in `app/graphql/queries`,
+a `Mutation` field a `GraphQL::Schema::Mutation` in `app/graphql/mutations`, and a
+query refinement a builder in `app/graphql/builders`. They have different jobs and
+contracts; don't fold them into one "resolvers" folder. See [resolvers.md](resolvers.md).
+
+## Validate in the model first
+
+Model validations already cover `@create` / `@update`. Reach for `@validator` only
+for rules that aren't the model's. See [validation.md](validation.md).
 
 ## Mutations: prefer throwable errors
 
@@ -62,7 +75,7 @@ end
 
 ## One configuration seam
 
-Keep all Lighthouse wiring — `resolver_namespaces`, custom directive
+Keep all Lighthouse wiring — `namespaces`, `resolver_namespaces`, custom directive
 registration, federation reference resolvers, `on_error` — in initializers, not
 scattered through the app. This keeps the library a clean dependency and makes the
 app's GraphQL setup easy to find.

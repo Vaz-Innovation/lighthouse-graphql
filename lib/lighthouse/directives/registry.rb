@@ -32,6 +32,7 @@ module Lighthouse
       @arg_builders = {}
       @sdl_manipulators = []
       @definitions = {}
+      @type_definitions = {}
     end
 
     def register(name_or_klass, klass = nil)
@@ -56,14 +57,25 @@ module Lighthouse
 
     # Application order for wrapping/resolution directives on a field. Lower is
     # applied first (innermost, closest to the data); higher is applied last
-    # (outermost, so it executes first). Authentication guards run outermost;
-    # @can wraps the resolver to authorize its result.
+    # (outermost, so it executes first). From the outside in: authentication,
+    # authorization, argument validation, then @cache (so a cache hit is still
+    # authorized and validated), @clearCache (which acts once the resolver
+    # succeeded), and finally the data resolver (0).
+    RESOLUTION_ORDER = {
+      'guard' => 5, 'auth' => 5,
+      'canFind' => 4, 'canModel' => 4, 'canQuery' => 4, 'canResolved' => 4, 'canRoot' => 4,
+      'validator' => 3,
+      'cache' => 2,
+      'clearCache' => 1
+    }.freeze
+
     def resolution_order(name)
-      case name.to_s
-      when 'guard', 'auth' then 2
-      when 'can' then 1
-      else 0
-      end
+      RESOLUTION_ORDER.fetch(name.to_s, 0)
+    end
+
+    # A wrapper decorates whatever resolves the field; anything else resolves it.
+    def wrapper?(name)
+      resolution_order(name).positive?
     end
 
     def resolution_names
@@ -103,6 +115,23 @@ module Lighthouse
       self
     end
 
+    # Types that directive definitions refer to (`enum CanAction`, `input
+    # ClearCacheIdSource`, ...), contributed by a class's `type_definitions`
+    # ({ "Name" => "enum Name { ... }" }) or registered here. Injected next to
+    # the directives that need them; shared by name, so declared only once.
+    def register_type_definition(name, definition)
+      @type_definitions[name.to_s] = definition
+      self
+    end
+
+    def type_definitions
+      types = @type_definitions.dup
+      (@resolution.values + @arg_builders.values).uniq.each do |klass|
+        types.merge!(klass.type_definitions) if klass.respond_to?(:type_definitions)
+      end
+      types
+    end
+
     # Register an SDL manipulator: any object responding to `manipulate(sdl)` and
     # returning the (possibly transformed) SDL string. These run before the
     # schema is built to inject Connection/Paginator types, whereConditions
@@ -124,10 +153,6 @@ module Lighthouse
     def register_defaults
       dr = Lighthouse::GraphQL::DirectiveResolvers
       {
-        'hasMany' => dr::HasManyDirectiveResolver,
-        'belongsTo' => dr::BelongsToDirectiveResolver,
-        'belongsToMany' => dr::BelongsToManyDirectiveResolver,
-        'hasOne' => dr::HasOneDirectiveResolver,
         'all' => dr::AllDirectiveResolver,
         'find' => dr::FindDirectiveResolver,
         'first' => dr::FirstDirectiveResolver,
@@ -138,20 +163,39 @@ module Lighthouse
         'rename' => dr::RenameDirectiveResolver,
         'method' => dr::MethodDirectiveResolver,
         'auth' => dr::AuthDirectiveResolver,
-        'guard' => dr::GuardDirectiveResolver,
-        'can' => dr::CanDirectiveResolver
+        'guard' => dr::GuardDirectiveResolver
       }.each { |name, k| register(name, k) }
+
+      # Relationships, mutations, authorization, caching and validation: self-describing classes.
+      [
+        dr::HasManyDirectiveResolver, dr::BelongsToManyDirectiveResolver, dr::MorphManyDirectiveResolver,
+        dr::MorphToManyDirectiveResolver, dr::HasOneDirectiveResolver, dr::MorphOneDirectiveResolver,
+        dr::BelongsToDirectiveResolver, dr::MorphToDirectiveResolver,
+        dr::CreateDirectiveResolver, dr::CreateManyDirectiveResolver,
+        dr::UpdateDirectiveResolver, dr::UpdateManyDirectiveResolver,
+        dr::UpsertDirectiveResolver, dr::UpsertManyDirectiveResolver, dr::DeleteDirectiveResolver,
+        dr::CanFindDirectiveResolver, dr::CanModelDirectiveResolver, dr::CanQueryDirectiveResolver,
+        dr::CanResolvedDirectiveResolver, dr::CanRootDirectiveResolver,
+        dr::CacheDirectiveResolver, dr::ClearCacheDirectiveResolver,
+        dr::ValidatorDirectiveResolver
+      ].each { |k| register(k) }
 
       # Argument-builder filter/sort directives.
       args = Lighthouse::GraphQL::Directives::Arguments
-      [args::Eq, args::Neq, args::In, args::NotIn, args::Like, args::Where, args::OrderBy]
+      [args::Eq, args::Neq, args::In, args::NotIn, args::Like, args::Where, args::WhereKey, args::OrderBy]
         .each { |k| register(k) }
 
       # SDL manipulators run in registration order during the manipulation phase.
-      register_manipulator(Lighthouse::GraphQL::Directives::RelationDirective)
+      register_manipulator(Lighthouse::GraphQL::Directives::PaginationManipulator)
       register_manipulator(Lighthouse::GraphQL::Directives::WhereConditionsDirective)
 
       register_definition('builder', dr::BuilderApplier::DEFINITION)
+      # Read by other directives rather than resolving anything themselves.
+      register_definition('spread', 'directive @spread on ARGUMENT_DEFINITION | INPUT_FIELD_DEFINITION')
+      register_definition('inject', 'directive @inject(context: String!, name: String!) repeatable on FIELD_DEFINITION')
+      register_definition('cacheKey', 'directive @cacheKey on FIELD_DEFINITION')
+      register_definition('cacheControl', Lighthouse::GraphQL::CacheControl::DEFINITION)
+      Lighthouse::GraphQL::CacheControl::TYPE_DEFINITIONS.each { |name, sdl| register_type_definition(name, sdl) }
       Lighthouse::GraphQL::Directives::WhereConditionsDirective::DEFINITIONS.each do |name, definition|
         register_definition(name, definition)
       end

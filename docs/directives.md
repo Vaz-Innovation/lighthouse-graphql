@@ -24,20 +24,25 @@ type Query {
 }
 ```
 
-The model defaults to the field's return type (`User`). Override with
-`@all(model: "Account")`. Combine with [argument filters](filtering-and-ordering.md)
-and [`@orderBy`](#orderby) to constrain the result.
+It returns a plain list. The model defaults to the field's return type (`User`).
+Override it with `@all(model: "Account")`. Combine with
+[argument filters](filtering-and-ordering.md) and [`@orderBy`](#orderby) to
+constrain the result.
 
 ### `@find`
 
-Return a single record, typically by id. Pair it with an argument filter such as
-[`@eq`](#eq) so Lighthouse knows what to match on.
+Return the single record the field's argument filters select. More than one match
+is an error (`The query returned more than one result.`); none returns `null`.
 
 ```graphql
 type Query {
   user(id: ID! @eq): User @find
+  userByEmail(email: String! @eq): User @find
 }
 ```
+
+A lookup by `id` alone is batched through the Dataloader. An `id` argument without
+a filter directive still selects by primary key. `scopes:` applies model scopes.
 
 ### `@first`
 
@@ -52,25 +57,37 @@ type Query {
 
 ### `@paginate`
 
-Return a paginated list. Lighthouse rewrites the field to a Paginator type and
-adds pagination arguments.
+Return one page of a model's records. Lighthouse rewrites the field and adds the
+pagination arguments, exactly as PHP Lighthouse does:
+
+| `type:` | Arguments | Returns |
+| --- | --- | --- |
+| `PAGINATOR` (default) | `first: Int!`, `page: Int` | `PostPaginator! { paginatorInfo: PaginatorInfo!, data: [Post!]! }` |
+| `SIMPLE` | `first: Int!`, `page: Int` | `PostSimplePaginator! { paginatorInfo: SimplePaginatorInfo!, data }`, with no total, so one query fewer |
+| `CONNECTION` | `first: Int!`, `after: String` | `PostConnection! { pageInfo: PageInfo!, edges: [PostEdge!]! }`, Relay style |
 
 ```graphql
 type Query {
-  posts: [Post!]! @paginate
+  posts(title: String @like): [Post!]! @paginate(defaultCount: 20, maxCount: 100)
 }
 ```
-
-becomes, in effect:
 
 ```graphql
-type Query {
-  posts(first: Int, after: String): PostConnection
-}
+{ posts(first: 10, page: 2) { paginatorInfo { total lastPage hasMorePages } data { title } } }
 ```
 
-Use `@paginate(type: "CONNECTION")` for Relay-style cursor connections, or the
-default offset-based paginator otherwise.
+- **The query.** It is the model's (`model:`, else the return type), narrowed by
+  `scopes:`, [`@builder`](#builder) and the field's argument filters. On a nested
+  field it pages the parent's association of the same name: `User.posts @paginate`
+  pages the user's posts.
+- **`first`.** It defaults to `defaultCount`, else
+  [`Config.pagination_default_count`](configuration.md#pagination_default_count--pagination_max_count).
+  Without either, clients must pass it.
+- **`maxCount`.** It caps `first`, overriding `Config.pagination_max_count`;
+  `maxCount: null` means unlimited.
+- **The total** is only counted when the client selects `paginatorInfo` or
+  `pageInfo`.
+- **Cursors** are base64 of the item's position.
 
 ### `@count`
 
@@ -105,10 +122,11 @@ See [relationships.md](relationships.md) for the full guide.
 
 | Directive | Association |
 | --- | --- |
-| `@hasMany` | one-to-many (returns a connection) |
+| `@hasMany` | one-to-many: a list, or paginated with `type:` |
 | `@hasOne` | one-to-one |
 | `@belongsTo` | inverse of has-one/has-many |
-| `@belongsToMany` | many-to-many |
+| `@belongsToMany` | many-to-many: a list, or paginated with `type:` |
+| `@morphTo`, `@morphOne`, `@morphMany`, `@morphToMany` | the polymorphic variants |
 
 ```graphql
 type User {
@@ -128,8 +146,11 @@ The relation name defaults to the field name (snake_cased). Override with
 
 ### `@field`
 
-Delegate a field to a custom resolver class — your escape hatch for anything the
-built-in directives don't cover.
+Delegate a field to a class — your escape hatch for anything the built-in
+directives don't cover. On `Query` and `Mutation` you usually don't need it:
+a field without a resolving directive resolves to `Queries::<FieldName>` /
+`Mutations::<FieldName>`, graphql-ruby resolver and mutation classes. See
+[resolvers.md](resolvers.md).
 
 ```graphql
 type Contact {
@@ -137,10 +158,11 @@ type Contact {
 }
 ```
 
-The resolver is resolved against your configured
-[`resolver_namespaces`](configuration.md). It may be a class with a class-level
-`call`, an instance `#call`, or an instance `#resolve`, each receiving
-`(object, args, context)`:
+On `Query` and `Mutation` the name is looked up in the queries / mutations
+namespaces, elsewhere in [`resolver_namespaces`](configuration.md). The class may
+be a `GraphQL::Schema::Resolver` (graphql-ruby's contract), or a plain callable —
+a class-level `call`, an instance `#call`, or an instance `#resolve`, each
+receiving `(object, args, context)`:
 
 ```ruby
 module Resolvers
@@ -189,25 +211,27 @@ Require an authenticated user before the field resolves; otherwise raise
 
 ```graphql
 type Query {
-  me: User @field(resolver: "Resolvers::CurrentUser") @guard
+  me: User @guard
 }
 ```
 
-### `@can`
+### `@canFind`, `@canModel`, `@canQuery`, `@canResolved`, `@canRoot`
 
-Authorize a field with a policy ability (Pundit by default; configurable). By
-default it authorizes the resolved record. `repeatable`.
+Authorize a field with a policy ability (Pundit by default; configurable) — each
+directive authorizes something different: the models an argument identifies, the
+model class, the models the field's filters select, the resolved value, or the
+parent object. All `repeatable`; shared arguments `ability`, `injectArgs`, `args`,
+`action`, `returnValue`.
 
 ```graphql
-type Query {
-  contact(id: ID!): Contact
-    @field(resolver: "Resolvers::ContactResolver")
-    @can(ability: "show")
+type Mutation {
+  createPost(input: CreatePostInput! @spread): Post @create @canModel(ability: "create")
+  updatePost(id: ID!, title: String): Post @update @canFind(ability: "update", find: "id")
 }
 ```
 
-`@can(ability:, find:, model:, root:)` — see [authorization.md](authorization.md)
-for the `find`/`model`/`root` modes.
+See [authorization.md](authorization.md). (`@can` was removed in favour of this
+family — it has a migration table.)
 
 ### `@auth`
 
@@ -231,13 +255,16 @@ Apply a custom method to the query builder before the field resolves. Repeatable
 
 ```graphql
 type Query {
-  contacts: [Contact!]! @paginate @builder(class: "Resolvers::ContactsBuilder")
+  contacts: [Contact!]! @paginate @builder(class: "Unassigned")
 }
 ```
 
+Builders are looked up in their own namespace, `Builders::` (app/graphql/builders)
+— they are not resolvers. See [resolvers.md](resolvers.md#builders).
+
 ```ruby
-module Resolvers
-  class ContactsBuilder
+module Builders
+  class Unassigned
     def self.call(relation, args, _ctx)
       args[:unassigned] ? relation.left_joins(:assignments).where(assignments: { id: nil }) : relation
     end
@@ -260,6 +287,7 @@ Full guide: [filtering-and-ordering.md](filtering-and-ordering.md).
 | `@in` | `column IN (values)` |
 | `@notIn` | `column NOT IN (values)` |
 | `@like` | `column LIKE %value%` |
+| `@whereKey` | `primary key = value` (`IN` for a list) |
 | `@where(operator:)` | generic operator (`GT`, `GTE`, `IN`, `IS_NULL`, `CONTAINS`, …) |
 | `@orderBy` | sort by one or more columns |
 
@@ -285,6 +313,55 @@ related records). Lighthouse generates the input and enum types for you. See
 ```graphql
 type Query {
   people(where: _ @whereConditions(columns: ["age", "type"])): [Person!]! @all
+}
+```
+
+---
+
+## Mutation directives
+
+`@create`, `@createMany`, `@update`, `@updateMany`, `@upsert` and `@upsertMany`
+save the model a field returns through ActiveRecord, with its validations, in a
+transaction. Input on its associations runs as
+[nested mutations](mutations.md#nested-mutations). `@delete` destroys the records
+its filter arguments (`@whereKey`, `@eq`, …) select. `@spread` flattens an input
+argument into the attributes, `@rename` maps an argument to another attribute,
+and `@inject(context:, name:)` sets server-side attributes.
+
+```graphql
+type Mutation {
+  createPost(input: CreatePostInput! @spread): Post!
+    @create @inject(context: "current_user.id", name: "author_id")
+  updatePost(id: ID!, title: String): Post! @update
+}
+```
+
+See [mutations.md](mutations.md).
+
+---
+
+## Validation
+
+`@validator` runs a contract (Dry::Validation by default) before a field
+resolves — on a field, or on an input type wherever it is used. Model validations
+need no directive. See [validation.md](validation.md).
+
+```graphql
+input CreateUserInput @validator { email: String password: String }
+```
+
+---
+
+## Caching
+
+`@cache(maxAge:, private:)` keeps a field's value in `Rails.cache`, keyed with the
+help of `@cacheKey`; `@clearCache(type:, idSource:, field:)` invalidates it from a
+mutation. `@cacheControl(maxAge:, scope:, inheritMaxAge:)` computes the response's
+HTTP `Cache-Control` header. See [caching.md](caching.md).
+
+```graphql
+type Query {
+  temperature: Int! @cache(maxAge: 300) @cacheControl(maxAge: 300)
 }
 ```
 

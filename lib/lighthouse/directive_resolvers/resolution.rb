@@ -13,7 +13,7 @@ module Lighthouse
         # (obj, args, ctx) -> value, so it can be wrapped. The returned callable
         # is unaffected by subsequently redefining the singleton method.
         def capture(target_type_class, method_name, field_def, field_name)
-          original_singleton = target_type_class.method(method_name) if target_type_class.respond_to?(method_name)
+          original_singleton = lighthouse_singleton(target_type_class, method_name)
           original_proc = field_def.resolve_proc if field_def.respond_to?(:resolve_proc) && field_def.resolve_proc
 
           lambda do |obj, arguments, ctx|
@@ -28,6 +28,16 @@ module Lighthouse
               obj.respond_to?(snake) ? obj.public_send(snake) : nil
             end
           end
+        end
+
+        # graphql-ruby's SDL builder defines `resolve_field_*` methods of its own
+        # (with a different arity); only ours, defined under lib/lighthouse/, count.
+        def lighthouse_singleton(target_type_class, method_name)
+          return nil unless target_type_class.respond_to?(method_name)
+
+          method = target_type_class.method(method_name)
+          source_file, = method.source_location
+          method if source_file&.include?('/lib/lighthouse/')
         end
       end
     end

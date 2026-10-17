@@ -27,7 +27,11 @@ module Lighthouse
 
           return relation unless class_name
 
-          builder_class = resolver_instance.send(:constantize_model, class_name)
+          # Builders are not resolvers: they compose onto a relation, and live in
+          # their own namespace (Config.namespaces[:builders], app/graphql/builders).
+          builder_class = Lighthouse::Support::ModelResolver.constantize(
+            class_name, namespaces: Lighthouse::Config.namespaces[:builders]
+          )
           return relation unless builder_class
 
           if builder_class.respond_to?(method_name)

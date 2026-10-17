@@ -15,11 +15,14 @@ module Lighthouse
         !authenticated_user(context).nil?
       end
 
-      # Returns true/false for `ability` against `record` for the current policy
-      # user. Defaults to Pundit (see Config#authorizer).
-      def authorized?(context, record, ability)
+      # Returns true/false for `ability` against `record` (an instance, or a model
+      # class) for the current policy user. Defaults to Pundit (see
+      # Config#authorizer). `args` reach the authorizer only when given, so a
+      # three-argument authorizer keeps working for checks without them.
+      def authorized?(context, record, ability, args = [])
         user = Lighthouse::Config.policy_user.call(context)
-        Lighthouse::Config.authorizer.call(user, record, ability)
+        authorizer = Lighthouse::Config.authorizer
+        args.empty? ? authorizer.call(user, record, ability) : authorizer.call(user, record, ability, args)
       end
     end
   end

@@ -11,10 +11,13 @@ class GraphqlController < ApplicationController
       variables: prepare_variables(params[:variables]),
       operation_name: params[:operationName],
       context: {
-        # Read by @guard and @can — see config/initializers/lighthouse.rb.
+        # Read by @guard and the @can* directives — see config/initializers/lighthouse.rb.
         # current_user: current_user
       }
     )
+    # The Cache-Control header the selected fields' @cacheControl hints allow
+    # (a no-op when the schema has none).
+    Lighthouse::GraphQL::CacheControl.apply(response, result)
     render json: result
   rescue StandardError => e
     raise e unless Rails.env.development?

@@ -20,6 +20,12 @@ module Lighthouse
       end
 
       def unwrap(value)
+        case value
+        when ::GraphQL::Language::Nodes::Enum then return value.name
+        when ::GraphQL::Language::Nodes::NullValue then return nil
+        when ::GraphQL::Language::Nodes::InputObject then return value.to_h
+        end
+
         if value.respond_to?(:value)
           value.value
         elsif value.is_a?(Array)

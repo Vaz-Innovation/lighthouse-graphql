@@ -25,11 +25,13 @@ end
 
 # Helpers exposed to every example for building schemas from inline SDL.
 module SchemaBuilders
-  def build_schema(sdl, federation: false, base_types: {})
+  # `dataloader: true` enables GraphQL::Dataloader, as app schemas do.
+  def build_schema(sdl, federation: false, base_types: {}, dataloader: false)
     Lighthouse::GraphQL::SchemaFactory.build_base_schema(
       sdl: sdl,
       base_types: base_types,
-      federation: federation
+      federation: federation,
+      schema_options: dataloader ? { using: { GraphQL::Dataloader => {} } } : {}
     )
   end
 

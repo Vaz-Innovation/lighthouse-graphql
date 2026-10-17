@@ -10,7 +10,7 @@ module Lighthouse
       # of the GraphQL field name.
       class RenameDirectiveResolver < BaseDirectiveResolver
         def self.directive_name = 'rename'
-        def self.definition = 'directive @rename(attribute: String!) on FIELD_DEFINITION | INPUT_FIELD_DEFINITION'
+        def self.definition = 'directive @rename(attribute: String!) on FIELD_DEFINITION | ARGUMENT_DEFINITION | INPUT_FIELD_DEFINITION'
 
         def define_resolver(target_type_class)
           method_name = "resolve_field_#{@field_def.name}"

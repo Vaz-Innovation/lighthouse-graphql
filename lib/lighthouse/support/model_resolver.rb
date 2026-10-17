@@ -25,13 +25,17 @@ module Lighthouse
         end
       end
 
-      def constantize(name)
+      # `namespaces:` overrides the configured resolver_namespaces, e.g. with
+      # Config.namespaces[:builders] to look a builder class up.
+      # `fallback: false` skips the bare name, so `Queries::User` is never
+      # mistaken for the `User` model.
+      def constantize(name, namespaces: self.namespaces, fallback: true)
         return nil unless name
 
         raw = name.to_s.strip
         return nil if raw.empty?
 
-        candidates_for(raw).each do |candidate|
+        candidates_for(raw, namespaces, fallback: fallback).each do |candidate|
           klass = try_constantize(candidate)
           return klass if klass
         end
@@ -39,11 +43,11 @@ module Lighthouse
         nil
       end
 
-      def candidates_for(raw)
+      def candidates_for(raw, namespaces = self.namespaces, fallback: true)
         if raw.include?('::')
           [raw]
         else
-          namespaces.map { |ns| "#{ns}::#{raw}" } + [raw]
+          Array(namespaces).map { |ns| "#{ns}::#{raw}" } + (fallback ? [raw] : [])
         end
       end
 

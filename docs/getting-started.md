@@ -176,9 +176,9 @@ It writes two files:
   built-in or [your own](custom-directives.md), except those your SDL already
   declares (so the IDE never sees a duplicate).
 - **`programmatic-types.graphql`** — the types Lighthouse adds to the executable
-  schema: `<Type>Paginator`, `<Type>Connection`/`Edge`, `PaginatorInfo`,
-  `PageInfo`, the `whereConditions` inputs and enums, and the `_` placeholder
-  scalar.
+  schema: `<Type>Paginator`, `<Type>SimplePaginator`, `<Type>Connection`/`Edge`,
+  `PaginatorInfo`, `SimplePaginatorInfo`, `PageInfo`, the `whereConditions`
+  inputs and enums, and the `_` placeholder scalar.
 
 Point your IDE's [graphql-config](https://the-guild.dev/graphql/config) at them
 next to your SDL — the install generator writes this `graphql.config.yml`:
@@ -218,9 +218,19 @@ type User {
 }
 ```
 
+## Custom queries and mutations
+
+When a field needs Ruby, write a graphql-ruby resolver or mutation class named
+after it — `Query.latestPosts` resolves to `Queries::LatestPosts`
+(`app/graphql/queries/latest_posts.rb`), `Mutation.publishPost` to
+`Mutations::PublishPost`. `bin/rails generate lighthouse:query LatestPosts`
+scaffolds one. See [resolvers.md](resolvers.md).
+
 ## Next steps
 
 - [Directives reference](directives.md) — the full vocabulary.
+- [Queries, mutations & builders](resolvers.md), [Mutations](mutations.md),
+  [Validation](validation.md), [Caching](caching.md).
 - [Relationships](relationships.md) — wiring associations.
 - [Filtering & ordering](filtering-and-ordering.md) — query constraints.
 - [Apollo Federation](federation.md) — become a subgraph.

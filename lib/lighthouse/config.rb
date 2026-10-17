@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'active_support/cache'
+
 module Lighthouse
   # Convenience entrypoint: `Lighthouse.configure { |c| c.resolver_namespaces = [...] }`.
   def self.configure(&block)
@@ -7,9 +9,22 @@ module Lighthouse
   end
 
   module Config
+    # Where each kind of class a schema refers to by name is looked up. Query and
+    # mutation fields resolve to GraphQL::Schema::Resolver / Mutation classes,
+    # builders compose onto a relation, validators check arguments: distinct
+    # contracts, so distinct namespaces (app/graphql/queries, .../mutations, ...).
+    DEFAULT_NAMESPACES = {
+      queries: ['Queries'],
+      mutations: ['Mutations'],
+      builders: ['Builders'],
+      validators: ['Validators']
+    }.freeze
+
     class << self
       attr_writer :sdl_folder, :resolver_namespaces, :on_error,
-                  :authenticated_user, :policy_user, :authorizer
+                  :authenticated_user, :policy_user, :authorizer,
+                  :cache_store, :transactional_mutations,
+                  :pagination_default_count, :pagination_max_count
 
       def sdl_folder
         @sdl_folder ||= (defined?(Rails) && Rails.respond_to?(:root) ? File.join(Rails.root, 'graphql') : nil)
@@ -25,6 +40,36 @@ module Lighthouse
       # and can be extracted into a gem as-is.
       def resolver_namespaces
         @resolver_namespaces ||= ['App::Graphql']
+      end
+
+      # { queries:, mutations:, builders:, validators: } => [namespace, ...].
+      # Assigning a partial hash overrides only the kinds it names.
+      def namespaces
+        @namespaces ||= DEFAULT_NAMESPACES.transform_values(&:dup)
+      end
+
+      def namespaces=(overrides)
+        @namespaces = namespaces.merge(overrides.to_h.transform_keys(&:to_sym).transform_values { |v| Array(v) })
+      end
+
+      # Store backing @cache and @clearCache. Defaults to Rails.cache.
+      def cache_store
+        @cache_store ||=
+          if defined?(Rails) && Rails.respond_to?(:cache) && Rails.cache
+            Rails.cache
+          else
+            ActiveSupport::Cache::MemoryStore.new
+          end
+      end
+
+      # Pagination defaults, overridden by a directive's defaultCount / maxCount.
+      # Without a default count, paginated fields require `first`.
+      attr_reader :pagination_default_count, :pagination_max_count
+
+      # Run @create/@update/... in a database transaction, so a failing record
+      # (e.g. the third of five in @createMany) leaves nothing behind.
+      def transactional_mutations
+        @transactional_mutations.nil? ? true : @transactional_mutations
       end
 
       # Hook invoked when a directive/resolver swallows an error. Defaults to
@@ -56,8 +101,10 @@ module Lighthouse
         end
       end
 
-      # Checks an ability: `->(user, record, ability) { true/false }`.
-      # Defaults to Pundit: `Pundit.policy!(user, record).<ability>?`.
+      # Checks an ability: `->(user, record, ability, args = []) { true/false }`.
+      # `record` may be a model class (@canModel). `args` carries the @can*
+      # `args:` values and, with `injectArgs: true`, the field's arguments first.
+      # Defaults to Pundit: `Pundit.policy!(user, record).<ability>?(*args)`.
       def authorizer
         @authorizer ||= default_authorizer
       end
@@ -73,6 +120,11 @@ module Lighthouse
       def reset!
         @sdl_folder = nil
         @resolver_namespaces = nil
+        @namespaces = nil
+        @cache_store = nil
+        @transactional_mutations = nil
+        @pagination_default_count = nil
+        @pagination_max_count = nil
         @on_error = nil
         @directive_map = nil
         @authenticated_user = nil
@@ -83,12 +135,13 @@ module Lighthouse
       private
 
       def default_authorizer
-        lambda do |user, record, ability|
+        lambda do |user, record, ability, args = []|
           unless defined?(::Pundit)
-            raise 'Lighthouse: configure `Config.authorizer` to use @can (Pundit not detected).'
+            raise 'Lighthouse: configure `Config.authorizer` to use the @can* directives (Pundit not detected).'
           end
 
-          ::Pundit.policy!(user, record).public_send("#{ability}?")
+          check = ::Pundit.policy!(user, record).method("#{ability}?")
+          check.arity.zero? ? check.call : check.call(*args)
         end
       end
 

@@ -43,6 +43,9 @@ Gem::Specification.new do |spec|
   spec.add_dependency 'activesupport', '>= 6.0'
   spec.add_dependency 'graphql', '~> 2.5'
 
+  # Pundit (@can*) and dry-validation (@validator) are optional too: Lighthouse
+  # only touches them when a schema uses those directives with their defaults.
+  #
   # Apollo Federation (`apollo-federation` gem) is an OPTIONAL runtime dependency:
   # the federation entity binding only activates when the host app's base types
   # include the ApolloFederation mixins. It is therefore not declared as a hard
@@ -55,4 +58,8 @@ Gem::Specification.new do |spec|
   spec.add_development_dependency 'apollo-federation', '~> 3.0'
   # Exercises the Rails generator and rake task; a Rails host provides it at runtime.
   spec.add_development_dependency 'railties', '>= 6.0'
+  # Optional integrations, exercised by the specs: Pundit backs the @can* family
+  # by default, and @validator accepts Dry::Validation contracts.
+  spec.add_development_dependency 'pundit', '>= 2.0'
+  spec.add_development_dependency 'dry-validation', '~> 1.10'
 end

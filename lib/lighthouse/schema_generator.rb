@@ -6,6 +6,8 @@ module Lighthouse
       module_function
 
       def build(sdl_string, **opts)
+        # Decided on the app's SDL: once definitions are injected, every schema mentions it.
+        uses_cache_control = sdl_string.to_s.gsub(/directive\s+@cacheControl/, '').include?('@cacheControl')
         # Contribute SDL definitions for any registered directive the schema uses
         # but hasn't declared, so the app doesn't hand-declare every directive.
         sdl_string = inject_directive_definitions(sdl_string)
@@ -112,10 +114,16 @@ module Lighthouse
 
         post_process(schema, impl, **opts)
 
+        # @cacheControl hints become the response's Cache-Control header,
+        # computed per query from the fields it selects.
+        schema.query_analyzer(Lighthouse::GraphQL::CacheControl::Analyzer) if uses_cache_control
+
         schema
       end
 
       def post_process(schema, impl, **_opts)
+        root_kinds = { schema.query&.graphql_name => :queries, schema.mutation&.graphql_name => :mutations }.reject { |name, _| name.nil? }
+
         # Inspect types and fields for directives and attach generated resolvers
         schema.types.each_value do |t|
           next unless t.kind.object?
@@ -159,21 +167,7 @@ module Lighthouse
             next unless field_def.ast_node
 
             directives = field_def.ast_node.directives || []
-            registry = Lighthouse::DirectiveRegistry.default
-            # Apply wrapping directives in resolution order: data resolvers first
-            # (innermost), then @can (wraps to authorize the result), then guards
-            # (outermost, so authentication runs before anything else).
-            sorted = directives.sort_by { |d| registry.resolution_order(d.name) }
-
-            # Dispatch each directive to its registered resolver class. The
-            # registry replaces the previous hardcoded `case dnode.name` so that
-            # adding a directive is "register a class", not "edit the generator".
-            sorted.each do |dnode|
-              resolver_class = registry.resolution_class(dnode.name)
-              next unless resolver_class
-
-              resolver_class.new(field_def, t, dnode).define_resolver(t)
-            end
+            apply_field_resolvers(t, field_def, directives, root_kinds[t.graphql_name])
 
             # GraphQL-Ruby's SDL builder defines `resolve_<field>` methods that call
             # the schema's `definition_default_resolve`. Override `resolve_<field>`
@@ -214,6 +208,37 @@ module Lighthouse
         schema
       end
 
+      # Install a field's resolvers innermost first (see
+      # DirectiveRegistry#resolution_order), so each wrapper decorates the ones
+      # before it. Besides its directives, a field gets the conventional
+      # Queries::/Mutations:: resolver when it is a root field with no resolving
+      # directive, and argument validation when an input type it takes carries
+      # @validator. The registry replaces a hardcoded `case dnode.name`: adding a
+      # directive is "register a class", not "edit the generator".
+      def apply_field_resolvers(type, field_def, directives, root_kind)
+        registry = Lighthouse::DirectiveRegistry.default
+        resolvers = Lighthouse::GraphQL::DirectiveResolvers
+        opts = { root_kind: root_kind }
+
+        steps = directives.filter_map do |dnode|
+          resolver_class = registry.resolution_class(dnode.name)
+          next unless resolver_class
+
+          [registry.resolution_order(dnode.name), -> { resolver_class.new(field_def, type, dnode, opts).define_resolver(type) }]
+        end
+
+        if root_kind && directives.none? { |d| registry.resolution_class(d.name) && !registry.wrapper?(d.name) }
+          steps << [0, -> { resolvers::ConventionResolver.new(field_def, type, root_kind).define_resolver(type) }]
+        end
+
+        if directives.none? { |d| d.name == 'validator' } && resolvers::ValidatorDirectiveResolver.input_validators?(field_def)
+          steps << [registry.resolution_order('validator'),
+                    -> { resolvers::ValidatorDirectiveResolver.new(field_def, type, nil, opts).define_resolver(type) }]
+        end
+
+        steps.each_with_index.sort_by { |(order, _), index| [order, index] }.each { |(_, step), _| step.call }
+      end
+
       # Scan SDL string for list-typed fields that carry relationship directives
       # and produce Connection/Edge types where missing. This is a lightweight
       # transformation that mirrors Lighthouse behavior: clients can declare
@@ -235,7 +260,16 @@ module Lighthouse
         missing = missing_directive_definitions(sdl)
         return sdl if missing.empty?
 
-        "#{missing.values.join("\n")}\n\n#{sdl}"
+        definitions = missing.values + missing_type_definitions(sdl, missing.values).values
+        "#{definitions.join("\n")}\n\n#{sdl}"
+      end
+
+      # Types the given directive definitions refer to (`CanAction`,
+      # `ClearCacheIdSource`, ...) that the SDL does not define itself.
+      def missing_type_definitions(sdl, directive_definitions, registry: Lighthouse::DirectiveRegistry.default)
+        declared = sdl.to_s.scan(/^\s*(?:scalar|enum|input|type|interface|union)\s+(\w+)/).flatten.to_set
+        text = directive_definitions.join("\n")
+        registry.type_definitions.select { |name, _| !declared.include?(name) && text.match?(/\b#{name}\b/) }
       end
 
       # The registry's directive definitions minus those the SDL declares itself.

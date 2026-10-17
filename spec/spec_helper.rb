@@ -1,5 +1,9 @@
 # frozen_string_literal: true
 
+# Before anything defines `Rails` (the generator spec does): Pundit loads its
+# Railtie when it sees one.
+require 'pundit'
+require 'dry/validation'
 require 'lighthouse-graphql'
 require 'active_record'
 require 'graphql'
@@ -15,10 +19,24 @@ ActiveRecord::Schema.define do
     t.string :email
     t.integer :rank
   end
+
+  create_table :posts, force: true do |t|
+    t.string :title
+    t.text :body
+    t.integer :author_id
+    t.boolean :published, default: false
+  end
 end
 
 # A plain test model used by the argument-builder / ordering specs.
 class Widget < ActiveRecord::Base
+end
+
+# A model with validations, for the mutation, authorization and cache specs.
+class Post < ActiveRecord::Base
+  validates :title, presence: true, length: { maximum: 20 }
+
+  def self.published = where(published: true)
 end
 
 Dir[File.join(__dir__, 'support', '**', '*.rb')].sort.each { |f| require f }
@@ -27,6 +45,11 @@ RSpec.configure do |config|
   config.expect_with(:rspec) { |c| c.syntax = :expect }
   config.disable_monkey_patching!
   config.order = :random
-  config.before { Widget.delete_all }
+  config.before do
+    Widget.delete_all
+    Post.delete_all
+    Lighthouse::Config.cache_store.clear
+  end
+  config.after { Lighthouse::Config.reset! }
   Kernel.srand config.seed
 end

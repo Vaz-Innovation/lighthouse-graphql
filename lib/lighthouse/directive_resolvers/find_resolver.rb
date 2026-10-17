@@ -5,62 +5,48 @@ require_relative 'base'
 module Lighthouse
   module GraphQL
     module DirectiveResolvers
+      # @find — the single record the field's argument filters select:
+      #
+      #   user(id: ID! @eq): User @find
+      #   userByEmail(email: String! @eq): User @find
+      #
+      # A lookup by `id` alone is batched through the Dataloader, and an `id`
+      # argument without a filter directive selects by primary key. More than one
+      # match is an error, as in PHP Lighthouse; none returns null.
       class FindDirectiveResolver < BaseDirectiveResolver
         def self.directive_name = 'find'
-        def self.definition = 'directive @find(model: String) on FIELD_DEFINITION'
+        def self.definition = 'directive @find(model: String, scopes: [String!]) on FIELD_DEFINITION'
 
         def define_resolver(target_type_class)
-          field_name = @field_def.name
-          method_name = "resolve_field_#{field_name}"
-
-          model_name_static = extract_model_name || @field_def.type.unwrap.graphql_name
-          model_class_static = constantize_model(model_name_static)
-
-          target_type_class.define_singleton_method(method_name) do |_obj, arguments, ctx|
-            args = arguments.respond_to?(:to_h) ? arguments.to_h : {}
-            id = args[:id] || args['id']
-
-            model_class = model_class_static
-            return nil unless model_class
-
-            if id && ctx&.dataloader
-              loader = ctx.dataloader.with(Lighthouse::GraphQL::DataloaderSources::ModelLoader, model_class)
-              return loader.load(id)
-            end
-
-            model_class.find_by(id: id)
-          end
-
-          if @field_def.respond_to?(:resolve_proc=)
-            @field_def.resolve_proc = ->(_obj, arguments, ctx) do
-              args = arguments.respond_to?(:to_h) ? arguments.to_h : {}
-              id = args[:id] || args['id']
-
-              model_class = model_class_static
-              if model_class.nil?
-                nil
-              elsif id && ctx&.dataloader
-                loader = ctx.dataloader.with(Lighthouse::GraphQL::DataloaderSources::ModelLoader, model_class)
-                loader.load(id)
-              else
-                model_class.find_by(id: id)
-              end
-            end
-          end
+          me = self
+          install(target_type_class, lambda do |_obj, args, ctx|
+            me.send(:find, Lighthouse::Support::Arguments.shallow(args), ctx)
+          end)
         end
 
-        private
+        protected
 
-        def extract_model_name
-          arg = @directive_node.arguments&.find { |a| a.name == 'model' }
-          return nil unless arg
-          arg.value.respond_to?(:value) ? arg.value.value : arg.value
+        def find(args, ctx)
+          model = model_class
+          dataloader = Lighthouse::Support::Batching.dataloader(ctx)
+          if dataloader && args.keys == [:id] && !directive_arg('scopes')
+            return dataloader.with(Lighthouse::GraphQL::DataloaderSources::ModelLoader, model).load(args[:id])
+          end
+
+          relation = Array(directive_arg('scopes')).reduce(model.all) { |acc, scope| acc.public_send(scope) }
+          relation = relation.where(model.primary_key => args[:id]) if args.key?(:id) && !filtered?('id')
+          records = apply_where_filters(relation, args).limit(2).to_a
+          raise ::GraphQL::ExecutionError, 'The query returned more than one result.' if records.size > 1
+
+          records.first
         end
 
-        def constantize_model(name)
-          return nil unless name
-          name = name.to_s.split('::').last
-          Object.const_get(name) rescue nil
+        # Does the argument carry a filter directive (@eq, @where, ...)? An `id`
+        # without one still selects by primary key.
+        def filtered?(name)
+          argument = (@field_def.ast_node&.arguments || []).find { |a| a.name == name }
+          registry = Lighthouse::DirectiveRegistry.default
+          argument&.directives&.any? { |d| registry.arg_builder_class(d.name) }
         end
       end
     end
