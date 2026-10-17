@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-17
+
 ### Added
 
 - `Lighthouse::GraphQL::Controller`, a Rails controller concern: `include` it, name the schema
@@ -280,7 +282,8 @@ had been running inside a private monorepo as a path gem before being extracted.
 - Config-driven extension seams: `Lighthouse.configure`, `resolver_namespaces`,
   `on_error`, and `DirectiveRegistry.register` for app-defined directives.
 
-[Unreleased]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.1.0...v0.1.1
