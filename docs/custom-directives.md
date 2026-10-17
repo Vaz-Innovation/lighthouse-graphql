@@ -109,7 +109,17 @@ Lighthouse::DirectiveRegistry.register(App::Graphql::Directives::StartsWith)
 Lighthouse::DirectiveRegistry.register(App::Graphql::Directives::UpcaseDirective)
 ```
 
-It is now usable in your SDL — no other changes:
+To register every directive in a namespace at once, as PHP Lighthouse locates
+directives by namespace, listen to the
+[`RegisterDirectiveNamespaces`](events.md) event. Each class there with a
+`directive_name` that is a resolver or an argument builder gets registered when
+the schema is built:
+
+```ruby
+Lighthouse::Events.listen(Lighthouse::Events::RegisterDirectiveNamespaces) { 'App::Graphql::Directives' }
+```
+
+Either way, it is now usable in your SDL — no other changes:
 
 ```graphql
 type Query {

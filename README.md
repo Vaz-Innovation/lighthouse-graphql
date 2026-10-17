@@ -41,6 +41,13 @@ and falls back to a sensible default reader for plain fields. You write Ruby onl
 for the genuinely custom parts (`@field(resolver: "...")`), and your schema stays
 the single source of truth. [Motivation](docs/motivation.md) explains the idea in depth.
 
+The same directives reach the rest of an API, too:
+- real-time updates: `Subscription` fields on graphql-ruby's subscriptions, triggered
+  by a mutation's `@broadcast`;
+- soft deletes (`@softDeletes`, `@restore`, `@forceDelete`) and feature flags (`@feature`);
+- request lifecycle [events](docs/events.md);
+- a controller concern that serves the schema in a few lines.
+
 ### Inspirations
 
 - **[Lighthouse (PHP)](https://lighthouse-php.com)** — the directive vocabulary,

@@ -47,6 +47,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Lighthouse's `authorize?`, `filter?` and `resolve_payload` hooks. `rails generate lighthouse:subscription`
   writes a `GraphQL::Schema::Subscription` (`--lighthouse` to include the concern). The example app
   has real ActionCable subscriptions (`GraphqlChannel`) with channel and end-to-end delivery specs.
+- The initializer `rails generate lighthouse:install` writes lists the new settings, and
+  `docs/custom-directives.md` shows registering a namespace of directives through
+  `RegisterDirectiveNamespaces`.
 
 ### Fixed
 
