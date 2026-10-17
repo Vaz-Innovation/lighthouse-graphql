@@ -36,6 +36,7 @@ different contracts, so they live apart ([resolvers.md](resolvers.md)):
 | `builders` | `['Builders']` | `@builder` classes |
 | `validators` | `['Validators']` | `@validator` contracts |
 | `events` | `['Events']` | Classes `@event(dispatch:)` names ([events.md](events.md)) |
+| `subscriptions` | `['Subscriptions']` | `Lighthouse::GraphQL::Subscription` (or `GraphQL::Schema::Subscription`) classes for `Subscription` fields, and `@subscription(class:)` ([subscriptions.md](subscriptions.md)) |
 
 ```ruby
 config.namespaces = { queries: ['Api::Queries'] }   # the other kinds keep their defaults
@@ -111,6 +112,19 @@ initializer.
 
 ```ruby
 config.convert_empty_strings_to_null = true
+```
+
+### `queue_broadcasts`, `broadcast_queue`
+
+Whether [`@broadcast`](directives.md#broadcast) triggers its subscription in an
+ActiveJob (`Lighthouse::GraphQL::BroadcastJob`, needs the `activejob` gem)
+instead of inside the mutation's request, and the queue it goes to. A directive's
+`shouldQueue:` overrides `queue_broadcasts`. Defaults: `false`, and `nil` (the
+default queue of ActiveJob). See [subscriptions.md](subscriptions.md#queueing).
+
+```ruby
+config.queue_broadcasts = true
+config.broadcast_queue = :subscriptions
 ```
 
 ### `transactional_mutations`

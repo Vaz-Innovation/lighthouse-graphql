@@ -158,6 +158,7 @@ or as Markdown in [`docs/`](docs):
 | [Authentication & authorization](docs/authorization.md) | `@guard`, `@canFind` / `@canModel` / `@canQuery` / `@canResolved` / `@canRoot` (Pundit by default) |
 | [Performance at scale](docs/performance.md) | Opt-in schema cache, SDL reloading in development, persisted queries (APQ) and trusted-document allowlists |
 | [Events](docs/events.md) | Request, schema-build and execution events, `@event`, the controller concern |
+| [Subscriptions](docs/subscriptions.md) | `Subscription` fields, `@subscription`, `@broadcast`, filtering and queued broadcasts |
 | [Caching](docs/caching.md) | `@cache`, `@cacheKey`, `@clearCache` (Rails.cache), `@cacheControl` (HTTP) |
 | [Apollo Federation](docs/federation.md) | `@key`, `resolve_reference`, the `ReferenceResolver` registry |
 | [Custom directives](docs/custom-directives.md) | The contracts, the registry, writing your own directive |

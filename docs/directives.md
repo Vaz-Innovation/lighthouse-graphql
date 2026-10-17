@@ -503,6 +503,58 @@ Any other name is an error: `Cannot omit the global scope …`.
 
 ---
 
+## Subscriptions
+
+Fields of the `Subscription` type resolve to a `Subscriptions::` class by
+convention, like queries and mutations, on top of graphql-ruby's subscriptions;
+`@subscription` names another one, and `@broadcast` triggers a subscription from
+a mutation. The backend (ActionCable, ...) is the schema's; see
+[subscriptions.md](subscriptions.md).
+
+### `@subscription`
+
+```graphql
+directive @subscription(class: String!) on FIELD_DEFINITION
+```
+
+Names the class a `Subscription` field resolves to, when it does not follow the
+convention (`postUpdated` → `Subscriptions::PostUpdated`). The class inherits from
+`Lighthouse::GraphQL::Subscription` (or `GraphQL::Schema::Subscription`) and is
+looked up in `Config.namespaces[:subscriptions]`; a name with `::` is used as it
+is.
+
+```graphql
+type Subscription {
+  postUpdated(author: ID!): Post @subscription(class: "Blog::PostUpdatedSubscription")
+}
+```
+
+### `@broadcast`
+
+```graphql
+directive @broadcast(subscription: String!, shouldQueue: Boolean) repeatable on FIELD_DEFINITION
+```
+
+Once the field has resolved, triggers the `subscription` field of the
+`Subscription` type with the result as its root, so its subscribers are updated,
+each passing through the class's `filter?`. A failed mutation, or a `nil` result,
+broadcasts nothing. An unknown subscription name is a
+`Lighthouse::DefinitionError` when the schema is built. `shouldQueue` performs the
+trigger in an ActiveJob; without it, `Config.queue_broadcasts` (default `false`)
+decides.
+
+```graphql
+type Mutation {
+  createPost(input: CreatePostInput! @spread): Post! @create @broadcast(subscription: "postCreated")
+  updatePost(input: UpdatePostInput! @spread): Post!
+    @update
+    @broadcast(subscription: "postUpdated", shouldQueue: false)
+    @broadcast(subscription: "postChanged")
+}
+```
+
+---
+
 ## Validation
 
 `@validator` runs a contract (Dry::Validation by default) before a field

@@ -60,14 +60,14 @@ class Lighthouse::DirectiveRegistry
   # converted to null (so everything below sees the converted arguments), authentication,
   # authorization, argument validation, then @cache (so a cache hit is still
   # authorized and validated), @clearCache (which acts once the resolver
-  # succeeded), @event (likewise), and finally the data resolver (0).
+  # succeeded), @event and @broadcast (likewise), and finally the data resolver (0).
   RESOLUTION_ORDER = {
     'convertEmptyStringsToNull' => 6,
     'guard' => 5, 'auth' => 5,
     'canFind' => 4, 'canModel' => 4, 'canQuery' => 4, 'canResolved' => 4, 'canRoot' => 4,
     'validator' => 3,
     'cache' => 2,
-    'clearCache' => 1, 'event' => 1
+    'clearCache' => 1, 'event' => 1, 'broadcast' => 1
   }.freeze
 
   def resolution_order(name)
@@ -180,6 +180,7 @@ class Lighthouse::DirectiveRegistry
     CanResolvedDirectiveResolver CanRootDirectiveResolver
     CacheDirectiveResolver ClearCacheDirectiveResolver EventDirectiveResolver
     ValidatorDirectiveResolver ConvertEmptyStringsToNullDirectiveResolver
+    SubscriptionDirectiveResolver BroadcastDirectiveResolver
   ].freeze
 
   # Argument-builder filter/sort directives.

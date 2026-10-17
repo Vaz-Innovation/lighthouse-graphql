@@ -39,8 +39,14 @@ module Lighthouse::GraphQL::FieldResolverStack
   end
 
   def convention_step(type, field_def, root_kind)
-    resolver = Lighthouse::GraphQL::DirectiveResolvers::ConventionResolver
-    [0, -> { resolver.new(field_def, type, root_kind).define_resolver(type) }]
+    resolvers = Lighthouse::GraphQL::DirectiveResolvers
+    resolver =
+      if root_kind == :subscriptions
+        resolvers::SubscriptionDirectiveResolver.new(field_def, type, nil, root_kind: root_kind)
+      else
+        resolvers::ConventionResolver.new(field_def, type, root_kind)
+      end
+    [0, -> { resolver.define_resolver(type) }]
   end
 
   # An explicit @validator on the field already validates its arguments.

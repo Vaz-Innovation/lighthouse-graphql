@@ -55,6 +55,28 @@ module Lighthouse
       def self?.register: (String query) -> String
     end
 
+    # The base class of the classes a `Subscription` field resolves to (a
+    # GraphQL::Schema::Subscription; graphql-ruby ships no RBS, so it is not
+    # declared as the superclass), with PHP Lighthouse's hooks. All optional.
+    # `object` is the broadcast root and `context` the subscriber's.
+    class Subscription
+      # May this client subscribe? Called with the subscription request only.
+      def authorize?: (**untyped args) -> boolish
+      # Should this subscriber receive the broadcast of `root`? `args` are the
+      # arguments it subscribed with.
+      def filter?: (untyped root, **untyped args) -> boolish
+      # The value an update resolves the field with.
+      def resolve_payload: (untyped root, **untyped args) -> untyped
+
+      # :field (default): every subscriber shares the field's topic and filter?
+      # decides; :arguments: graphql-ruby's, subscribers match the trigger's arguments.
+      def self.topic_by: (?(:field | :arguments)? mode) -> (:field | :arguments)
+      def self.topic_for: (arguments: untyped, field: untyped, scope: untyped) -> String
+      # What @broadcast triggers the subscription with, for the root a mutation returned.
+      def self.trigger_arguments: (untyped root, context context) -> Hash[Symbol | String, untyped]
+      def self.trigger_scope: (untyped root, context context) -> untyped
+    end
+
     # The Cache-Control header the selected fields' @cacheControl hints allow.
     module CacheControl
       DEFINITION: String

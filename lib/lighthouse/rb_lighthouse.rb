@@ -55,6 +55,8 @@ require_relative 'namespaces'
   caching
   cache_control
   feature_directive
+  broadcasting
+  subscription
   pagination
   relation_batch
   nested_mutations
@@ -82,6 +84,8 @@ require_relative 'namespaces'
   directive_resolvers/soft_delete_resolvers
   directive_resolvers/cache_resolvers
   directive_resolvers/validator_resolver
+  directive_resolvers/subscription_resolver
+  directive_resolvers/broadcast_resolver
   directive_resolvers/event_resolver
   directive_resolvers/convert_empty_strings_resolver
   directives/arguments/base
@@ -99,6 +103,9 @@ require_relative 'namespaces'
 rescue LoadError => e
   warn("Lighthouse: could not require #{rel}: #{e.message}")
 end
+
+# The activejob gem is optional: the job that queues @broadcast loads on first use.
+Lighthouse::GraphQL.autoload(:BroadcastJob, File.expand_path('broadcast_job.rb', __dir__))
 
 require_relative 'railtie' if defined?(Rails::Railtie)
 

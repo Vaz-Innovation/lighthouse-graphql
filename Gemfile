@@ -14,6 +14,8 @@ group :development, :test do
   gem 'sqlite3', '>= 1.4'
   # Exercises the Rails generator and rake task; a Rails host provides it at runtime.
   gem 'railties', '>= 6.0'
+  # Optional at runtime: @broadcast queues its trigger as a Lighthouse::GraphQL::BroadcastJob with it.
+  gem 'activejob', '>= 6.0'
   # Optional integrations, exercised by the specs: Pundit backs the @can* family
   # by default, and @validator accepts Dry::Validation contracts.
   gem 'dry-validation', '~> 1.10'

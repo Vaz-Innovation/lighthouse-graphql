@@ -5,8 +5,9 @@ require 'generators/lighthouse/query_generator'
 require 'generators/lighthouse/mutation_generator'
 require 'generators/lighthouse/builder_generator'
 require 'generators/lighthouse/validator_generator'
+require 'generators/lighthouse/subscription_generator'
 
-RSpec.describe 'lighthouse:query, :mutation, :builder and :validator generators' do
+RSpec.describe 'lighthouse:query, :mutation, :subscription, :builder and :validator generators' do
   let(:root) { Dir.mktmpdir }
 
   after { FileUtils.remove_entry(root) }
@@ -42,6 +43,15 @@ RSpec.describe 'lighthouse:query, :mutation, :builder and :validator generators'
 
     klass = load_generated('app/graphql/mutations/blog/generated_publish.rb', 'Mutations::Blog::GeneratedPublish')
     expect(klass.superclass).to eq(GraphQL::Schema::Mutation)
+  end
+
+  it 'generates a Lighthouse::GraphQL::Subscription in app/graphql/subscriptions with its hooks' do
+    output = generate(Lighthouse::Generators::SubscriptionGenerator, 'GeneratedPostUpdated')
+
+    klass = load_generated('app/graphql/subscriptions/generated_post_updated.rb', 'Subscriptions::GeneratedPostUpdated')
+    expect(klass.superclass).to eq(Lighthouse::GraphQL::Subscription)
+    expect(klass.instance_methods(false)).to contain_exactly(:authorize?, :filter?, :resolve_payload)
+    expect(output).to include('Subscription.generatedPostUpdated resolves to Subscriptions::GeneratedPostUpdated')
   end
 
   it 'generates a builder in app/graphql/builders that returns the relation it gets' do

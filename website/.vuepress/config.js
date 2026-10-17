@@ -19,6 +19,7 @@ const sidebar = [
       '/docs/filtering-and-ordering.md',
       '/docs/mutations.md',
       '/docs/validation.md',
+      '/docs/subscriptions.md',
     ],
   },
   { text: 'Security', children: ['/docs/authorization.md'] },

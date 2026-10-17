@@ -36,6 +36,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   detected per model, or with an adapter set in `Config.soft_deletes`.
 - `@withoutGlobalScopes(names:)` lifts a model's default scope conditions when the client passes
   `true`. Each name is a `without_<name>` scope or a column.
+- Subscriptions (`docs/subscriptions.md`), on graphql-ruby's subscriptions: `Subscription`
+  fields resolve to `Subscriptions::` classes by convention, or to the class `@subscription(class:)` names, or work
+  with no class at all. `Lighthouse::GraphQL::Subscription` adds the PHP-style hooks `authorize?`,
+  `filter?` and `resolve_payload`. `@broadcast(subscription:, shouldQueue:)` triggers a subscription
+  once a mutation succeeds, inline or in an ActiveJob (`Config.queue_broadcasts`,
+  `Config.broadcast_queue`). `rails generate lighthouse:subscription` writes a subscription class.
 
 ## [0.2.1] - 2026-10-17
 

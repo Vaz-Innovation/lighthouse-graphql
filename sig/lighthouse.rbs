@@ -89,7 +89,7 @@ module Lighthouse
     def self.sdl_folder: () -> path?
     def self.sdl_folder=: (path? folder) -> path?
 
-    # { queries:, mutations:, builders:, validators:, events: } => [namespace, ...].
+    # { queries:, mutations:, subscriptions:, builders:, validators:, events: } => [namespace, ...].
     # Assigning a partial hash overrides only the kinds it names.
     def self.namespaces: () -> Hash[Symbol, Array[String]]
     def self.namespaces=: (Hash[Symbol | String, String | Array[String]] overrides) -> Hash[Symbol | String, String | Array[String]]
@@ -131,6 +131,13 @@ module Lighthouse
 
     def self.convert_empty_strings_to_null: () -> bool
     def self.convert_empty_strings_to_null=: (bool? enabled) -> bool?
+
+    # Whether @broadcast triggers in an ActiveJob (Lighthouse::GraphQL::BroadcastJob)
+    # unless the directive says shouldQueue; and the job's queue (nil: ActiveJob's default).
+    def self.queue_broadcasts: () -> bool
+    def self.queue_broadcasts=: (bool? enabled) -> bool?
+    def self.broadcast_queue: () -> (String | Symbol)?
+    def self.broadcast_queue=: ((String | Symbol)? queue) -> (String | Symbol)?
 
     def self.on_error: () -> _ErrorHandler
     def self.on_error=: (_ErrorHandler? handler) -> _ErrorHandler?

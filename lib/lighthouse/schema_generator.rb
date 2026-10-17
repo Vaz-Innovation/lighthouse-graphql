@@ -125,7 +125,7 @@ module Lighthouse::GraphQL::SchemaGenerator
   end
 
   def post_process(schema, _impl, **_opts)
-    root_kinds = { schema.query&.graphql_name => :queries, schema.mutation&.graphql_name => :mutations }.reject { |name, _| name.nil? }
+    root_kinds = root_kinds(schema)
 
     # Inspect types and fields for directives and attach generated resolvers
     schema.types.each_value do |type|
@@ -140,8 +140,17 @@ module Lighthouse::GraphQL::SchemaGenerator
     # @feature hides a field or type per query, through graphql-ruby's visibility.
     Lighthouse::GraphQL::FeatureDirective.apply(schema)
 
+    # Every @broadcast must name a field of the Subscription type.
+    Lighthouse::GraphQL::Broadcasting.validate!(schema)
+
     # return schema for convenience
     schema
+  end
+
+  # { type name => :queries | :mutations | :subscriptions } for the schema's root types.
+  def root_kinds(schema)
+    { schema.query => :queries, schema.mutation => :mutations, schema.subscription => :subscriptions }
+      .reject { |type, _| type.nil? }.transform_keys(&:graphql_name)
   end
 
   # A field's generated resolvers, then the runtime hooks that make

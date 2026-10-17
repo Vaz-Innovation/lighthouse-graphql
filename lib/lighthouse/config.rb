@@ -18,7 +18,8 @@ module Lighthouse
       mutations: ['Mutations'],
       builders: ['Builders'],
       validators: ['Validators'],
-      events: ['Events']
+      events: ['Events'],
+      subscriptions: ['Subscriptions']
     }.freeze
 
     # Every setting reset! forgets, so the next read falls back to its default.
@@ -29,11 +30,13 @@ module Lighthouse
       feature_checker feature_actor
       convert_empty_strings_to_null
       soft_deletes
+      queue_broadcasts broadcast_queue
     ].freeze
 
     class << self
       attr_writer :sdl_folder, :resolver_namespaces, :on_error, :authenticated_user, :policy_user, :authorizer, :cache_store,
                   :transactional_mutations, :schema_cache, :watch_sdl, :persisted_queries, :persisted_queries_store, :persisted_queries_only,
+                  :queue_broadcasts,
                   :convert_empty_strings_to_null, :feature_checker, :feature_actor
 
       def sdl_folder
@@ -69,6 +72,15 @@ module Lighthouse
             ActiveSupport::Cache::MemoryStore.new
           end
       end
+
+      # --- Subscriptions (used by @broadcast) ----------------------------------
+      #
+      # queue_broadcasts  perform @broadcast triggers in a Lighthouse::GraphQL::BroadcastJob
+      #                   (ActiveJob) instead of inline; a directive's shouldQueue overrides it
+      # broadcast_queue   the job's queue name; nil: ActiveJob's default
+      attr_accessor :broadcast_queue
+
+      def queue_broadcasts = @queue_broadcasts || false
 
       # --- Scale options: all off by default ----------------------------------
       #
