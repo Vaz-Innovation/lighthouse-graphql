@@ -7,6 +7,11 @@ module Lighthouse
   module GraphQL
     module DirectiveResolvers
       class AggregateDirectiveResolver < BaseDirectiveResolver
+        def self.directive_name = 'aggregate'
+        def self.definition
+          'directive @aggregate(function: String!, column: String, model: String, relation: String) on FIELD_DEFINITION'
+        end
+
         def define_resolver(target_type_class)
           field_name = @field_def.name
           method_name = "resolve_field_#{field_name}"

@@ -6,11 +6,14 @@ module Lighthouse
   module GraphQL
     module DirectiveResolvers
       class FindDirectiveResolver < BaseDirectiveResolver
+        def self.directive_name = 'find'
+        def self.definition = 'directive @find(model: String) on FIELD_DEFINITION'
+
         def define_resolver(target_type_class)
           field_name = @field_def.name
           method_name = "resolve_field_#{field_name}"
 
-          model_name_static = extract_model_name || @field_def.type.unwrap.name
+          model_name_static = extract_model_name || @field_def.type.unwrap.graphql_name
           model_class_static = constantize_model(model_name_static)
 
           target_type_class.define_singleton_method(method_name) do |_obj, arguments, ctx|

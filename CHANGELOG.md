@@ -6,6 +6,40 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `rails generate lighthouse:install` sets a Rails app up: the initializer (every option,
+  commented out at its default), a starter schema, the schema class with
+  `GraphQL::Dataloader`, a `GraphqlController` and its route, and a `graphql.config.yml`
+  for IDEs. `--schema`, `--sdl-folder`, `--skip-controller` and `--skip-ide` adjust it;
+  rerunning it adds the route and `.gitignore` entries only once. It coexists with
+  graphql-ruby's `graphql:install`: an existing controller or schema class is kept unless
+  `--force` is given, and the route is written exactly as graphql-ruby writes it, so it is
+  never added twice in either order.
+- `bin/rails lighthouse:ide_helper` writes `schema-directives.graphql` (every registered
+  directive the SDL does not declare) and `programmatic-types.graphql` (the types the
+  manipulation phase generates) so IDEs can validate and autocomplete a Lighthouse
+  schema, as PHP Lighthouse's `lighthouse:ide-helper` does.
+- `DirectiveRegistry#register_definition` contributes the SDL definition of a directive
+  that has no class of its own.
+
+### Fixed
+
+- Every built-in directive now contributes its SDL definition. `@all`, `@find`,
+  `@paginate`, `@hasMany`, `@belongsTo`, `@belongsToMany`, `@aggregate`, `@field`,
+  `@auth`, `@builder`, `@whereConditions` and `@whereHasConditions` had none, so a schema
+  that used one without declaring it failed to build — contrary to the docs.
+- `@find` without `model:` found nothing: it inferred the model from the return type's
+  Ruby class name, which is `nil` for SDL-built types, instead of its GraphQL name.
+- `@find` returned `null` for existing records when batched through the Dataloader: `ID`
+  arguments arrive as strings and were looked up against integer primary keys.
+
+### Changed
+
+- `@aggregate`'s `function:` and `@paginate`'s `type:` are declared as `String`. Enum
+  literals (`function: SUM`) still work at runtime, but IDEs expect strings
+  (`function: "SUM"`).
+
 ## [0.1.1] - 2026-09-23
 
 Release tooling only: the library is unchanged from `0.1.0`. The packaged gem differs because

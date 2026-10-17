@@ -18,6 +18,39 @@ Runtime dependencies (`graphql ~> 2.5`, `activesupport`) come with the gem. If y
 want federation, add `apollo-federation` to your app — it is intentionally **not**
 a hard dependency of Lighthouse so non-federated apps stay lean.
 
+## The install generator
+
+```shell
+bin/rails generate lighthouse:install
+```
+
+does steps 1–5 below for you:
+
+| File | What it is |
+| --- | --- |
+| `config/initializers/lighthouse.rb` | Every [configuration](configuration.md) option, commented out at its default |
+| `graphql/schema.graphql` | A starter schema (`user` via `@find`, `users` via `@paginate`) that assumes a `User` model — skipped when the folder already holds `.graphql` files |
+| `app/graphql/app_schema.rb` | The executable schema, with `GraphQL::Dataloader` enabled |
+| `app/controllers/graphql_controller.rb` | The endpoint, plus a `post '/graphql'` route |
+| `graphql.config.yml` | IDE configuration — see [IDE support](#ide-support) |
+
+| Option | Effect |
+| --- | --- |
+| `--schema=ApiSchema` | Name of the schema constant (default `AppSchema`) |
+| `--sdl-folder=app/schema` | Where the `.graphql` files live (default `graphql`); sets `config.sdl_folder` |
+| `--skip-controller` | No controller or route — for apps that already serve GraphQL |
+| `--skip-ide` | No `graphql.config.yml` or `.gitignore` entries |
+
+Rerunning it is safe: the route and `.gitignore` entries are only added once, and
+an existing schema class or controller is kept (pass `--force` to replace it).
+
+It coexists with graphql-ruby's own tooling. The generators live under
+`lighthouse:` and the rake task is `lighthouse:ide_helper`, next to graphql-ruby's
+`graphql:*` generators and `graphql:schema:*` tasks. `graphql:install` writes the
+same controller and route; whichever runs second finds the route already in place,
+and Lighthouse keeps a controller graphql-ruby generated. In that case, have the
+controller call `AppSchema.execute(...)` to serve the Lighthouse schema.
+
 ## 1. Write your schema (SDL)
 
 By default Lighthouse loads every `*.graphql` file under `RAILS_ROOT/graphql`,
@@ -123,6 +156,47 @@ end
 ```
 
 See [configuration.md](configuration.md) for all options.
+
+## IDE support
+
+Your IDE validates and autocompletes `.graphql` files against the schema it can
+see. Lighthouse's directive definitions and the types its manipulation phase
+generates live in Ruby, so without help the IDE flags `@paginate` as unknown and
+can't resolve `UserPaginator`. PHP Lighthouse solves this with an IDE helper
+command; so does Lighthouse for Rails:
+
+```shell
+bin/rails lighthouse:ide_helper              # writes to Rails.root
+OUTPUT=tmp/ide bin/rails lighthouse:ide_helper
+```
+
+It writes two files:
+
+- **`schema-directives.graphql`** — a definition for every registered directive,
+  built-in or [your own](custom-directives.md), except those your SDL already
+  declares (so the IDE never sees a duplicate).
+- **`programmatic-types.graphql`** — the types Lighthouse adds to the executable
+  schema: `<Type>Paginator`, `<Type>Connection`/`Edge`, `PaginatorInfo`,
+  `PageInfo`, the `whereConditions` inputs and enums, and the `_` placeholder
+  scalar.
+
+Point your IDE's [graphql-config](https://the-guild.dev/graphql/config) at them
+next to your SDL — the install generator writes this `graphql.config.yml`:
+
+```yaml
+schema:
+  - graphql/**/*.graphql
+  - schema-directives.graphql
+  - programmatic-types.graphql
+```
+
+It works with the GraphQL plugin for JetBrains IDEs and the GraphQL extension for
+VS Code. The files are derived from your schema, so the generator adds them to
+`.gitignore`; rerun the task after changing the schema or registering a directive.
+
+> The IDE reads fields as you wrote them: `users: [User!]! @paginate` still looks
+> like a list to it, although clients query `users { data { … } }`. Field
+> rewrites are not something an extra file can express.
 
 ## Casing: camelCase ↔ snake_case
 

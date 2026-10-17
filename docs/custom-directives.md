@@ -41,7 +41,8 @@ def self.definition = 'directive @upcase on FIELD_DEFINITION'
 ```
 
 Lighthouse injects that `definition` into the schema automatically, so apps never
-hand-declare your directive.
+hand-declare your directive, and `bin/rails lighthouse:ide_helper` writes it out
+for the IDE (see [IDE support](getting-started.md#ide-support)).
 
 ## Example 1 — an argument filter
 

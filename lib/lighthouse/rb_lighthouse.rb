@@ -56,6 +56,7 @@ require 'active_support/core_ext/hash/keys'
   directives/registry
   dataloader_sources/association_loader
   dataloader_sources/model_loader
+  ide_helper
 ].each do |rel|
   begin
     require_relative rel
@@ -63,6 +64,8 @@ require 'active_support/core_ext/hash/keys'
     warn("Lighthouse: could not require #{rel}: #{e.message}")
   end
 end
+
+require_relative 'railtie' if defined?(::Rails::Railtie)
 
 module Lighthouse
   module GraphQL

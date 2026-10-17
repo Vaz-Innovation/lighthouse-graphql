@@ -232,12 +232,17 @@ module Lighthouse
       def inject_directive_definitions(sdl)
         return sdl unless sdl.is_a?(String)
 
-        declared = sdl.scan(/directive\s+@(\w+)/).flatten.to_set
-        missing = Lighthouse::DirectiveRegistry.default.directive_definitions
-                                               .reject { |name, _| declared.include?(name) }
+        missing = missing_directive_definitions(sdl)
         return sdl if missing.empty?
 
         "#{missing.values.join("\n")}\n\n#{sdl}"
+      end
+
+      # The registry's directive definitions minus those the SDL declares itself.
+      # Returns { "name" => "directive @name(...) on ..." }.
+      def missing_directive_definitions(sdl, registry: Lighthouse::DirectiveRegistry.default)
+        declared = sdl.to_s.scan(/directive\s+@(\w+)/).flatten.to_set
+        registry.directive_definitions.reject { |name, _| declared.include?(name) }
       end
     end
   end

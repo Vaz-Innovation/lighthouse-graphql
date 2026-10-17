@@ -7,6 +7,9 @@ module Lighthouse
   module GraphQL
     module DirectiveResolvers
       class AllDirectiveResolver < BaseDirectiveResolver
+        def self.directive_name = 'all'
+        def self.definition = 'directive @all(model: String) on FIELD_DEFINITION'
+
         def define_resolver(target_type_class)
           field_name = @field_def.name
 

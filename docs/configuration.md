@@ -57,6 +57,16 @@ from the same initializer:
 Lighthouse::DirectiveRegistry.register(App::Graphql::Directives::StartsWith)
 ```
 
+Directives implemented inside another class — no class of their own to
+register — contribute their SDL definition with `register_definition`, so it is
+injected into the schema and written by `bin/rails lighthouse:ide_helper`:
+
+```ruby
+Lighthouse::DirectiveRegistry.default.register_definition(
+  'tenant', 'directive @tenant(column: String) on FIELD_DEFINITION'
+)
+```
+
 ## Federation reference resolvers
 
 Custom federation entity resolvers are registered with

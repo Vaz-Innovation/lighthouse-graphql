@@ -29,8 +29,9 @@ Gem::Specification.new do |spec|
     'rubygems_mfa_required' => 'true'
   }
 
+  # Generator templates (.tt) and rake tasks live under lib/ next to the code.
   spec.files = Dir[
-    'lib/**/*.rb',
+    'lib/**/*',
     'docs/**/*.md',
     'README.md',
     'CHANGELOG.md',
@@ -52,4 +53,6 @@ Gem::Specification.new do |spec|
   spec.add_development_dependency 'activerecord', '>= 6.0'
   spec.add_development_dependency 'sqlite3', '>= 1.4'
   spec.add_development_dependency 'apollo-federation', '~> 3.0'
+  # Exercises the Rails generator and rake task; a Rails host provides it at runtime.
+  spec.add_development_dependency 'railties', '>= 6.0'
 end

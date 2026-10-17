@@ -9,6 +9,12 @@ module Lighthouse
         SQLOPERATOR_TYPE_NAME = 'SQLOperator'.freeze
         MIXED_SCALAR_NAME = 'Mixed'.freeze
         PLACEHOLDER_SCALAR_NAME = '_'.freeze
+        DEFINITIONS = {
+          'whereConditions' =>
+            'directive @whereConditions(columns: [String!], columnsEnum: String) on ARGUMENT_DEFINITION',
+          'whereHasConditions' =>
+            'directive @whereHasConditions(relation: String, columns: [String!], columnsEnum: String) on ARGUMENT_DEFINITION'
+        }.freeze
 
         # Supported operators in the generated GraphQL input type performance.
         SUPPORTED_OPERATORS = %w[EQ NEQ GT GTE LT LTE IN NIN CONTAINS STARTS_WITH ENDS_WITH IS_NULL IS_NOT_NULL].freeze

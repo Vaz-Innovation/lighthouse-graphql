@@ -63,7 +63,35 @@ gem 'lighthouse-graphql'
 It depends on `graphql ~> 2.5` and `activesupport`. For federation you also need
 `apollo-federation` in your app (it is an optional, app-provided dependency).
 
+Then let the generator set the app up:
+
+```shell
+bin/rails generate lighthouse:install
+```
+
+It creates the initializer, a starter schema in `graphql/schema.graphql`, the
+`AppSchema` class, a `GraphqlController` with its `POST /graphql` route, and a
+`graphql.config.yml` for your IDE. Run `bin/rails generate lighthouse:install --help`
+for its options (`--schema`, `--sdl-folder`, `--skip-controller`, `--skip-ide`).
+
+### IDE support
+
+Lighthouse's directives and the types it generates (Paginator/Connection types,
+`whereConditions` inputs, …) are defined in Ruby, so your IDE can't see them in
+your `.graphql` files. Write them out for it:
+
+```shell
+bin/rails lighthouse:ide_helper
+```
+
+This writes `schema-directives.graphql` and `programmatic-types.graphql` to the app
+root; the generated `graphql.config.yml` already points the GraphQL plugins for
+JetBrains IDEs and VS Code at them. Rerun it after changing your schema or
+registering a directive. See [docs/getting-started.md](docs/getting-started.md#ide-support).
+
 ## Quick start
+
+Prefer to wire it by hand? These are the steps the generator performs.
 
 1. **Put your SDL** in `app/graphql` or any folder (default: `RAILS_ROOT/graphql`),
    split across as many `.graphql` files as you like:

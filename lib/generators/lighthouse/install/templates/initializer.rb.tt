@@ -1,0 +1,34 @@
+# frozen_string_literal: true
+
+# Lighthouse configuration. Every option is optional; the defaults are shown.
+# Reference: https://github.com/Vaz-Innovation/lighthouse-graphql/blob/main/docs/configuration.md
+Lighthouse.configure do |config|
+  # Folder the *.graphql schema files are loaded from.
+<% if default_sdl_folder? -%>
+  # config.sdl_folder = Rails.root.join('graphql').to_s
+<% else -%>
+  config.sdl_folder = Rails.root.join('<%= sdl_folder %>').to_s
+<% end -%>
+
+  # Namespaces tried, in order, when a directive argument names a class, e.g.
+  # @field(resolver: "Users::Profile") or @all(model: "User"). Fully-qualified
+  # names (containing `::`) are used as-is.
+  # config.resolver_namespaces = ['App::Graphql']
+
+  # Called when a directive or resolver swallows an error. The default raises in
+  # test and logs otherwise.
+  # config.on_error = ->(error, _context) { Rails.error.report(error) }
+
+  # Authorization seams used by @guard and @can (Pundit by default).
+  # config.authenticated_user = ->(ctx) { ctx[:current_user] }
+  # config.policy_user = ->(ctx) { ctx[:pundit_user] || ctx[:current_user] }
+  # config.authorizer = ->(user, record, ability) { Pundit.policy!(user, record).public_send("#{ability}?") }
+end
+
+# Register app-defined directives and federation reference resolvers inside
+# to_prepare, so they reference reloadable constants and run before the schema
+# is built. See docs/custom-directives.md and docs/federation.md.
+# Rails.application.config.to_prepare do
+#   Lighthouse::DirectiveRegistry.register(Directives::Upcase)
+#   Lighthouse::ReferenceResolver.register('User') { |ref, _ctx| User.find_by(id: ref['id']) }
+# end

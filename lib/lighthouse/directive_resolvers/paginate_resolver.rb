@@ -8,6 +8,9 @@ module Lighthouse
   module GraphQL
     module DirectiveResolvers
       class PaginateDirectiveResolver < BaseDirectiveResolver
+        def self.directive_name = 'paginate'
+        def self.definition = 'directive @paginate(type: String, model: String) on FIELD_DEFINITION'
+
         class PaginatorResult
           attr_reader :paginator_info, :data
 

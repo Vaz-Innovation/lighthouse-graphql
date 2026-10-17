@@ -6,6 +6,8 @@ module Lighthouse
   module GraphQL
     module DirectiveResolvers
       class BuilderApplier
+        DEFINITION = 'directive @builder(class: String!, method: String) repeatable on FIELD_DEFINITION'
+
         def self.apply(relation, field_def_ast_node, args, ctx, resolver_instance)
           return relation unless field_def_ast_node && field_def_ast_node.directives
 

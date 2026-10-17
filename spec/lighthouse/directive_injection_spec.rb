@@ -44,4 +44,30 @@ RSpec.describe 'Programmatic directive SDL injection' do
 
     expect { build_schema(sdl) }.not_to raise_error
   end
+
+  it 'injects every built-in directive, so none has to be declared' do
+    sdl = <<~GRAPHQL
+      type Query {
+        widgets(where: _ @whereConditions(columns: ["name"])): [Widget!]! @paginate @builder(class: "WidgetsBuilder")
+        widget(id: ID! @eq): Widget @find
+        allWidgets: [Widget!]! @all(model: "Widget")
+        total: Float @aggregate(model: "Widget", column: "rank", function: "SUM")
+        me: Widget @auth
+      }
+
+      type Widget {
+        id: ID!
+        children: [Widget!]! @hasMany(relation: "children")
+        parent: Widget @belongsTo
+        tags: [Widget!]! @belongsToMany
+        label: String @field(resolver: "Labels")
+      }
+    GRAPHQL
+
+    schema = nil
+    expect { schema = build_schema(sdl) }.not_to raise_error
+    expect(schema.directives.keys)
+      .to include('paginate', 'builder', 'whereConditions', 'find', 'all', 'aggregate', 'auth',
+                  'hasMany', 'belongsTo', 'belongsToMany', 'field')
+  end
 end

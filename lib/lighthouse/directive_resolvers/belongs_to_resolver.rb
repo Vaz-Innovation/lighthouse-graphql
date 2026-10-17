@@ -6,6 +6,9 @@ module Lighthouse
   module GraphQL
     module DirectiveResolvers
       class BelongsToDirectiveResolver < BaseDirectiveResolver
+        def self.directive_name = 'belongsTo'
+        def self.definition = 'directive @belongsTo(relation: String) on FIELD_DEFINITION'
+
         def define_resolver(target_type_class)
           field_name = @field_def.name
           assoc_name = extract_relation_name || field_name

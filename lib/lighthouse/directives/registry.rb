@@ -31,6 +31,7 @@ module Lighthouse
       @resolution = {}
       @arg_builders = {}
       @sdl_manipulators = []
+      @definitions = {}
     end
 
     def register(name_or_klass, klass = nil)
@@ -84,7 +85,7 @@ module Lighthouse
     # does not have to hand-declare every directive it uses.
     # Returns { "name" => "directive @name(...) on ..." }.
     def directive_definitions
-      definitions = {}
+      definitions = @definitions.dup
       (@resolution.values + @arg_builders.values).uniq.each do |klass|
         next unless klass.respond_to?(:directive_name) && klass.respond_to?(:definition)
 
@@ -92,6 +93,14 @@ module Lighthouse
         definitions[klass.directive_name.to_s] = text if text
       end
       definitions
+    end
+
+    # Contribute the SDL definition of a directive that has no registered class
+    # of its own — one implemented inside another directive or manipulator
+    # (e.g. @builder, @whereConditions) — so it is injected like the rest.
+    def register_definition(name, definition)
+      @definitions[name.to_s] = definition
+      self
     end
 
     # Register an SDL manipulator: any object responding to `manipulate(sdl)` and
@@ -141,6 +150,11 @@ module Lighthouse
       # SDL manipulators run in registration order during the manipulation phase.
       register_manipulator(Lighthouse::GraphQL::Directives::RelationDirective)
       register_manipulator(Lighthouse::GraphQL::Directives::WhereConditionsDirective)
+
+      register_definition('builder', dr::BuilderApplier::DEFINITION)
+      Lighthouse::GraphQL::Directives::WhereConditionsDirective::DEFINITIONS.each do |name, definition|
+        register_definition(name, definition)
+      end
 
       self
     end

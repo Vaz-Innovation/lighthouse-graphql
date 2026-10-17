@@ -6,6 +6,9 @@ module Lighthouse
   module GraphQL
     module DirectiveResolvers
       class FieldDirectiveResolver < BaseDirectiveResolver
+        def self.directive_name = 'field'
+        def self.definition = 'directive @field(resolver: String, class: String) on FIELD_DEFINITION'
+
         def define_resolver(target_type_class)
           field_name = @field_def.name
           method_name = "resolve_field_#{field_name}"

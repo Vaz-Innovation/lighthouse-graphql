@@ -6,6 +6,9 @@ module Lighthouse
   module GraphQL
     module DirectiveResolvers
       class HasManyDirectiveResolver < BaseDirectiveResolver
+        def self.directive_name = 'hasMany'
+        def self.definition = 'directive @hasMany(relation: String) on FIELD_DEFINITION'
+
         def define_resolver(target_type_class)
           field_name = @field_def.name
           assoc_name = extract_relation_name || field_name

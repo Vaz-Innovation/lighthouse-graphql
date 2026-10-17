@@ -92,7 +92,7 @@ Compute an aggregate (`SUM`, `AVG`, `MIN`, `MAX`, `COUNT`) over a column.
 
 ```graphql
 type Account {
-  totalRevenue: Float @aggregate(relation: "orders", column: "amount", function: SUM)
+  totalRevenue: Float @aggregate(relation: "orders", column: "amount", function: "SUM")
 }
 ```
 
