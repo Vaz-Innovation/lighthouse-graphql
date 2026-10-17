@@ -6,8 +6,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-17
+
 ### Added
 
+- RBS signatures in `sig/`, shipped with the gem, for the parts an app implements or calls:
+  `Lighthouse::_Builder` (what a `@builder` class answers) and `_Validator`, every
+  `Lighthouse::Config` setting with the callables it takes (`_ErrorHandler`, `_UserReader`,
+  `_Authorizer`), the directive extension points (`DirectiveRegistry`, the contracts,
+  `BaseDirectiveResolver`, `Directives::Arguments::Base`), the entrypoints (`get_schema`,
+  `SchemaFactory`, `PersistedQueries`, `CacheControl`, `SchemaCache`, `IdeHelper`) and the
+  errors. `rbs collection` (and so Steep) loads them from the installed gem, as it does for any
+  gem that ships `sig/`; nothing changes at runtime.
+  CI validates them and runs the suite with every Lighthouse method checked against its
+  signature, so they cannot drift from the code.
 - A documentation site, built from `docs/` with VuePress as PHP Lighthouse builds its own,
   and published to GitHub Pages on every push to `main`:
   <https://vaz-innovation.github.io/lighthouse-graphql/>.
@@ -216,7 +228,8 @@ had been running inside a private monorepo as a path gem before being extracted.
 - Config-driven extension seams: `Lighthouse.configure`, `resolver_namespaces`,
   `on_error`, and `DirectiveRegistry.register` for app-defined directives.
 
-[Unreleased]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Vaz-Innovation/lighthouse-graphql/releases/tag/v0.1.0
