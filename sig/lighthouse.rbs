@@ -1,0 +1,142 @@
+# Signatures for the parts of Lighthouse an application implements or calls:
+# the classes a schema names (builders, validators), the configuration, the
+# directive extension points and the entrypoints. Internals are left out.
+#
+# graphql-ruby and Active Record ship no RBS every app has, so the values that
+# come from them are aliases of untyped, named for what they hold.
+module Lighthouse
+  # An ActiveRecord::Relation, or anything with its query interface.
+  type relation = untyped
+
+  # A field's arguments, with snake_case Symbol keys as graphql-ruby passes them.
+  type arguments = Hash[Symbol, untyped]
+
+  # The request's GraphQL::Query::Context.
+  type context = untyped
+
+  # A path on disk: a String or a Pathname.
+  type path = String | _ToPath
+
+  # A class `@builder(class: "Name")` names, looked up in Config.namespaces[:builders].
+  # It refines the relation of a field resolved by @all, @paginate, @first,
+  # @count or @aggregate and returns the relation to use; nil keeps the one it
+  # was given. `@builder(method:)` names a method other than `call`, with the
+  # same signature. The class answers it, or else an instance built with no
+  # arguments does. A GraphQL::ExecutionError it raises reaches the client.
+  interface _Builder
+    def call: (relation relation, arguments args, context context) -> relation?
+  end
+
+  # A @validator contract other than a Dry::Validation::Contract: it gets the
+  # arguments (snake_case Symbol keys) and answers the errors by key,
+  # { title: ["is missing"] }, nested for input objects; empty when valid.
+  interface _Validator
+    def call: (Hash[Symbol, untyped] values) -> Hash[Symbol | String, untyped]
+  end
+
+  # Config.on_error: called with an error a directive or resolver swallowed.
+  interface _ErrorHandler
+    def call: (StandardError error, context? context) -> void
+  end
+
+  # Config.authenticated_user and Config.policy_user: the user of a request.
+  interface _UserReader
+    def call: (context? context) -> untyped
+  end
+
+  # Config.authorizer: may `user` perform `ability` on `record` (a model
+  # instance, or a model class for @canModel)? `args` are the @can* `args:`,
+  # after the field's arguments with `injectArgs: true`.
+  interface _Authorizer
+    def call: (untyped user, untyped record, String | Symbol ability, ?Array[untyped] args) -> boolish
+  end
+
+  # What DirectiveRegistry#register_manipulator takes: it transforms the SDL
+  # before the schema is built.
+  interface _SdlManipulator
+    def manipulate: (String sdl) -> String
+  end
+
+  def self.configure: () ?{ (singleton(Config) config) -> void } -> void
+
+  module Config
+    DEFAULT_NAMESPACES: Hash[Symbol, Array[String]]
+    SETTINGS: Array[Symbol]
+
+    def self.configure: () ?{ (singleton(Config) config) -> void } -> void
+    def self.[]: (Symbol | String key) -> untyped
+    def self.reset!: () -> void
+
+    def self.sdl_folder: () -> path?
+    def self.sdl_folder=: (path? folder) -> path?
+
+    # { queries:, mutations:, builders:, validators: } => [namespace, ...].
+    # Assigning a partial hash overrides only the kinds it names.
+    def self.namespaces: () -> Hash[Symbol, Array[String]]
+    def self.namespaces=: (Hash[Symbol | String, String | Array[String]] overrides) -> Hash[Symbol | String, String | Array[String]]
+
+    def self.resolver_namespaces: () -> Array[String]
+    def self.resolver_namespaces=: (Array[String] namespaces) -> Array[String]
+
+    def self.directive_map: () -> Hash[untyped, untyped]
+
+    # An ActiveSupport::Cache::Store; Rails.cache by default.
+    def self.cache_store: () -> untyped
+    def self.cache_store=: (untyped store) -> untyped
+
+    def self.transactional_mutations: () -> bool
+    def self.transactional_mutations=: (bool? enabled) -> bool?
+
+    def self.pagination_default_count: () -> Integer?
+    def self.pagination_default_count=: (Integer? count) -> Integer?
+    def self.pagination_max_count: () -> Integer?
+    def self.pagination_max_count=: (Integer? count) -> Integer?
+
+    def self.schema_cache: () -> bool
+    def self.schema_cache=: (bool? enabled) -> bool?
+    def self.schema_cache_path: () -> path?
+    def self.schema_cache_path=: (path? path) -> path?
+    def self.watch_sdl: () -> bool
+    def self.watch_sdl=: (bool? enabled) -> bool?
+
+    def self.persisted_queries: () -> bool
+    def self.persisted_queries=: (bool? enabled) -> bool?
+    def self.persisted_queries_store: () -> untyped
+    def self.persisted_queries_store=: (untyped store) -> untyped
+    def self.persisted_queries_ttl: () -> Numeric?
+    def self.persisted_queries_ttl=: (Numeric? seconds) -> Numeric?
+    def self.persisted_queries_manifest: () -> path?
+    def self.persisted_queries_manifest=: (path? path) -> path?
+    def self.persisted_queries_only: () -> bool
+    def self.persisted_queries_only=: (bool? enabled) -> bool?
+
+    def self.on_error: () -> _ErrorHandler
+    def self.on_error=: (_ErrorHandler? handler) -> _ErrorHandler?
+    def self.handle_error: (StandardError error, ?context? context) -> void
+
+    def self.authenticated_user: () -> _UserReader
+    def self.authenticated_user=: (_UserReader? reader) -> _UserReader?
+    def self.policy_user: () -> _UserReader
+    def self.policy_user=: (_UserReader? reader) -> _UserReader?
+    def self.authorizer: () -> _Authorizer
+    def self.authorizer=: (_Authorizer? authorizer) -> _Authorizer?
+  end
+
+  # The schema refers to something that does not exist or breaks a contract.
+  class DefinitionError < StandardError
+  end
+
+  # A GraphQL::ExecutionError (declared from StandardError, which it descends
+  # from, as graphql-ruby ships no RBS): the @can* family denied the ability.
+  class AuthorizationError < StandardError
+    def initialize: (?String message, **untyped options) -> void
+  end
+
+  # A GraphQL::ExecutionError: invalid arguments, keyed by argument path
+  # ({ "input.title" => ["Title can't be blank"] }) under extensions.validation.
+  class ValidationError < StandardError
+    attr_reader messages: Hash[String, Array[String]]
+
+    def initialize: (String | Symbol field_name, Hash[String, Array[String]] messages) -> void
+  end
+end

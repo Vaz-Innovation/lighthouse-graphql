@@ -43,7 +43,7 @@ jobs:
           version="$(ruby -Ilib -e 'require "lighthouse/graphql/version"; print Lighthouse::GraphQL::VERSION')"
           gem unpack "pkg/lighthouse-graphql-$version.gem" --target "$RUNNER_TEMP/unpacked"
           missing="$(comm -23 \
-            <(git ls-files lib docs README.md CHANGELOG.md LICENSE.txt | sort) \
+            <(git ls-files lib sig docs README.md CHANGELOG.md LICENSE.txt | sort) \
             <(cd "$RUNNER_TEMP/unpacked/lighthouse-graphql-$version" && find . -type f | sed 's|^\./||' | sort))"
           if [ -n "$missing" ]; then
             echo "::error::these tracked files are not in the built gem — widen spec.files:"
@@ -66,6 +66,12 @@ jobs:
       # One configuration for the gem and the example app (example/.rubocop.yml inherits it).
       - name: RuboCop
         run: bundle exec rubocop
+
+      # sig/ ships in the gem: it must parse and name only types that exist, and
+      # agree with what the code is actually called with and returns — the suite
+      # runs with every Lighthouse method checked against its signature.
+      - name: RBS signatures
+        run: bundle exec rake rbs
 
   example:
     runs-on: ubuntu-latest

@@ -1,0 +1,158 @@
+# The extension points for custom directives: the contracts a directive class
+# includes, the registry it is registered in, and the base classes it can
+# subclass. See docs/custom-directives.md.
+module Lighthouse
+  # What the registry asks a self-describing directive class: its SDL name
+  # (without the @) and its `directive @name(...) on ...` definition.
+  interface _DirectiveClass
+    def directive_name: () -> String
+    def definition: () -> String?
+  end
+
+  # Marker modules: the registry detects a class's capabilities by which of
+  # them it includes. Only FieldResolver and ArgBuilder change how a class is
+  # registered; the others document intent.
+  module Contracts
+    module Directive
+    end
+
+    # Its instances, built with (field_def, type_def, directive_node, opts),
+    # install the field's resolver in `define_resolver(target_type)`.
+    module FieldResolver
+      include Directive
+    end
+
+    # Its instances, built with (arg_node, directive_node), answer
+    # `handle_builder(relation, value)` with the constrained relation.
+    module ArgBuilder
+      include Directive
+    end
+
+    module FieldMiddleware
+      include Directive
+    end
+
+    module FieldManipulator
+      include Directive
+    end
+
+    module ArgManipulator
+      include Directive
+    end
+  end
+
+  class DirectiveRegistry
+    RESOLUTION_ORDER: Hash[String, Integer]
+    NAMED_RESOLVERS: Hash[String, Symbol]
+    SELF_DESCRIBING_RESOLVERS: Array[Symbol]
+    ARG_BUILDERS: Array[Symbol]
+    PASSIVE_DEFINITIONS: Hash[String, String]
+
+    def self.default: () -> DirectiveRegistry
+
+    # register(MyDirective) when the class answers `directive_name`, else
+    # register('name', MyDirective).
+    def self.register: (Class | String | Symbol name_or_klass, ?Class? klass) -> DirectiveRegistry
+
+    def initialize: () -> void
+    def register: (Class | String | Symbol name_or_klass, ?Class? klass) -> self
+    def register_defaults: () -> self
+    def register_definition: (String | Symbol name, String definition) -> self
+    def register_type_definition: (String | Symbol name, String definition) -> self
+    def register_manipulator: (_SdlManipulator manipulator) -> self
+
+    def resolution_class: (String | Symbol name) -> Class?
+    def resolution_order: (String | Symbol name) -> Integer
+    def wrapper?: (String | Symbol name) -> bool
+    def resolution_names: () -> Array[String]
+    def arg_builder_class: (String | Symbol name) -> Class?
+    def arg_builder_names: () -> Array[String]
+
+    # { "name" => "directive @name(...) on ..." }
+    def directive_definitions: () -> Hash[String, String]
+    # { "Name" => "enum Name { ... }" }
+    def type_definitions: () -> Hash[String, String]
+
+    attr_reader sdl_manipulators: Array[_SdlManipulator]
+    def manipulate_sdl: (String sdl) -> String
+  end
+
+  # Writes the SDL an IDE needs next to the app's own: `bin/rails lighthouse:ide_helper`.
+  module IdeHelper
+    DIRECTIVES_FILE: String
+    PROGRAMMATIC_TYPES_FILE: String
+
+    # Writes both files into `output_dir` and returns their paths.
+    def self?.write: (output_dir: path, ?sdl_folder: path?, ?registry: DirectiveRegistry) -> Array[String]
+    def self?.directives_sdl: (?String sdl, ?registry: DirectiveRegistry) -> String
+    def self?.programmatic_types_sdl: (String sdl, ?registry: DirectiveRegistry) -> String
+  end
+
+  module GraphQL
+    module DirectiveResolvers
+      # The base of the built-in field directives, and of a custom one:
+      # subclass it and implement `define_resolver`.
+      class BaseDirectiveResolver
+        # graphql-ruby's field and type definitions, and the directive's AST node.
+        @field_def: untyped
+        @type_def: untyped
+        @directive_node: untyped
+        @opts: Hash[Symbol, untyped]
+
+        def initialize: (untyped field_def, untyped type_def, untyped directive_node, ?Hash[Symbol, untyped] opts) -> void
+
+        # Install the field's resolver on `target_type_class` (a graphql-ruby type class).
+        def define_resolver: (untyped target_type_class) -> untyped
+
+        def apply_where_filters: (relation relation, untyped args) -> relation
+        def apply_arg_builders: (relation relation, arguments args_h) -> relation
+        def extract_relation_name_from_directive: (untyped arg_node) -> String?
+        def constantize_model: (String? name) -> Class?
+        def apply_scopes: (relation relation) -> relation
+
+        # The literal value of an argument of this directive.
+        def directive_arg: (String name) -> untyped
+        def resolver_method_name: () -> String
+        # The field's resolver so far, for a directive that wraps it.
+        def capture_inner: (untyped target_type_class) -> untyped
+        def install: (untyped target_type_class, untyped callable) -> untyped
+        # The model the directive acts on; raises DefinitionError when there is none.
+        def model_class: () -> Class
+      end
+
+      # Applies the field's @builder directives, in SDL order, to its relation.
+      class BuilderApplier
+        DEFINITION: String
+
+        def self.apply: (relation relation, untyped field_def_ast_node, arguments args, context ctx, untyped resolver_instance) -> relation
+        def self.apply_directive: (relation relation, untyped directive_node, arguments args, context ctx, untyped resolver_instance) -> relation
+        def self.extract_directive_arg: (untyped directive_node, String name) -> untyped
+      end
+    end
+
+    module Directives
+      module Arguments
+        # The base of the argument filters (@eq, @in, @orderBy, ...), and of a
+        # custom one: subclass it and implement `handle_builder`.
+        class Base
+          include Contracts::ArgBuilder
+
+          # graphql-ruby's AST nodes for the argument and the directive on it.
+          @arg_node: untyped
+          @directive_node: untyped
+
+          def initialize: (untyped arg_node, untyped directive_node) -> void
+
+          # Constrain the relation by the value the client gave the argument.
+          def handle_builder: (relation relation, untyped value) -> relation
+
+          private
+
+          # The directive's `key:`, else the argument's name in snake_case.
+          def column: () -> String
+          def arel_column: (relation relation) -> untyped
+        end
+      end
+    end
+  end
+end

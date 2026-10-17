@@ -15,7 +15,7 @@ class Lighthouse::Generators::BuilderGenerator < Lighthouse::Generators::ClassGe
     <<~RUBY
       # Applied by @builder(class: "#{class_name}") before the field resolves:
       # receives the relation, the field's arguments and the GraphQL context, and
-      # returns the relation to use.
+      # returns the relation to use. Its type is Lighthouse::_Builder.
       class #{class_basename}
         def self.call(relation, args, context)
           relation

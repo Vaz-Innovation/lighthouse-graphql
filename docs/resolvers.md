@@ -152,6 +152,16 @@ are looked up in the builders namespace only. Raising a `GraphQL::ExecutionError
 from a builder (e.g. a tenancy check) always reaches the client; it never falls
 back to the unscoped relation.
 
+The gem ships RBS signatures in `sig/`, so with Steep (or anything that reads
+`rbs collection`) a builder can be checked against `Lighthouse::_Builder`:
+
+```rbs
+# sig/builders/published.rbs
+class Builders::Published
+  extend Lighthouse::_Builder
+end
+```
+
 ## Generators
 
 ```shell

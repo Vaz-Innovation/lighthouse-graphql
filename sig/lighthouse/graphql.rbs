@@ -1,0 +1,78 @@
+# The entrypoints: building the schema from SDL and running operations.
+module Lighthouse
+  module GraphQL
+    VERSION: String
+
+    Config: singleton(Lighthouse::Config)
+
+    # A GraphQL::Schema subclass.
+    type schema = untyped
+
+    module RbLightHouse
+      # The schema built from the SDL in `sdl_folder` (default: Config.sdl_folder).
+      # `options` takes :base_types, :base_schema and the schema's own options.
+      def self.get_schema: (?sdl_folder: path?, ?options: Hash[Symbol, untyped]) -> schema
+      def self.configure: () ?{ (singleton(Lighthouse::Config) config) -> void } -> void
+    end
+
+    module SchemaFactory
+      def self?.build_base_schema: (?sdl_folder: path?, ?sdl: String?, ?base_types: Hash[untyped, untyped],
+                                    ?schema_options: Hash[Symbol, untyped], **untyped extra_options) -> schema
+      def self?.load_sdl: (path? sdl_folder) -> String
+    end
+
+    # Apollo's Automatic Persisted Queries, and a manifest of trusted operations.
+    module PersistedQueries
+      HASH: Regexp
+      NOT_FOUND: Array[String]
+      NOT_SUPPORTED: Array[String]
+      HASH_MISMATCH: Array[String]
+      NOT_IN_LIST: Array[String]
+
+      # A request the protocol rejects, rendered with Apollo's error codes.
+      class Error < StandardError
+        attr_reader code: String
+
+        def initialize: (String message, String code) -> void
+        def to_h: () -> Hash[String, untyped]
+      end
+
+      # `extensions` as the request carries it: a Hash, a JSON String (GET) or
+      # ActionController::Parameters.
+      #
+      # `schema.execute` with the query the request names: its result, or a
+      # protocol error as a ready-to-render { "errors" => [...] } Hash.
+      def self?.execute: (schema schema, query: String?, ?extensions: untyped, **untyped options) -> untyped
+      # The query text to run for a request's `query` and `extensions`.
+      def self?.resolve: (String? query, untyped extensions) -> String?
+      def self?.enabled?: () -> bool
+      def self?.digest: (String query) -> String
+      # Store a query ahead of time (e.g. from a deploy task); returns its hash.
+      def self?.register: (String query) -> String
+    end
+
+    # The Cache-Control header the selected fields' @cacheControl hints allow.
+    module CacheControl
+      DEFINITION: String
+      TYPE_DEFINITIONS: Hash[String, String]
+      CONTEXT_KEY: Symbol
+
+      # For an executed query (a GraphQL::Query::Result or GraphQL::Query);
+      # nil when the schema does not use @cacheControl.
+      def self?.header: (untyped result) -> String?
+      # Set the header on a Rails (or Rack) response, and return it.
+      def self?.apply: (untyped response, untyped result) -> String?
+    end
+
+    # The opt-in cache of the manipulated schema document, in tmp/cache.
+    module SchemaCache
+      PREFIX: String
+
+      def self?.enabled?: () -> bool
+      def self?.directory: () -> path
+      # Build the schema document now and return the cache file's path.
+      def self?.warm!: (?String? sdl) -> String
+      def self?.clear!: () -> void
+    end
+  end
+end

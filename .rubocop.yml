@@ -198,6 +198,11 @@ Performance/InefficientHashSearch:
 Performance/MapMethodChain:
   Enabled: false
 
+# The gem's own Rakefile has no Rails app, so no :environment task to depend on.
+Rails/RakeEnvironment:
+  Exclude:
+    - 'Rakefile'
+
 Rails/CompactBlank:
   Enabled: false
 

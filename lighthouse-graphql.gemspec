@@ -29,9 +29,11 @@ Gem::Specification.new do |spec|
     'rubygems_mfa_required' => 'true'
   }
 
-  # Generator templates (.tt) and rake tasks live under lib/ next to the code.
+  # Generator templates (.tt) and rake tasks live under lib/ next to the code;
+  # sig/ holds the RBS signatures type checkers (Steep, rbs collection) read.
   spec.files = Dir[
     'lib/**/*',
+    'sig/**/*.rbs',
     'docs/**/*.md',
     'README.md',
     'CHANGELOG.md',

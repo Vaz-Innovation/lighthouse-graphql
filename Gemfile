@@ -25,6 +25,8 @@ end
 gem 'dry-schema', '< 1.14' if RUBY_VERSION < '3.2'
 
 group :lint do
+  # Validates sig/, and checks it against the suite at runtime (rake rbs).
+  gem 'rbs', '>= 3.6', require: false
   gem 'rubocop', '~> 1.92', require: false
   gem 'rubocop-factory_bot', '~> 2.28', require: false
   gem 'rubocop-performance', '~> 1.27', require: false
