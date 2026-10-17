@@ -48,6 +48,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   writes a `GraphQL::Schema::Subscription` (`--lighthouse` to include the concern). The example app
   has real ActionCable subscriptions (`GraphqlChannel`) with channel and end-to-end delivery specs.
 
+### Fixed
+
+- Schemas using `@cacheControl` (or `@feature`) build on graphql 2.5 again. Their arguments
+  with a default are now nullable (`maxAge: Int = 0`, not `Int! = 0`), because graphql 2.5 does not
+  fill in a directive argument's default and so refused every usage that left one out. CI now
+  also runs the suite on graphql 2.5.
+
 ## [0.2.1] - 2026-10-17
 
 ### Added

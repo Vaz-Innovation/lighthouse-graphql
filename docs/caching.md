@@ -99,7 +99,7 @@ Each cached read costs one `read_multi` for the tokens.
 ## `@cacheControl`
 
 ```graphql
-directive @cacheControl(maxAge: Int! = 0, scope: CacheControlScope! = PUBLIC, inheritMaxAge: Boolean! = false)
+directive @cacheControl(maxAge: Int = 0, scope: CacheControlScope = PUBLIC, inheritMaxAge: Boolean = false)
   on FIELD_DEFINITION | OBJECT | INTERFACE | UNION
 ```
 

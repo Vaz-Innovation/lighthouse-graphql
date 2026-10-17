@@ -19,7 +19,10 @@
 # features as they stand with no actor. Only graphql-ruby's own null context
 # (preloading a visibility profile) hides nothing.
 module Lighthouse::GraphQL::FeatureDirective
-  DEFINITION = 'directive @feature(name: String!, when: FeatureState! = ACTIVE) on FIELD_DEFINITION | OBJECT'
+  # Arguments with a default are nullable, not `Type! = default` as in PHP: graphql-ruby
+  # 2.5 does not fill in a directive argument's default, so a non-null one would be
+  # refused wherever it is left out. Left out or null, it takes its default.
+  DEFINITION = 'directive @feature(name: String!, when: FeatureState = ACTIVE) on FIELD_DEFINITION | OBJECT'
 
   TYPE_DEFINITIONS = {
     'FeatureState' => <<~GRAPHQL.chomp

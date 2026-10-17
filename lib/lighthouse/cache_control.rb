@@ -18,8 +18,11 @@
 # read the result with CacheControl.header(result) and set it on the
 # response (see `apply`).
 module Lighthouse::GraphQL::CacheControl
-  DEFINITION = 'directive @cacheControl(maxAge: Int! = 0, scope: CacheControlScope! = PUBLIC, ' \
-               'inheritMaxAge: Boolean! = false) on FIELD_DEFINITION | OBJECT | INTERFACE | UNION'
+  # Arguments with a default are nullable, not `Type! = default` as in PHP: graphql-ruby
+  # 2.5 does not fill in a directive argument's default, so a non-null one would be
+  # refused wherever it is left out. Left out or null, it takes its default.
+  DEFINITION = 'directive @cacheControl(maxAge: Int = 0, scope: CacheControlScope = PUBLIC, ' \
+               'inheritMaxAge: Boolean = false) on FIELD_DEFINITION | OBJECT | INTERFACE | UNION'
 
   TYPE_DEFINITIONS = {
     'CacheControlScope' => <<~GRAPHQL.chomp

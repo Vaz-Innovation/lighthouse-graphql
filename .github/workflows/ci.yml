@@ -52,6 +52,27 @@ jobs:
           fi
           echo "package contains every tracked source file"
 
+  # The gemspec allows graphql ~> 2.5, and the jobs above resolve the newest
+  # release, so the oldest minor is exercised here. graphql 2.5 passes
+  # `quirks_mode:` to JSON.generate, which json 3 no longer accepts: it runs
+  # with json 2, as apps on graphql 2.5 must.
+  graphql-2-5:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Pin graphql 2.5
+        run: printf "gem 'graphql', '~> 2.5.0'\ngem 'json', '< 3'\n" >> Gemfile
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.4'
+          bundler-cache: true
+
+      - name: Test
+        run: bundle exec rspec
+
   lint:
     runs-on: ubuntu-latest
 

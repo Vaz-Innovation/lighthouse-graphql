@@ -62,6 +62,8 @@ gem 'lighthouse-graphql'
 
 It depends on `graphql ~> 2.5` and `activesupport`. For federation you also need
 `apollo-federation` in your app (it is an optional, app-provided dependency).
+On graphql 2.5, keep the `json` gem below 3: graphql 2.5 calls `JSON.generate`
+with an option json 3 removed (graphql 2.6 no longer does).
 
 Then let the generator set the app up:
 

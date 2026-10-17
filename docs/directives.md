@@ -609,7 +609,7 @@ type Beta @feature(name: "beta") {
 | Argument | Meaning |
 | --- | --- |
 | `name: String!` | The feature to check. |
-| `when: FeatureState! = ACTIVE` | The state the feature must be in for the element to be included: `ACTIVE` or `INACTIVE`. |
+| `when: FeatureState = ACTIVE` | The state the feature must be in for the element to be included: `ACTIVE` or `INACTIVE`. |
 
 Feature flags depend on who asks, while the schema is built once, so the element
 stays in the schema and is hidden **per query**, through graphql-ruby's
