@@ -59,13 +59,13 @@ class Lighthouse::DirectiveRegistry
   # (outermost, so it executes first). From the outside in: authentication,
   # authorization, argument validation, then @cache (so a cache hit is still
   # authorized and validated), @clearCache (which acts once the resolver
-  # succeeded), and finally the data resolver (0).
+  # succeeded), @event (likewise), and finally the data resolver (0).
   RESOLUTION_ORDER = {
     'guard' => 5, 'auth' => 5,
     'canFind' => 4, 'canModel' => 4, 'canQuery' => 4, 'canResolved' => 4, 'canRoot' => 4,
     'validator' => 3,
     'cache' => 2,
-    'clearCache' => 1
+    'clearCache' => 1, 'event' => 1
   }.freeze
 
   def resolution_order(name)
@@ -175,7 +175,7 @@ class Lighthouse::DirectiveRegistry
     UpsertDirectiveResolver UpsertManyDirectiveResolver DeleteDirectiveResolver
     CanFindDirectiveResolver CanModelDirectiveResolver CanQueryDirectiveResolver
     CanResolvedDirectiveResolver CanRootDirectiveResolver
-    CacheDirectiveResolver ClearCacheDirectiveResolver
+    CacheDirectiveResolver ClearCacheDirectiveResolver EventDirectiveResolver
     ValidatorDirectiveResolver
   ].freeze
 

@@ -43,7 +43,7 @@ module Lighthouse::GraphQL::SchemaGenerator
     uses_cache_control = sdl_string.to_s.gsub(/directive\s+@cacheControl/, '').include?('@cacheControl')
     # The manipulated document — from the schema cache when it is enabled
     # and fresh (see SchemaCache), else built now.
-    document = Lighthouse::GraphQL::SchemaCache.document(sdl_string) { |sdl| manipulate(sdl) }
+    document = build_document(sdl_string)
     impl = default_implementation
     schema = from_document(document, impl, opts)
 
@@ -51,6 +51,7 @@ module Lighthouse::GraphQL::SchemaGenerator
     Lighthouse::GraphQL::GeneratedResolvers.install_dispatcher(schema)
     attach_schema(impl, schema)
     post_process(schema, impl, **opts)
+    schema.trace_with(Lighthouse::Events::ExecutionTrace)
 
     # @cacheControl hints become the response's Cache-Control header,
     # computed per query from the fields it selects.
@@ -102,6 +103,18 @@ module Lighthouse::GraphQL::SchemaGenerator
   # document, quadratically slow on a large schema.
   def prebuilt_parser(document)
     Module.new { define_singleton_method(:parse) { |*| document } }
+  end
+
+  # The manipulated schema document for the app's SDL, from the schema cache
+  # when it is enabled and fresh. The build events fire around the phases:
+  # RegisterDirectiveNamespaces on every build (the cache key covers the
+  # registered directives), BuildSchemaString and ManipulateAST only when the
+  # document is built, i.e. on a cache miss.
+  def build_document(sdl, force: false)
+    Lighthouse::Events::SchemaBuild.register_directive_namespaces
+    Lighthouse::GraphQL::SchemaCache.document(sdl, force: force, finalize: Lighthouse::Events::SchemaBuild.method(:manipulate_ast)) do |source|
+      manipulate(Lighthouse::Events::SchemaBuild.schema_string(source))
+    end
   end
 
   # The SDL as the schema is built from it: directive definitions injected

@@ -157,6 +157,7 @@ or as Markdown in [`docs/`](docs):
 | [Validation](docs/validation.md) | Model validations, `@validator` with Dry::Validation contracts |
 | [Authentication & authorization](docs/authorization.md) | `@guard`, `@canFind` / `@canModel` / `@canQuery` / `@canResolved` / `@canRoot` (Pundit by default) |
 | [Performance at scale](docs/performance.md) | Opt-in schema cache, SDL reloading in development, persisted queries (APQ) and trusted-document allowlists |
+| [Events](docs/events.md) | Request, schema-build and execution events, `@event`, the controller concern |
 | [Caching](docs/caching.md) | `@cache`, `@cacheKey`, `@clearCache` (Rails.cache), `@cacheControl` (HTTP) |
 | [Apollo Federation](docs/federation.md) | `@key`, `resolve_reference`, the `ReferenceResolver` registry |
 | [Custom directives](docs/custom-directives.md) | The contracts, the registry, writing your own directive |

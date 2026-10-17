@@ -39,9 +39,15 @@ require_relative 'namespaces'
   generated_resolvers
   federation_directives
   field_resolver_stack
+  events
+  events/lifecycle
+  events/execution_trace
+  events/schema_build
   schema_generator
   schema_cache
   persisted_queries
+  persisted_queries/batch
+  controller
   schema_factory
   schema_implementation
   resolver_dispatch
@@ -72,6 +78,7 @@ require_relative 'namespaces'
   directive_resolvers/model_mutation_resolver
   directive_resolvers/cache_resolvers
   directive_resolvers/validator_resolver
+  directive_resolvers/event_resolver
   directives/arguments/base
   directives/arguments/filters
   directives/arguments/order_by

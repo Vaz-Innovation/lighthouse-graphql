@@ -18,6 +18,16 @@ namespace :lighthouse do
     puts "Cleared #{Lighthouse::GraphQL::SchemaCache.directory}"
   end
 
+  desc 'Build the schema, dispatch the ValidateSchema event and check graphql-ruby accepts it (SCHEMA=AppSchema)'
+  task validate_schema: :environment do
+    schema = Object.const_get(ENV.fetch('SCHEMA', 'AppSchema'))
+    Lighthouse::Events.dispatch(Lighthouse::Events::ValidateSchema.new(schema))
+    schema.to_definition # builds every type: unresolvable references and duplicate names raise
+    puts "#{schema} is valid."
+  rescue StandardError => e
+    abort("#{schema || 'Schema'} is invalid: #{e.message}")
+  end
+
   namespace :persisted_queries do
     desc 'Validate every operation of the persisted query manifest against the schema (SCHEMA=AppSchema)'
     task verify: :environment do

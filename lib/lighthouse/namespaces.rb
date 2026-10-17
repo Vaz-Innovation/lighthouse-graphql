@@ -6,6 +6,7 @@
 # here, first.
 module Lighthouse
   module Contracts; end
+  module Events; end
   module Generators; end
   module Support; end
   module WhereConditions; end

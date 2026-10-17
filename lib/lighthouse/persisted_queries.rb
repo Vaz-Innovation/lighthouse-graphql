@@ -49,11 +49,24 @@ module Lighthouse::GraphQL::PersistedQueries
   module_function
 
   # `schema.execute` with the query the request names; a protocol error
-  # comes back as a ready-to-render { "errors" => [...] } Hash.
+  # comes back as a ready-to-render { "errors" => [...] } Hash. Dispatches
+  # StartOperationOrOperations before and EndOperationOrOperations after.
   def execute(schema, query:, extensions: nil, **options)
-    schema.execute(resolve(query, extensions), **options)
-  rescue Error => e
-    e.to_h
+    operation = { query: query, variables: options[:variables], operation_name: options[:operation_name], extensions: extensions }
+    Lighthouse::Events.dispatch(Lighthouse::Events::StartOperationOrOperations.new(operation))
+    result =
+      begin
+        schema.execute(resolve(query, extensions), **options)
+      rescue Error => e
+        e.to_h
+      end
+    Lighthouse::Events.dispatch(Lighthouse::Events::EndOperationOrOperations.new(result))
+    result
+  end
+
+  # A batch (a JSON array in the request) through `schema.multiplex`; see Batch.
+  def multiplex(schema, operations, **options)
+    Lighthouse::GraphQL::PersistedQueries::Batch.run(schema, operations, **options)
   end
 
   # The query text to run for a request's `query` and `extensions`.

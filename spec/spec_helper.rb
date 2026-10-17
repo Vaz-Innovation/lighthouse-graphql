@@ -55,6 +55,9 @@ RSpec.configure do |config|
     Post.delete_all
     Lighthouse::Config.cache_store.clear
   end
-  config.after { Lighthouse::Config.reset! }
+  config.after do
+    Lighthouse::Config.reset!
+    Lighthouse::Events.reset!
+  end
   Kernel.srand config.seed
 end

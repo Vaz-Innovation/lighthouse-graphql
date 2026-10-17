@@ -35,6 +35,7 @@ different contracts, so they live apart ([resolvers.md](resolvers.md)):
 | `mutations` | `['Mutations']` | `GraphQL::Schema::Mutation` classes for `Mutation` fields |
 | `builders` | `['Builders']` | `@builder` classes |
 | `validators` | `['Validators']` | `@validator` contracts |
+| `events` | `['Events']` | Classes `@event(dispatch:)` names ([events.md](events.md)) |
 
 ```ruby
 config.namespaces = { queries: ['Api::Queries'] }   # the other kinds keep their defaults

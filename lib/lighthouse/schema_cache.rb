@@ -40,15 +40,22 @@ module Lighthouse::GraphQL::SchemaCache
 
   # The parsed document for `sdl` after manipulation. `build` turns the SDL
   # into the manipulated SDL string; it only runs on a cache miss.
-  # `force:` caches even when the cache is off (warm!).
-  def document(sdl, force: false, &build)
-    return parse(yield(sdl)) unless force || enabled?
+  # `force:` caches even when the cache is off (warm!). `finalize:` (a callable
+  # taking and returning the document) runs on the parsed document of a miss,
+  # before it is cached.
+  def document(sdl, force: false, finalize: nil, &build)
+    return built(sdl, finalize, &build) unless force || enabled?
 
     path = File.join(directory.to_s, "#{PREFIX}#{key(sdl)}.bin")
     cached = read(path)
     return cached if cached
 
-    parse(yield(sdl)).tap { |document| write(path, document) }
+    built(sdl, finalize, &build).tap { |document| write(path, document) }
+  end
+
+  def built(sdl, finalize)
+    document = parse(yield(sdl))
+    finalize ? finalize.call(document) : document
   end
 
   def key(sdl)
@@ -73,7 +80,7 @@ module Lighthouse::GraphQL::SchemaCache
   # and return the cache file's path.
   def warm!(sdl = nil)
     sdl ||= Lighthouse::GraphQL::SDLLoader.load_from_folder(Lighthouse::Config.sdl_folder.to_s)
-    document(sdl, force: true) { |source| Lighthouse::GraphQL::SchemaGenerator.manipulate(source) }
+    Lighthouse::GraphQL::SchemaGenerator.build_document(sdl, force: true)
     File.join(directory.to_s, "#{PREFIX}#{key(sdl)}.bin")
   end
 

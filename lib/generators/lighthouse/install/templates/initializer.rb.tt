@@ -15,9 +15,11 @@ Lighthouse.configure do |config|
   # to Queries::LatestPosts (a GraphQL::Schema::Resolver), Mutation.publishPost
   # to Mutations::PublishPost (a GraphQL::Schema::Mutation). @builder classes
   # come from :builders and @validator contracts from :validators. Generate them
-  # with `rails g lighthouse:query|mutation|builder|validator Name`.
+  # with `rails g lighthouse:query|mutation|builder|validator Name`. @event(dispatch:)
+  # classes come from :events.
   # config.namespaces = {
-  #   queries: ['Queries'], mutations: ['Mutations'], builders: ['Builders'], validators: ['Validators']
+  #   queries: ['Queries'], mutations: ['Mutations'], builders: ['Builders'], validators: ['Validators'],
+  #   events: ['Events']
   # }
 
   # Namespaces tried, in order, for models (@all(model: "User")) and for

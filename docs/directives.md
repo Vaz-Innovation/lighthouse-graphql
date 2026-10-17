@@ -369,6 +369,47 @@ type Query {
 
 ---
 
+## Events
+
+`@event` dispatches an event once the field has resolved. The class is built with
+the resolved value and handed to `Lighthouse::Events.dispatch`; the value is
+returned unchanged, and nothing is dispatched when the field raises. It is
+repeatable: each `@event` dispatches its own. See [events.md](events.md) for
+listening, and for the events Lighthouse itself dispatches.
+
+```graphql
+directive @event(dispatch: String!) repeatable on FIELD_DEFINITION
+```
+
+```graphql
+type Mutation {
+  shipOrder(id: ID!): Order!
+    @update
+    @event(dispatch: "OrderShipped")
+    @event(dispatch: "Billing::InvoiceDue")
+}
+```
+
+```ruby
+class OrderShipped
+  attr_reader :order
+
+  def initialize(order) = @order = order
+end
+
+Lighthouse::Events.listen(OrderShipped) { |event| Mailer.shipped(event.order).deliver_later }
+```
+
+The class is looked up in `Config.namespaces[:events]` (default `['Events']`,
+so `Events::OrderShipped`, then `::OrderShipped`); a name with `::` is used
+as-is. A name that finds no class fails the schema build with
+`Lighthouse::DefinitionError`. `@event` runs inside `@guard`, `@can*`,
+`@validator` and `@cache`: a rejected request, or a cache hit, dispatches
+nothing. (`@canResolved` checks the resolved value, so there the event is
+dispatched before the check.)
+
+---
+
 ## Adding your own
 
 Every directive above is a small class registered with

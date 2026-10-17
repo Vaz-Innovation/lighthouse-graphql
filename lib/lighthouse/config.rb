@@ -17,7 +17,8 @@ module Lighthouse
       queries: ['Queries'],
       mutations: ['Mutations'],
       builders: ['Builders'],
-      validators: ['Validators']
+      validators: ['Validators'],
+      events: ['Events']
     }.freeze
 
     # Every setting reset! forgets, so the next read falls back to its default.

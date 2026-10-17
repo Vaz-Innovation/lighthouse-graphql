@@ -119,21 +119,50 @@ end
 
 ## 4. Serve it
 
-A standard graphql-ruby controller:
+`rails g lighthouse:install` writes the controller. It includes
+`Lighthouse::GraphQL::Controller`, a concern that serves the schema:
 
 ```ruby
 class GraphqlController < ApplicationController
-  def execute
-    result = AppSchema.execute(
-      params[:query],
-      variables: params[:variables],
-      context: { current_user: current_user },
-      operation_name: params[:operationName]
-    )
-    render json: result
+  include Lighthouse::GraphQL::Controller
+
+  lighthouse_schema AppSchema   # or 'AppSchema', or a block: lighthouse_schema { AppSchema }
+
+  private
+
+  # What @guard and the @can* directives read. Defaults to
+  # { current_user: current_user } when the controller has a current_user.
+  def graphql_context = { current_user: current_user }
+end
+```
+
+Route to it (`post '/graphql', to: 'graphql#execute'`, plus a `get` for
+[persisted queries](performance.md#persisted-queries) if you use them). Its
+`execute` action:
+
+- dispatches the [`StartRequest` and `EndRequest` events](events.md);
+- reads `variables` (a JSON string, as a GET carries it, or parameters);
+- runs the operation through `PersistedQueries.execute`, so
+  [Automatic Persisted Queries](performance.md#persisted-queries) work once
+  `config.persisted_queries` is on, and a JSON array body runs as a batch;
+- sets the `Cache-Control` header the selected fields'
+  [`@cacheControl`](caching.md) hints allow;
+- renders the JSON; in development an error renders as JSON with its backtrace.
+
+The hooks `graphql_context`, `graphql_schema` and `graphql_variables(param)` are
+private methods you can override. A controller with an action of its own wraps it
+in `lighthouse_request { ... }` to keep the request events:
+
+```ruby
+def search
+  lighthouse_request do
+    render json: Lighthouse::GraphQL::PersistedQueries.execute(AppSchema, query: params[:q], context: graphql_context)
   end
 end
 ```
+
+Not on the concern? Plain graphql-ruby works too:
+`render json: AppSchema.execute(params[:query], variables: params[:variables], context: { current_user: current_user })`.
 
 ## 5. Configure (optional)
 

@@ -1,0 +1,122 @@
+# The events Lighthouse dispatches and the dispatcher an app listens through.
+# See docs/events.md.
+module Lighthouse
+  module Events
+    # Anything that responds to `call(event)`; what it returns means something
+    # to some events (BuildSchemaString, RegisterDirectiveNamespaces,
+    # BuildExtensionsResponse), and is ignored by the rest.
+    interface _Listener
+      def call: (untyped event) -> untyped
+    end
+
+    # Register a listener (a callable or a block) for an event class and its
+    # subclasses; answers the listener, for `forget`.
+    def self.listen: (Class event_class, ?_Listener? callable) ?{ (untyped event) -> untyped } -> _Listener
+
+    def self.forget: (_Listener listener) -> nil
+    def self.reset!: () -> nil
+
+    # Call the listeners of the event's class and ancestors in registration
+    # order; answers their non-nil return values.
+    def self.dispatch: (untyped event) -> Array[untyped]
+
+    # Whether dispatching an `event_class` event would reach a listener or an
+    # ActiveSupport::Notifications subscriber.
+    def self.listening?: (Class event_class) -> bool
+
+    # The ActiveSupport::Notifications name an event class is instrumented as.
+    def self.notification_name: (Class event_class) -> String
+
+    # The base of the events; a listener on it hears all of them.
+    class Event
+      attr_reader moment: Time
+
+      def initialize: () -> void
+    end
+
+    class StartRequest < Event
+      attr_reader request: untyped
+
+      def initialize: (untyped request) -> void
+    end
+
+    class StartOperationOrOperations < Event
+      attr_reader operation_or_operations: Hash[Symbol, untyped] | Array[Hash[Symbol, untyped]]
+
+      def initialize: (Hash[Symbol, untyped] | Array[Hash[Symbol, untyped]] operation_or_operations) -> void
+    end
+
+    # A listener may answer SDL (a String) to append to the user schema.
+    class BuildSchemaString < Event
+      attr_reader user_schema: String
+
+      def initialize: (String user_schema) -> void
+    end
+
+    # A listener may answer a namespace (a Module or its name), or an Array of them.
+    class RegisterDirectiveNamespaces < Event
+    end
+
+    class ManipulateAST < Event
+      attr_accessor document_ast: untyped
+
+      def initialize: (untyped document_ast) -> void
+    end
+
+    class StartExecution < Event
+      attr_reader schema: untyped
+      attr_reader query: untyped
+      attr_reader variables: Hash[String, untyped]?
+      attr_reader operation_name: String?
+      attr_reader context: untyped
+
+      def initialize: (untyped schema, untyped query, Hash[String, untyped]? variables, String? operation_name, untyped context) -> void
+    end
+
+    # A listener may answer an ExtensionsResponse, or an Array of them.
+    class BuildExtensionsResponse < Event
+      attr_reader result: Hash[String, untyped]
+      attr_reader query_complexity: Integer?
+
+      def initialize: (Hash[String, untyped] result, Integer? query_complexity) -> void
+    end
+
+    class ManipulateResult < Event
+      attr_accessor result: Hash[String, untyped]
+
+      def initialize: (Hash[String, untyped] result) -> void
+    end
+
+    class EndExecution < Event
+      attr_reader result: Hash[String, untyped]
+
+      def initialize: (Hash[String, untyped] result) -> void
+    end
+
+    class EndOperationOrOperations < Event
+      attr_reader result_or_results: untyped
+
+      def initialize: (untyped result_or_results) -> void
+    end
+
+    class EndRequest < Event
+      attr_reader response: untyped
+
+      def initialize: (untyped response) -> void
+    end
+
+    class ValidateSchema < Event
+      attr_reader schema: untyped
+
+      def initialize: (untyped schema) -> void
+    end
+
+    # A key and content merged into the "extensions" of a result.
+    class ExtensionsResponse
+      attr_reader key: String | Symbol
+      attr_reader content: untyped
+
+      def initialize: (String | Symbol key, untyped content) -> void
+    end
+  end
+end

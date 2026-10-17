@@ -44,6 +44,13 @@ RSpec.describe Lighthouse::Generators::InstallGenerator do
     ].each { |path| expect(exist?(path)).to be(true), "expected #{path}" }
   end
 
+  it 'generates a controller that includes the concern and names the schema' do
+    run_generator('--schema=ApiSchema')
+
+    controller = read('app/controllers/graphql_controller.rb')
+    expect(controller).to include('include Lighthouse::GraphQL::Controller', 'lighthouse_schema ApiSchema')
+  end
+
   it 'generates Ruby that parses' do
     run_generator
 
@@ -126,7 +133,7 @@ RSpec.describe Lighthouse::Generators::InstallGenerator do
     it 'replaces them with --force' do
       run_generator('--force')
 
-      expect(read('app/controllers/graphql_controller.rb')).to include("PersistedQueries.execute(\n      AppSchema,")
+      expect(read('app/controllers/graphql_controller.rb')).to include('include Lighthouse::GraphQL::Controller', 'lighthouse_schema AppSchema')
     end
   end
 

@@ -6,6 +6,26 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `Lighthouse::GraphQL::Controller`, a Rails controller concern: `include` it, name the schema
+  with `lighthouse_schema AppSchema`, and its `execute` action runs the operation through
+  persisted queries, batches a JSON array body, reads the variables, sets the Cache-Control
+  header and renders the result. Its private hooks (`graphql_context`, `graphql_variables`,
+  `graphql_schema`) adjust it, and `lighthouse_request { }` gives an action of your own the
+  request events. The generated `GraphqlController` and the example app now use it.
+- Events, as PHP Lighthouse dispatches them (`docs/events.md`): `Lighthouse::Events.listen`
+  for `StartRequest`, `StartOperationOrOperations`, `BuildSchemaString` (its listeners return SDL to add),
+  `RegisterDirectiveNamespaces` (its listeners return namespaces of directive classes to register), `ManipulateAST`,
+  `StartExecution`, `BuildExtensionsResponse` (its listeners return an `ExtensionsResponse` for the result's
+  `extensions`), `ManipulateResult`, `EndExecution`, `EndOperationOrOperations`, `EndRequest`
+  and `ValidateSchema`. Each one is also instrumented through `ActiveSupport::Notifications`
+  as `<event>.lighthouse`.
+- `@event(dispatch:)` dispatches an event class, constructed with the field's resolved value,
+  once the field resolves. Event classes are looked up in `Config.namespaces[:events]` (`Events`).
+- `PersistedQueries.multiplex` runs a batch of operations.
+- `bin/rails lighthouse:validate_schema` dispatches `ValidateSchema` and builds every type.
+
 ## [0.2.1] - 2026-10-17
 
 ### Added

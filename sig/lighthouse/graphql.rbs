@@ -43,6 +43,10 @@ module Lighthouse
       # `schema.execute` with the query the request names: its result, or a
       # protocol error as a ready-to-render { "errors" => [...] } Hash.
       def self?.execute: (schema schema, query: String?, ?extensions: untyped, **untyped options) -> untyped
+      # A batch: `schema.multiplex` with the query each operation (a Hash of
+      # query, extensions, variables, operation_name, context) names. One result
+      # per operation, in order; a protocol error is a ready-to-render Hash.
+      def self?.multiplex: (schema schema, Array[Hash[Symbol | String, untyped]] operations, **untyped options) -> Array[untyped]
       # The query text to run for a request's `query` and `extensions`.
       def self?.resolve: (String? query, untyped extensions) -> String?
       def self?.enabled?: () -> bool

@@ -33,6 +33,23 @@ RSpec.describe 'lighthouse rake tasks', type: :task do
     expect(File.read(File.join(dir, 'programmatic-types.graphql'))).to include('type PostPaginator', 'type PostConnection')
   end
 
+  it 'lighthouse:validate_schema dispatches ValidateSchema and accepts the example schema' do
+    listener = Lighthouse::Events.listen(Lighthouse::Events::ValidateSchema, &:schema)
+
+    expect { run('lighthouse:validate_schema', 'SCHEMA' => 'AppSchema') }.to output(/AppSchema is valid/).to_stdout
+  ensure
+    Lighthouse::Events.forget(listener)
+  end
+
+  it 'lighthouse:validate_schema aborts when a listener finds the schema invalid' do
+    listener = Lighthouse::Events.listen(Lighthouse::Events::ValidateSchema) { raise 'no good' }
+
+    expect { run('lighthouse:validate_schema', 'SCHEMA' => 'AppSchema') }
+      .to raise_error(SystemExit).and output(/AppSchema is invalid: no good/).to_stderr
+  ensure
+    Lighthouse::Events.forget(listener)
+  end
+
   it 'lighthouse:persisted_queries:verify accepts every operation in persisted-queries.json' do
     expect { run('lighthouse:persisted_queries:verify', 'SCHEMA' => 'AppSchema') }.to output(/2 persisted operations are valid/).to_stdout
   end
