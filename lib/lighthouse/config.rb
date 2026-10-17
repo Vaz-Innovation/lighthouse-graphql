@@ -26,11 +26,13 @@ module Lighthouse
       sdl_folder resolver_namespaces namespaces cache_store transactional_mutations pagination_default_count pagination_max_count
       schema_cache schema_cache_path watch_sdl persisted_queries persisted_queries_store persisted_queries_ttl
       persisted_queries_manifest persisted_queries_only on_error directive_map authenticated_user policy_user authorizer
+      feature_checker feature_actor
     ].freeze
 
     class << self
       attr_writer :sdl_folder, :resolver_namespaces, :on_error, :authenticated_user, :policy_user, :authorizer, :cache_store,
-                  :transactional_mutations, :schema_cache, :watch_sdl, :persisted_queries, :persisted_queries_store, :persisted_queries_only
+                  :transactional_mutations, :schema_cache, :watch_sdl, :persisted_queries, :persisted_queries_store, :persisted_queries_only,
+                  :feature_checker, :feature_actor
 
       def sdl_folder
         @sdl_folder ||= (defined?(Rails) && Rails.respond_to?(:root) ? Rails.root.join('graphql').to_s : nil)
@@ -131,6 +133,17 @@ module Lighthouse
       # `args:` values and, with `injectArgs: true`, the field's arguments first.
       # Defaults to Pundit: `Pundit.policy!(user, record).<ability>?(*args)`.
       def authorizer = @authorizer ||= Defaults.authorizer
+
+      # --- Feature flags (used by @feature) ------------------------------------
+
+      # Is a feature on? `->(name, actor, ctx) { true/false }`, with the feature's
+      # name as written in the SDL. Defaults to Flipper: `Flipper.enabled?(name.to_sym, actor)`.
+      def feature_checker = @feature_checker ||= Lighthouse::GraphQL::FeatureDirective.default_checker
+
+      # The actor features are checked for: `->(ctx) { actor }` (a Flipper actor
+      # answers `flipper_id`; nil checks the feature globally). Defaults to the
+      # authenticated user.
+      def feature_actor = @feature_actor ||= ->(ctx) { authenticated_user.call(ctx) }
 
       def configure
         yield(self) if block_given?

@@ -51,6 +51,12 @@ module Lighthouse
     def call: (untyped user, untyped record, String | Symbol ability, ?Array[untyped] args) -> boolish
   end
 
+  # Config.feature_checker: is the feature `name` (as written in @feature) on
+  # for `actor`? The default asks Flipper.
+  interface _FeatureChecker
+    def call: (String name, untyped actor, context? context) -> boolish
+  end
+
   # What DirectiveRegistry#register_manipulator takes: it transforms the SDL
   # before the schema is built.
   interface _SdlManipulator
@@ -120,6 +126,11 @@ module Lighthouse
     def self.policy_user=: (_UserReader? reader) -> _UserReader?
     def self.authorizer: () -> _Authorizer
     def self.authorizer=: (_Authorizer? authorizer) -> _Authorizer?
+
+    def self.feature_checker: () -> _FeatureChecker
+    def self.feature_checker=: (_FeatureChecker? checker) -> _FeatureChecker?
+    def self.feature_actor: () -> _UserReader
+    def self.feature_actor=: (_UserReader? reader) -> _UserReader?
   end
 
   # The schema refers to something that does not exist or breaks a contract.

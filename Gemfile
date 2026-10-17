@@ -18,6 +18,8 @@ group :development, :test do
   # by default, and @validator accepts Dry::Validation contracts.
   gem 'dry-validation', '~> 1.10'
   gem 'pundit', '>= 2.0'
+  # Backs @feature by default; the specs use its in-memory adapter.
+  gem 'flipper', '~> 1.3'
 end
 
 # dry-schema 1.14 forwards anonymous blocks in a way Ruby 3.1's parser rejects,

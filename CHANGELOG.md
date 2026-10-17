@@ -25,6 +25,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   once the field resolves. Event classes are looked up in `Config.namespaces[:events]` (`Events`).
 - `PersistedQueries.multiplex` runs a batch of operations.
 - `bin/rails lighthouse:validate_schema` dispatches `ValidateSchema` and builds every type.
+- `@feature(name:, when:)` shows a field or object type only while a feature flag is in that
+  state, checked per query through graphql-ruby's visibility. It uses Flipper by default;
+  `Config.feature_checker` and `Config.feature_actor` change that.
 
 ## [0.2.1] - 2026-10-17
 

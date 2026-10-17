@@ -369,6 +369,53 @@ type Query {
 
 ---
 
+## Feature flags
+
+### `@feature`
+
+Include a field or an object type in the schema depending on a feature flag,
+backed by [Flipper](https://www.flippercloud.io/docs) (PHP Lighthouse's
+`@feature` is backed by Laravel Pennant).
+
+```graphql
+type Query {
+  newCheckout: Checkout @feature(name: "new_checkout")
+  legacyCheckout: Checkout @feature(name: "new_checkout", when: INACTIVE)
+}
+
+type Beta @feature(name: "beta") {
+  id: ID!
+}
+```
+
+| Argument | Meaning |
+| --- | --- |
+| `name: String!` | The feature to check. |
+| `when: FeatureState! = ACTIVE` | The state the feature must be in for the element to be included: `ACTIVE` or `INACTIVE`. |
+
+Feature flags depend on who asks, while the schema is built once, so the element
+stays in the schema and is hidden **per query**, through graphql-ruby's
+[visibility](https://graphql-ruby.org/authorization/visibility.html). A hidden
+field or type disappears from introspection, and a query selecting it fails
+validation (`Field 'newCheckout' doesn't exist on type 'Query'`). The fields
+returning a hidden type are hidden with it. `to_definition` prints the schema as
+the features stand for no actor.
+
+Each feature is checked at most once per query. By default Flipper is asked
+whether the feature is enabled for the authenticated user (`Flipper.enabled?(:new_checkout, user)`;
+the user answers `flipper_id`, which Flipper's ActiveRecord integration adds to
+models); with no user, the global gate decides. Flipper is optional: add
+`gem "flipper"` to your Gemfile, or configure your own check with
+`feature_checker` and `feature_actor` (see [configuration.md](configuration.md#feature_checker-feature_actor)).
+
+```ruby
+Flipper.enable_actor(:new_checkout, User.find(1))
+
+# schema.execute(query, context: { current_user: user })
+```
+
+---
+
 ## Events
 
 `@event` dispatches an event once the field has resolved. The class is built with

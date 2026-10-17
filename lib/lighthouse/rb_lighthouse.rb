@@ -53,6 +53,7 @@ require_relative 'namespaces'
   resolver_dispatch
   caching
   cache_control
+  feature_directive
   pagination
   relation_batch
   nested_mutations

@@ -112,6 +112,22 @@ The authentication and authorization seams behind `@guard` and the `@can*`
 family. The authorizer is `->(user, record, ability, args = [])`, Pundit by
 default. See [authorization.md](authorization.md#configuration).
 
+### `feature_checker`, `feature_actor`
+
+The seams behind [`@feature`](directives.md#feature). The checker is
+`->(name, actor, ctx) { true/false }`, called with the feature's name as written
+in the SDL; by default it asks Flipper, `Flipper.enabled?(name.to_sym, actor)`,
+and raises a clear error when Flipper is not loaded. The actor is
+`->(ctx) { actor }`; by default it is the authenticated user (a Flipper actor
+answers `flipper_id`), and `nil` checks the feature globally.
+
+```ruby
+Lighthouse.configure do |config|
+  config.feature_actor = ->(ctx) { ctx[:current_account] }
+  config.feature_checker = ->(name, account, _ctx) { account&.features&.include?(name) }
+end
+```
+
 ## Extending the registry
 
 Register app-defined directives (see [custom-directives.md](custom-directives.md))

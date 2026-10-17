@@ -137,6 +137,9 @@ module Lighthouse::GraphQL::SchemaGenerator
       type.fields.each_value { |field_def| process_field(type, field_def, root_kinds[type.graphql_name]) }
     end
 
+    # @feature hides a field or type per query, through graphql-ruby's visibility.
+    Lighthouse::GraphQL::FeatureDirective.apply(schema)
+
     # return schema for convenience
     schema
   end
