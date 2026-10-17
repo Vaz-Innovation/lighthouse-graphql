@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-17
+
 ### Added
 
 - `rails generate lighthouse:install` sets a Rails app up: the initializer (every option,
@@ -81,8 +83,30 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   header from the selected fields (PHP Lighthouse's / Apollo's rules);
   `Lighthouse::GraphQL::CacheControl.apply(response, result)` sets it, and the generated
   controller calls it.
+- `example/`: a Rails 8.1 blog API built with Lighthouse, which is both an example to
+  read and the end-to-end suite. Its specs go through the real `/graphql` endpoint:
+  queries, pagination, relationships without N+1, `@guard` and the `@can*` family with
+  Pundit, mutations (nested ones included), validation, `@cache`/`@cacheControl`,
+  persisted queries over `GET`, and the rake tasks. CI runs it.
+- RuboCop (with rubocop-rails, -rspec, -performance and -factory_bot) lints the gem and
+  the example app; CI runs it, and `rake` runs it after the suite.
+- **Paginated relations no longer query once per parent.** `@hasMany`,
+  `@belongsToMany`, `@morphMany` and `@morphToMany` with `type:`, and `@paginate` on a
+  nested field, load every parent's page in one query (a `ROW_NUMBER()` window
+  partitioned by parent) and every total in one `GROUP BY`, only when a total is
+  selected. Databases without window functions keep loading one parent at a time. See
+  docs/relationships.md.
 
 ### Fixed
+
+- `@whereConditions`' `AND`, `OR` and `HAS` were ignored when they came from a query.
+  graphql-ruby hands input objects over with Ruby-style keys (`:and`, `:or`, `:has`), and
+  only the upper-case keys were read, so a nested condition matched every record.
+- `scopes:` was declared but ignored by `@count` and `@first`; `@all` now accepts it too.
+- The default resolver discarded the result of a generated three-argument resolver
+  (`resolve_field_<name>(obj, args, ctx)`) and fell through to reading the attribute.
+- Used standalone (without Rails), the gem missed ActiveSupport's `Enumerable` and
+  `String#exclude?` extensions it relies on (`index_by`, `pluck`, `exclude?`).
 
 - Every built-in directive now contributes its SDL definition. `@all`, `@find`,
   `@paginate`, `@hasMany`, `@belongsTo`, `@belongsToMany`, `@aggregate`, `@field`,
@@ -184,6 +208,7 @@ had been running inside a private monorepo as a path gem before being extracted.
 - Config-driven extension seams: `Lighthouse.configure`, `resolver_namespaces`,
   `on_error`, and `DirectiveRegistry.register` for app-defined directives.
 
-[Unreleased]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Vaz-Innovation/lighthouse-graphql/releases/tag/v0.1.0
