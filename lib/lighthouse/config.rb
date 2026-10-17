@@ -35,9 +35,7 @@ module Lighthouse
         @sdl_folder ||= (defined?(Rails) && Rails.respond_to?(:root) ? Rails.root.join('graphql').to_s : nil)
       end
 
-      def directive_map
-        @directive_map ||= {}
-      end
+      def directive_map = @directive_map ||= {}
 
       # Namespaces tried (in order) when resolving a class name from a directive
       # argument, e.g. `@field(resolver: "ContactPerson")` or `@all(model: "X")`.
@@ -102,7 +100,7 @@ module Lighthouse
       # re-raising in test (so failures surface) and logging otherwise. Override
       # via `Lighthouse.configure { |c| c.on_error = ->(e, ctx) { ... } }`.
       def on_error
-        @on_error ||= default_on_error
+        @on_error ||= Defaults.on_error
       end
 
       def handle_error(error, context = nil)
@@ -131,9 +129,7 @@ module Lighthouse
       # `record` may be a model class (@canModel). `args` carries the @can*
       # `args:` values and, with `injectArgs: true`, the field's arguments first.
       # Defaults to Pundit: `Pundit.policy!(user, record).<ability>?(*args)`.
-      def authorizer
-        @authorizer ||= default_authorizer
-      end
+      def authorizer = @authorizer ||= Defaults.authorizer
 
       def configure
         yield(self) if block_given?
@@ -146,10 +142,13 @@ module Lighthouse
       def reset!
         SETTINGS.each { |setting| instance_variable_set("@#{setting}", nil) }
       end
+    end
 
-      private
+    # The callables the authorizer and on_error settings fall back to.
+    module Defaults
+      module_function
 
-      def default_authorizer
+      def authorizer
         lambda do |user, record, ability, args = []|
           raise 'Lighthouse: configure `Config.authorizer` to use the @can* directives (Pundit not detected).' unless defined?(::Pundit)
 
@@ -158,7 +157,7 @@ module Lighthouse
         end
       end
 
-      def default_on_error
+      def on_error
         lambda do |error, _context|
           if defined?(Rails) && Rails.respond_to?(:env) && Rails.env.test?
             raise error
