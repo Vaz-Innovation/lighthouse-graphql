@@ -28,6 +28,7 @@ require_relative 'namespaces'
   support/authorization
   support/arguments
   support/batching
+  support/soft_deletes
   where_conditions/operator_map
   contracts/directive
   contracts/field_resolver
@@ -59,6 +60,7 @@ require_relative 'namespaces'
   nested_mutations
   directives/pagination_manipulator
   directives/where_conditions_directive
+  directives/soft_deletes_directive
   directive_resolvers/aggregate_resolver
   directive_resolvers/field_resolver
   directive_resolvers/where_conditions_applier
@@ -77,6 +79,7 @@ require_relative 'namespaces'
   directive_resolvers/can_resolvers
   directive_resolvers/convention_resolver
   directive_resolvers/model_mutation_resolver
+  directive_resolvers/soft_delete_resolvers
   directive_resolvers/cache_resolvers
   directive_resolvers/validator_resolver
   directive_resolvers/event_resolver
@@ -84,6 +87,7 @@ require_relative 'namespaces'
   directives/arguments/base
   directives/arguments/filters
   directives/arguments/order_by
+  directives/arguments/soft_deletes
   directives/registry
   dataloader_sources/association_loader
   dataloader_sources/model_loader

@@ -53,6 +53,10 @@ RSpec.configure do |config|
   config.before do
     Widget.delete_all
     Post.delete_all
+    # Raw SQL: paranoia turns delete_all into a soft delete.
+    %w[soft_tasks paranoid_items discard_items scheduled_posts soft_projects].each do |table|
+      ActiveRecord::Base.connection.execute("DELETE FROM #{table}")
+    end
     Lighthouse::Config.cache_store.clear
   end
   config.after do

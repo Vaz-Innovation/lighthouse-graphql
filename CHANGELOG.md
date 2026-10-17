@@ -30,6 +30,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `Config.feature_checker` and `Config.feature_actor` change that.
 - `@convertEmptyStringsToNull` on an argument, input field or field, or on every field with
   `Config.convert_empty_strings_to_null`, turns incoming `""` into `null`.
+- Soft deletes: `@softDeletes` adds a `trashed: Trashed @trashed` argument (`ONLY`, `WITH`,
+  `WITHOUT`), and `@restore` and `@forceDelete` restore or permanently delete the soft-deleted models
+  their filters select. They work with paranoia, discard or a plain `deleted_at` column,
+  detected per model, or with an adapter set in `Config.soft_deletes`.
+- `@withoutGlobalScopes(names:)` lifts a model's default scope conditions when the client passes
+  `true`. Each name is a `without_<name>` scope or a column.
 
 ## [0.2.1] - 2026-10-17
 

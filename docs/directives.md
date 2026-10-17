@@ -369,6 +369,140 @@ See [mutations.md](mutations.md).
 
 ---
 
+## Soft deletes & global scopes
+
+Rails has no built-in soft deletes or named global scopes, so these directives
+work with what Rails apps use. Lighthouse detects, per model, in this order:
+
+1. **[paranoia](https://github.com/rubysherpas/paranoia)** (`acts_as_paranoid`):
+   a default scope hides trashed records.
+2. **[discard](https://github.com/jhawthorn/discard)** (`include Discard::Model`):
+   nothing is hidden, unless the model adds `default_scope -> { kept }`.
+3. **A plain `deleted_at` column**, with no gem (a default scope is optional).
+
+An app with its own scheme, or another column, sets
+[`Config.soft_deletes`](configuration.md#soft_deletes). A model that matches none
+of them is an error when a client uses one of these directives on it
+(`Model Widget does not support soft deletes …`).
+
+### `@softDeletes`
+
+Lets clients filter trashed records. It adds the argument
+`trashed: Trashed @trashed` to the field and defines the `Trashed` enum once
+(unless your schema declares its own).
+
+```graphql
+type Query {
+  tasks: [Task!]! @all @softDeletes
+}
+```
+
+becomes
+
+```graphql
+type Query {
+  tasks(trashed: Trashed @trashed): [Task!]! @all
+}
+
+"Specify if you want to include or exclude trashed results from a query."
+enum Trashed {
+  "Only return trashed results."
+  ONLY
+  "Return both trashed and non-trashed results."
+  WITH
+  "Only return non-trashed results."
+  WITHOUT
+}
+```
+
+### `@trashed`
+
+The argument builder `@softDeletes` adds; use it by hand to name the argument
+yourself. It works wherever argument filters do: `@all`, `@paginate`, `@find`,
+`@first`, `@count` and the relationship directives (`@hasMany`, …, including
+paginated ones, which keep batching through the Dataloader).
+
+```graphql
+type Query {
+  flights(trashed: Trashed @trashed, destination: String @eq): [Flight!]! @all
+}
+type Post {
+  comments(trashed: Trashed @trashed): [Comment!]! @hasMany
+}
+```
+
+| Value | Result |
+| --- | --- |
+| `ONLY` | only trashed records |
+| `WITH` | trashed and non-trashed records |
+| `WITHOUT` | only non-trashed records |
+| *(omitted)* | **the model's own behaviour, untouched**: paranoia and a default scope hide trashed records, a bare `deleted_at` column or discard without a default scope show everything |
+
+`ONLY`, `WITH` and `WITHOUT` lift the model's default scope on the soft-delete
+column first, so they behave the same whatever the model does by default. That
+is `unscope(where: column)`, which removes every condition on that column from
+the query, including one added by an argument declared before `trashed`. Avoid a
+separate filter on the soft-delete column itself.
+
+### `@forceDelete`
+
+Permanently removes one or more soft deleted models. It works like
+[`@delete`](mutations.md#delete): the filter arguments (`@whereKey`, `@eq`, …) are
+required (`Would modify all models, use an argument to filter.`), the removed
+models are returned (a list for a list field, else the first or `null`), and
+`model:` and `scopes:` are honoured. It finds trashed models even when the model
+hides them by default, and it removes live ones too. It runs in a transaction
+(`Config.transactional_mutations`).
+
+```graphql
+type Mutation {
+  forceDeletePost(id: ID! @whereKey): Post @forceDelete
+  forceDeletePosts(ids: [ID!]! @whereKey): [Post!]! @forceDelete
+}
+```
+
+paranoia models are removed with `really_destroy!`, discard and `deleted_at`
+models with `destroy`. A model whose callbacks refuse is reported as
+`Could not modify model Post with ID 1.`
+
+### `@restore`
+
+Un-deletes one or more soft deleted models, with the same arguments, guard and
+result as `@forceDelete`: paranoia's `restore`, discard's `undiscard`, or setting
+the `deleted_at` column to `NULL`.
+
+```graphql
+type Mutation {
+  restorePost(id: ID! @whereKey): Post @restore
+}
+```
+
+### `@withoutGlobalScopes`
+
+Omits global scopes from the query when the client passes `true`. Use it on a
+`Boolean` argument; `false` and an omitted argument leave the scopes in place.
+
+```graphql
+type Query {
+  posts(includeUnscheduled: Boolean @withoutGlobalScopes(names: ["scheduled"])): [Post!]! @all
+}
+```
+
+ActiveRecord has one anonymous `default_scope`, not scopes with names, so each
+name is resolved like this (snake_cased; a trailing `Scope` is optional):
+
+1. A model scope **`without_<name>`**, if the model has one. You write it:
+   `scope :without_scheduled, -> { unscope(where: :schedule_at) }`.
+2. Else a **column** of that name: `unscope(where: column)`. Like `@trashed`, this
+   removes every condition on that column from the query, including ones added by
+   earlier arguments.
+3. Else a soft-delete name (`softDeletes`, `SoftDeletingScope`): trashed records
+   are included, as with `trashed: WITH`.
+
+Any other name is an error: `Cannot omit the global scope …`.
+
+---
+
 ## Validation
 
 `@validator` runs a contract (Dry::Validation by default) before a field

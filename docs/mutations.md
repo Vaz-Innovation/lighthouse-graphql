@@ -96,6 +96,21 @@ Without a filter argument, it refuses to run, since it would delete every row:
 abort the destroy is reported next to the data:
 `Could not modify model Post with ID 1.`
 
+### `@forceDelete` and `@restore`
+
+`@forceDelete` permanently removes soft deleted models and `@restore` un-deletes
+them. They work very much like `@delete` (required filter arguments, the models
+returned, `model:` and `scopes:`), but also find the models the soft-delete
+strategy hides. See [Soft deletes & global
+scopes](directives.md#soft-deletes-global-scopes).
+
+```graphql
+type Mutation {
+  forceDeletePost(id: ID! @whereKey): Post @forceDelete
+  restorePost(id: ID! @whereKey): Post @restore
+}
+```
+
 ## Validation errors
 
 When a model does not save, the mutation fails with PHP Lighthouse's error

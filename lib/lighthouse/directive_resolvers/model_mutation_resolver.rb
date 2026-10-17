@@ -181,32 +181,36 @@ module Lighthouse::GraphQL::DirectiveResolvers
     end
   end
 
-  # @delete — destroy the models the field's argument filters select
-  # (@whereKey, @eq, ...), running their callbacks, and return them: a list
-  # for a list field, else the first or null. Refuses to run without a
-  # filter argument, which would delete every row.
-  class DeleteDirectiveResolver < ModelMutationResolver
-    def self.directive_name = 'delete'
-    def self.definition = "directive @delete(#{ARGUMENTS}, scopes: [String!]) on #{LOCATIONS}"
-
+  # The shared shape of @delete, @forceDelete and @restore: act on each record
+  # the field's argument filters (@whereKey, @eq, ...) select, and return them:
+  # a list for a list field, else the first or null. Refuses to run without a
+  # filter argument, which would modify every row.
+  class ModifyModelsResolver < ModelMutationResolver
     WOULD_MODIFY_ALL = 'Would modify all models, use an argument to filter.'
 
     protected
 
-    # A record whose callbacks refuse the destroy is reported as an error next
-    # to the data, as PHP Lighthouse does; the others are still deleted.
+    # A record whose callbacks refuse the action is reported as an error next
+    # to the data, as PHP Lighthouse does; the others are still modified.
     def mutate(model, _obj, args, ctx)
       args = Lighthouse::Support::Arguments.shallow(args)
       raise ::GraphQL::ExecutionError, WOULD_MODIFY_ALL unless filtered?(args)
 
-      relation = Array(directive_arg('scopes')).reduce(model.all) { |acc, scope| acc.public_send(scope) }
-      records = apply_where_filters(relation, args).to_a
+      records = apply_where_filters(records_of(model), args).to_a
       records.each do |record|
-        next if record.destroy
+        next if modify(record)
 
         ctx.add_error(::GraphQL::ExecutionError.new("Could not modify model #{model.name} with ID #{record.id}."))
       end
       @field_def.type.list? ? records : records.first
+    end
+
+    # The relation the filters narrow down: the model's, narrowed by `scopes:`.
+    def records_of(model) = apply_scopes(model.all)
+
+    # Act on one record; false when its callbacks refused.
+    def modify(_record)
+      raise NotImplementedError
     end
 
     def filtered?(args)
@@ -215,5 +219,16 @@ module Lighthouse::GraphQL::DirectiveResolvers
         args.key?(argument.name.underscore.to_sym) && argument.directives.any? { |d| registry.arg_builder_class(d.name) }
       end
     end
+  end
+
+  # @delete — destroy the models the field's argument filters select
+  # (@whereKey, @eq, ...), running their callbacks, and return them.
+  class DeleteDirectiveResolver < ModifyModelsResolver
+    def self.directive_name = 'delete'
+    def self.definition = "directive @delete(#{ARGUMENTS}, scopes: [String!]) on #{LOCATIONS}"
+
+    protected
+
+    def modify(record) = record.destroy
   end
 end

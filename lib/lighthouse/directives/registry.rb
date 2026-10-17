@@ -175,6 +175,7 @@ class Lighthouse::DirectiveRegistry
     CreateDirectiveResolver CreateManyDirectiveResolver
     UpdateDirectiveResolver UpdateManyDirectiveResolver
     UpsertDirectiveResolver UpsertManyDirectiveResolver DeleteDirectiveResolver
+    ForceDeleteDirectiveResolver RestoreDirectiveResolver
     CanFindDirectiveResolver CanModelDirectiveResolver CanQueryDirectiveResolver
     CanResolvedDirectiveResolver CanRootDirectiveResolver
     CacheDirectiveResolver ClearCacheDirectiveResolver EventDirectiveResolver
@@ -182,7 +183,7 @@ class Lighthouse::DirectiveRegistry
   ].freeze
 
   # Argument-builder filter/sort directives.
-  ARG_BUILDERS = %i[Eq Neq In NotIn Like Where WhereKey OrderBy].freeze
+  ARG_BUILDERS = %i[Eq Neq In NotIn Like Where WhereKey OrderBy Trashed WithoutGlobalScopes].freeze
 
   # Read by other directives rather than resolving anything themselves.
   PASSIVE_DEFINITIONS = {
@@ -200,6 +201,7 @@ class Lighthouse::DirectiveRegistry
     # SDL manipulators run in registration order during the manipulation phase.
     register_manipulator(Lighthouse::GraphQL::Directives::PaginationManipulator)
     register_manipulator(Lighthouse::GraphQL::Directives::WhereConditionsDirective)
+    register_manipulator(Lighthouse::GraphQL::Directives::SoftDeletesDirective)
 
     register_default_definitions
     self
@@ -219,6 +221,7 @@ class Lighthouse::DirectiveRegistry
     Lighthouse::GraphQL::Directives::WhereConditionsDirective::DEFINITIONS.each do |name, definition|
       register_definition(name, definition)
     end
+    Lighthouse::GraphQL::Directives::SoftDeletesDirective::DEFINITIONS.each { |name, definition| register_definition(name, definition) }
   end
 
   def safe_definition(klass)

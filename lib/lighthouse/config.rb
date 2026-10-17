@@ -28,6 +28,7 @@ module Lighthouse
       persisted_queries_manifest persisted_queries_only on_error directive_map authenticated_user policy_user authorizer
       feature_checker feature_actor
       convert_empty_strings_to_null
+      soft_deletes
     ].freeze
 
     class << self
@@ -149,6 +150,16 @@ module Lighthouse
       # answers `flipper_id`; nil checks the feature globally). Defaults to the
       # authenticated user.
       def feature_actor = @feature_actor ||= ->(ctx) { authenticated_user.call(ctx) }
+
+      # --- Soft deletes (used by @softDeletes, @trashed, @restore, @forceDelete) ---
+
+      # Teaches Lighthouse what "trashed" means. Any object answering
+      # `soft_deletes?(model)`, `only_trashed(relation)`, `with_trashed(relation)`,
+      # `without_trashed(relation)`, `restore(record)` and `force_delete(record)`.
+      # Defaults to detecting paranoia, then discard, then a `deleted_at` column
+      # per model (Support::SoftDeletes::Auto); `Support::SoftDeletes::Column.new(:archived_at)`
+      # is one for another column.
+      attr_accessor :soft_deletes
 
       def configure
         yield(self) if block_given?

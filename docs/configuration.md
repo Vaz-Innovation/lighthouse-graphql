@@ -118,6 +118,31 @@ config.convert_empty_strings_to_null = true
 Whether `@create` / `@update` / `@createMany` / `@updateMany` run in a database
 transaction. Defaults to `true`.
 
+### `soft_deletes`
+
+What "trashed" means, for `@softDeletes`, `@trashed`, `@restore`, `@forceDelete`
+and `@withoutGlobalScopes`. By default each model is inspected: paranoia
+(`acts_as_paranoid`), then discard (`Discard::Model`), then a `deleted_at` column.
+Set it for another column, or a scheme of your own:
+
+```ruby
+# Another column, for models without a gem:
+config.soft_deletes = Lighthouse::Support::SoftDeletes::Column.new(:archived_at)
+
+# Any object answering these (relations in, relations out; records in, truthy out):
+class SoftDeleteAdapter
+  def soft_deletes?(model) = model.include?(Archivable)
+  def only_trashed(relation) = relation.unscope(where: :archived_at).where.not(archived_at: nil)
+  def with_trashed(relation) = relation.unscope(where: :archived_at)
+  def without_trashed(relation) = relation.unscope(where: :archived_at).where(archived_at: nil)
+  def restore(record) = record.unarchive
+  def force_delete(record) = record.destroy
+end
+config.soft_deletes = SoftDeleteAdapter.new
+```
+
+See [Soft deletes & global scopes](directives.md#soft-deletes-global-scopes).
+
 ### `authenticated_user`, `policy_user`, `authorizer`
 
 The authentication and authorization seams behind `@guard` and the `@can*`

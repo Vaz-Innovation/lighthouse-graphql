@@ -18,6 +18,9 @@ group :development, :test do
   # by default, and @validator accepts Dry::Validation contracts.
   gem 'dry-validation', '~> 1.10'
   gem 'pundit', '>= 2.0'
+  # The soft-delete gems @softDeletes, @trashed, @restore and @forceDelete detect; the specs exercise both.
+  gem 'discard', '~> 1.3'
+  gem 'paranoia', '>= 2.6'
   # Backs @feature by default; the specs use its in-memory adapter.
   gem 'flipper', '~> 1.3'
 end

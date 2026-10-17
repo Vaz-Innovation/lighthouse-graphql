@@ -57,6 +57,19 @@ module Lighthouse
     def call: (String name, untyped actor, context? context) -> boolish
   end
 
+  # Config.soft_deletes: what "trashed" means for @softDeletes, @trashed,
+  # @restore, @forceDelete and @withoutGlobalScopes. The filters take a model's
+  # relation and answer the constrained one; `restore` and `force_delete` act
+  # on a record and answer whether they succeeded.
+  interface _SoftDeletes
+    def soft_deletes?: (Class model) -> boolish
+    def only_trashed: (relation relation) -> relation
+    def with_trashed: (relation relation) -> relation
+    def without_trashed: (relation relation) -> relation
+    def restore: (untyped record) -> boolish
+    def force_delete: (untyped record) -> boolish
+  end
+
   # What DirectiveRegistry#register_manipulator takes: it transforms the SDL
   # before the schema is built.
   interface _SdlManipulator
@@ -130,10 +143,27 @@ module Lighthouse
     def self.authorizer: () -> _Authorizer
     def self.authorizer=: (_Authorizer? authorizer) -> _Authorizer?
 
+    def self.soft_deletes: () -> _SoftDeletes?
+    def self.soft_deletes=: (_SoftDeletes? adapter) -> _SoftDeletes?
+
     def self.feature_checker: () -> _FeatureChecker
     def self.feature_checker=: (_FeatureChecker? checker) -> _FeatureChecker?
     def self.feature_actor: () -> _UserReader
     def self.feature_actor=: (_UserReader? reader) -> _UserReader?
+  end
+
+  module Support
+    module SoftDeletes
+      # A nullable timestamp column marking trashed records, with no gem:
+      # `Config.soft_deletes = Support::SoftDeletes::Column.new(:archived_at)`.
+      class Column
+        include _SoftDeletes
+
+        DEFAULT_COLUMN: String
+
+        def initialize: (?String | Symbol column) -> void
+      end
+    end
   end
 
   # The schema refers to something that does not exist or breaks a contract.
