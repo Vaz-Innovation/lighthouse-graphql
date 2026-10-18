@@ -60,11 +60,11 @@ class Lighthouse::GraphQL::DirectiveResolvers::ArgumentTransformsResolver < Ligh
         "A model class, or a class whose `call(value, context)` returns what the value stands for."
         class: String!
         "The column the value is matched against, for a model."
-        column: String! = "id"
+        column: String = "id"
         "Relations to eager-load on the bound records."
-        with: [String!]! = []
+        with: [String!] = []
         "Pass null instead of failing when no record matches."
-        optional: Boolean! = false
+        optional: Boolean = false
       ) on ARGUMENT_DEFINITION | INPUT_FIELD_DEFINITION
     GRAPHQL
     'upload' => <<~GRAPHQL.chomp
@@ -77,9 +77,9 @@ class Lighthouse::GraphQL::DirectiveResolvers::ArgumentTransformsResolver < Ligh
         "The storage service to store the file on (an ActiveStorage service name). Defaults to the default one."
         disk: String
         "A prefix for the stored file's key."
-        path: String! = "/"
+        path: String = "/"
         "Accepted for PHP Lighthouse parity: whether files are public is the service's setting."
-        public: Boolean! = false
+        public: Boolean = false
       ) on ARGUMENT_DEFINITION | INPUT_FIELD_DEFINITION
     GRAPHQL
   }.freeze

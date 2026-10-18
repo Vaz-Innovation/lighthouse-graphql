@@ -174,7 +174,7 @@ module Lighthouse::GraphQL::Directives::Arguments
           Typically, this option should only be used for root fields,
           as it may cause wrong results with batched relation queries.
           """
-          builder: Boolean! = false
+          builder: Boolean = false
         ) on ARGUMENT_DEFINITION | FIELD_DEFINITION
       GRAPHQL
     end

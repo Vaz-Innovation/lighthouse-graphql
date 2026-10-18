@@ -6,6 +6,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- On graphql-ruby 2.5, a schema using `@limit`, `@bind` or `@upload` without one of their optional
+  arguments did not build (`Expected value to not be null`): graphql 2.5 does not apply the default
+  of a non-null directive argument. Those arguments (`builder`, `column`, `with`, `optional`,
+  `path`, `public`) are nullable now, with the same defaults.
+
 ## [0.5.0] - 2026-10-18
 
 ### Added
