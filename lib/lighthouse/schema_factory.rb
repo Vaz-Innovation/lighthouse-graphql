@@ -30,7 +30,6 @@ module Lighthouse::GraphQL::SchemaFactory
     folder = sdl_folder || (Lighthouse::GraphQL::Config.sdl_folder if defined?(Lighthouse::GraphQL::Config))
     return Lighthouse::GraphQL::SDLLoader.load_from_folder(folder) if folder && Dir.exist?(folder)
 
-    # fallback to apps/chatwoot/schema.graphql
     File.read(File.expand_path('../../schema.graphql', __dir__))
   end
 end

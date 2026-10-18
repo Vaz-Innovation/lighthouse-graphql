@@ -6,8 +6,6 @@ module Lighthouse::GraphQL::SDLLoader
   def load_from_folder(folder)
     files = Dir[File.join(folder, '**', '*.graphql')]
     if files.empty?
-      # fallback to the monolithic schema.graphql in apps/chatwoot
-      # schema.graphql is located at apps/chatwoot/schema.graphql
       default = File.expand_path('../../..//schema.graphql', __dir__)
       return File.read(default) if File.exist?(default)
 

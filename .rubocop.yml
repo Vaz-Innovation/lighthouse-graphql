@@ -82,8 +82,6 @@ Style/HashSyntax:
   # Shorthand (`{ x: }`) needs Ruby 3.1; the gem supports 3.0.
   EnforcedShorthandSyntax: never
 
-# One top-level class or module per file (what Chatwoot/OneClassPerFile does in
-# the original config; RuboCop now ships the cop).
 Style/OneClassPerFile:
   Enabled: true
 
