@@ -129,6 +129,7 @@ See [relationships.md](relationships.md) for the full guide.
 | `@belongsTo` | inverse of has-one/has-many |
 | `@belongsToMany` | many-to-many: a list, or paginated with `type:` |
 | `@morphTo`, `@morphOne`, `@morphMany`, `@morphToMany` | the polymorphic variants |
+| `@hasManyThrough`, `@hasOneThrough` | PHP Lighthouse's names for `@hasMany` / `@hasOne` on a `has_many` / `has_one :through` |
 
 ```graphql
 type User {
@@ -141,6 +142,28 @@ type User {
 
 The relation name defaults to the field name (snake_cased). Override with
 `@hasMany(relation: "authored_posts")`.
+
+### `@with`, `@withCount` and `@lazyLoad`
+
+Eager loading for fields the relationship directives do not resolve, each across
+every parent in the response at once. See
+[relationships.md](relationships.md#eager-loading-for-other-fields).
+
+```graphql
+type User {
+  "@with loads the relation before the field resolves, for a method that reads it."
+  taskSummary: String! @with(relation: "tasks") @method(name: "task_summary")
+
+  "@withCount sets posts_count on the user; the field's resolver reads it."
+  activity: String! @withCount(relation: "posts", scopes: ["published"]) @method
+
+  "@lazyLoad loads relations of the records the field returns."
+  posts: [Post!]! @hasMany @lazyLoad(relations: ["tags", "comments.author"])
+}
+```
+
+`relation` / `relations` may be nested with dots. `scopes` narrow the loaded or
+counted records. `@with`'s `relation` defaults to the field's name.
 
 ---
 
@@ -162,10 +185,16 @@ type Contact {
 ```
 
 On `Query` and `Mutation` the name is looked up in the queries / mutations
-namespaces, elsewhere in [`resolver_namespaces`](configuration.md). The class may
+namespaces, a nested name too (`Feeds::Home` is `Resolvers::Feeds::Home`), and
+then as written. On any other type it is looked up in the resolvers namespace the
+same way (`Posts::TagsCount` is `Resolvers::Posts::TagsCount`), then in
+[`resolver_namespaces`](configuration.md). There, the class's `object` is the parent: the
+record the field belongs to (see
+[resolvers.md](resolvers.md#fields-of-other-types)). The class may
 be a `GraphQL::Schema::Resolver` (graphql-ruby's contract), or a plain callable —
 a class-level `call`, an instance `#call`, or an instance `#resolve`, each
-receiving `(object, args, context)`:
+receiving `(object, args, context)`, and the [`ResolveInfo`](resolvers.md#resolveinfo)
+as a fourth argument when it takes one:
 
 ```ruby
 module Resolvers
@@ -175,6 +204,17 @@ module Resolvers
     end
   end
 end
+```
+
+A method after `@` replaces `call`, as PHP Lighthouse's `Class@method`: it is called
+on the class when the class has it, else on an instance. On a
+`GraphQL::Schema::Resolver` it replaces `resolve`, and `ready?` / `authorized?`
+still run.
+
+```graphql
+type Query {
+  usersTotal: Int @field(resolver: "Statistics@users_total")   # Resolvers::Statistics.users_total
+}
 ```
 
 ### `@rename`
@@ -191,13 +231,155 @@ type User {
 ### `@method`
 
 Resolve a field by calling a method on the parent object (PHP-parity). Great for
-exposing a computed method or predicate without a custom resolver.
+exposing a computed method or predicate without a custom resolver. `name:`
+defaults to the field's snake_case name.
 
 ```graphql
 type Conversation {
   labels: [String!]! @method(name: "label_list")
   canReply: Boolean @method(name: "can_reply?")
+  summary(words: Int = 20): String! @method
 }
+```
+
+The field's arguments reach the method: as snake_case keywords when it takes
+keywords (`def summary(words:)`), otherwise positionally, in the order the SDL
+declares them, as PHP Lighthouse passes them (`def summary(words)`). The SDL's
+defaults apply, and a method taking no parameters is called without them.
+
+## Relay
+
+### `@globalId` and `@node`
+
+`@globalId` encodes a field's value as a Relay global id (base64 of `Type:id`), and
+decodes an argument or input field (`decode: ARRAY | TYPE | ID`). `@node` on a type
+makes it implement `Node` and adds `Query.node(id:)`, which finds the type's model
+record, or calls `@node(resolver:)`. See [relay.md](relay.md).
+
+```graphql
+type User @node {
+  id: ID! @globalId
+}
+
+type Query {
+  user(id: ID! @globalId(decode: ID) @eq): User @find
+}
+```
+
+## Execution
+
+### `@namespaced`
+
+A field that only groups others: it resolves to `true`, and the fields of its type
+resolve with their own directives. On `Query` or `Mutation`.
+
+```graphql
+type Query { post: PostQueries! @namespaced }
+type PostQueries {
+  find(id: ID! @eq): Post @find
+  list: [Post!]! @paginate
+}
+```
+
+### `@throttle`
+
+Rate-limits a field per client: at most `maxAttempts` calls every `decayMinutes`
+(default 60 a minute), counted in [`cache_store`](configuration.md#cache_store). A
+client is the signed-in user, else the context's `:remote_ip`, which the controller
+concern sets. Past the limit the field fails with `Rate limit for Query.x exceeded.
+Try again later.` before anything else runs. `name:` makes fields count together,
+`prefix:` separates groups.
+
+```graphql
+type Mutation {
+  login(email: String!, password: String!): User @throttle(maxAttempts: 5)
+}
+```
+
+### `@async`
+
+Runs a mutation in a job and answers `true` at once. `@guard`, the `@can*` family,
+`@validator` and the argument directives run in the request, so the client still
+gets their errors; what resolves the field runs in
+`Lighthouse::GraphQL::AsyncMutationJob` (ActiveJob), with the arguments and the
+context values ActiveJob can serialize (records too, through GlobalID). The field
+must be a `Mutation` field returning `Boolean`, and the schema a named constant.
+
+```graphql
+type Mutation {
+  importFeed(url: String!): Boolean! @guard @async(queue: "imports")
+}
+```
+
+### `@hide` and `@show`
+
+Leave a field out of the schema by environment (`Rails.env`): `@hide(env:)` removes
+it in the environments listed, `@show(env:)` keeps it only in those.
+
+```graphql
+type Query {
+  debugInfo: String @show(env: ["development", "test"])
+  legacyFeed: [Post!]! @hide(env: ["production"]) @all
+}
+```
+
+## Type directives
+
+### `@model`
+
+Maps an object type to the ActiveRecord model whose records it resolves, when the
+names differ, as PHP Lighthouse's. Every directive that takes `model:` (`@all`,
+`@find`, `@first`, `@paginate`, `@create`, `@update`, `@upsert`, `@delete`, the
+`@can*` family...) on a field returning the type gets it, unless it names its own; a
+union or interface resolves the model's records to the type; `@node` finds them. The
+schema does not build unless the class is an ActiveRecord model.
+
+```graphql
+type Article @model(class: "Post") { id: ID! title: String! }
+
+type Query {
+  articles: [Article!]! @paginate          # pages through Post
+  article(id: ID! @eq): Article @find
+}
+```
+
+### `@enum`
+
+The internal value of an enum value: what a resolver gets for it in an argument,
+and what a result answers with it for.
+
+```graphql
+enum Role {
+  ADMIN @enum(value: "admin")
+  MEMBER @enum(value: "member")
+}
+
+type Query { users(role: Role @eq): [User!]! @all }   # filters on "admin"
+```
+
+They go on a union, an interface or a scalar, and name the class that resolves or
+coerces its values. Without them, Lighthouse uses the type's class
+(`Types::<Name>Type` including `Lighthouse::GraphQL::Type`), or its default. See
+[types.md](types.md).
+
+### `@union` and `@interface`
+
+Name the class that picks the object type of each value: `resolve_type(object,
+context)` or `call(object, context)`, returning a type name or a type class.
+Looked up in the types namespace (nested names too), then as written.
+
+```graphql
+union SearchResult @union(resolveType: "SearchResultResolver") = Post | User
+interface Authored @interface(resolveType: "AuthoredResolver") { id: ID! }
+```
+
+### `@scalar`
+
+Names the class that reads and writes the scalar's values: `coerce_input(value,
+context)` and `coerce_result(value, context)`, as a `GraphQL::Schema::Scalar`.
+
+```graphql
+scalar DateTime @scalar(class: "Types::DateTimeType")
 ```
 
 ---
@@ -263,7 +445,40 @@ type Query {
 ```
 
 Builders are looked up in their own namespace, `Builders::` (app/graphql/builders)
-— they are not resolvers. See [resolvers.md](resolvers.md#builders).
+— they are not resolvers. See [resolvers.md](resolvers.md#builders). The class is
+`class:` with `method:` (default `call`), or PHP Lighthouse's `method: "Class@method"`.
+
+On a field, the method gets `(relation, args, context)`, or the directive's
+`value:` in place of the arguments. On an argument or an input field, it gets
+`(relation, value, context)` whenever the client sends that argument, an explicit
+`null` included, and not when it is left out:
+
+```graphql
+type Query {
+  posts(since: DateTime @builder(method: "Recent@since")): [Post!]! @all
+  latest: [Post!]! @all @builder(class: "Recent", value: 5)
+}
+```
+
+```ruby
+class Builders::Recent
+  def self.call(relation, count, _context) = relation.order(created_at: :desc).limit(count)
+  def self.since(relation, time, _context) = time ? relation.where(created_at: time..) : relation
+end
+```
+
+### `@whereAuth`
+
+Keep only the records the signed-in user owns, through a relation of the model: a
+`belongs_to`, a `has_many`, a `:through`. A guest gets none. It applies where
+`@builder` does (`@all`, `@paginate`, `@first`, `@count`, `enhance_builder`).
+
+```graphql
+type Query {
+  myPosts: [Post!]! @paginate @whereAuth(relation: "author")
+  myTeams: [Team!]! @all @whereAuth(relation: "members")
+}
+```
 
 ```ruby
 module Builders
@@ -292,6 +507,10 @@ Full guide: [filtering-and-ordering.md](filtering-and-ordering.md).
 | `@like` | `column LIKE %value%` |
 | `@whereKey` | `primary key = value` (`IN` for a list) |
 | `@where(operator:)` | generic operator (`GT`, `GTE`, `IN`, `IS_NULL`, `CONTAINS`, …) |
+| `@whereNull` / `@whereNotNull` | `true`: `column IS NULL` / `IS NOT NULL`; `false`: the opposite |
+| `@whereBetween` / `@whereNotBetween` | `column BETWEEN` / `NOT BETWEEN` the input's two fields, in order |
+| `@whereJsonContains` | a JSON column contains the value (every value of a list); `key: "meta->tags"` points into it |
+| `@scope(name:)` | calls the model scope with the value (`name:` defaults to the argument's) |
 | `@orderBy` | sort by one or more columns |
 
 ```graphql
@@ -307,6 +526,41 @@ type Query {
 
 The column defaults to the snake_cased argument name; override with `key:`.
 
+```graphql
+type Query {
+  posts(
+    unpublished: Boolean @whereNull(key: "published_at")
+    createdAt: DateRange @whereBetween(key: "created_at")
+    tagged: [String!] @whereJsonContains(key: "tags")
+    trending: Boolean @scope
+    filter: PostFilter @nest
+    limit: Int @limit
+  ): [Post!]! @all
+}
+
+input DateRange { from: DateTime! to: DateTime! }
+input PostFilter { title: String @like, authorId: ID @eq(key: "author_id") }
+```
+
+### `@nest`
+
+On an argument whose type is an input object, applies the filters of the input's
+fields (at any depth, for those that carry `@nest` too), as if they were the
+field's own arguments.
+
+### `@limit`
+
+On an `Int` argument, caps how many results the field returns at the client's
+value; `null` leaves them alone. A query not run yet gets a `LIMIT`; the records of
+a relation, loaded for every parent at once, are cut per parent. A negative value is
+an error.
+
+`@limit(builder: true)` puts the `LIMIT` on the field's query instead, with the
+other argument directives. Use it on root fields: on a relation batched for many
+parents it would cut them all together, as PHP Lighthouse warns. PHP Lighthouse
+also allows `@limit` on the field itself, where it only marks the field the argument
+limits; it is accepted there and changes nothing.
+
 ### `@whereConditions` / `@whereHasConditions`
 
 Give clients a structured, dynamic `WHERE` builder (AND/OR/operators, and HAS for
@@ -318,6 +572,35 @@ type Query {
   people(where: _ @whereConditions(columns: ["age", "type"])): [Person!]! @all
 }
 ```
+
+### `@trim`, `@hash`, `@drop`, `@bind` and `@upload`
+
+Rewrite an argument's or input field's value before the field resolves, in the
+order the SDL lists them:
+
+| Directive | The resolver gets |
+| --- | --- |
+| `@trim` | the string without leading and trailing whitespace. On a field: every string it takes, nested inputs included |
+| `@drop` | nothing: the argument is removed |
+| `@hash` | the value hashed with BCrypt (the `bcrypt` gem, as `has_secure_password`) |
+| `@bind(class:, column: "id", with: [], optional: false)` | the model record(s) the value identifies, eager-loading `with`; or what a class's `call(value, context)` returns |
+| `@upload(disk:, path: "/")` | what [`upload_store`](configuration.md#upload_store) answers for the uploaded file: the signed id of an ActiveStorage blob, by default ([uploads.md](uploads.md)) |
+
+```graphql
+type Mutation {
+  signUp(email: String! @trim, password: String! @hash, captcha: String @drop): User! @create
+  assign(task: ID! @bind(class: "Task"), user: ID! @bind(class: "User", with: ["roles"])): Task!
+  updateAvatar(avatar: Upload! @upload(path: "avatars")): User! @update @inject(context: "current_user.id", name: "id")
+}
+```
+
+`@bind` fails the field with a validation error on the argument (`The selected task
+is invalid.`) when no record matches, unless `optional: true`, which passes `null`.
+
+`@globalId`, `@trim` and `@drop` only rewrite values: they run first, so `@guard`,
+the `@can*` family and `@validator` see the result. `@hash`, `@bind` and `@upload`
+run once those have let the call through: a validator sees the password before it
+is hashed, and nothing is stored or looked up for a refused call.
 
 ### `@convertEmptyStringsToNull`
 

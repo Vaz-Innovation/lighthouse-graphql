@@ -122,3 +122,61 @@ jobs:
 
       - name: Persisted queries match the schema
         run: bin/rails lighthouse:persisted_queries:verify
+
+  example-databases:
+    runs-on: ubuntu-latest
+
+    # The end-to-end suite again, on the databases apps run in production, with a
+    # Redis cache store: SQL that differs per database (@whereJsonContains, the
+    # batched relation queries), Solid Queue for @async, and @throttle's counts
+    # (spec/requests/graphql/real_backends_spec.rb).
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - database: postgresql
+            url: postgres://postgres:postgres@127.0.0.1:5432/lighthouse_example_test
+          - database: mysql
+            url: trilogy://root:root@127.0.0.1:3306/lighthouse_example_test
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+        ports: ['3306:3306']
+        options: --health-cmd "mysqladmin ping -proot" --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:7
+        ports: ['6379:6379']
+        options: --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 5s --health-retries 10
+
+    env:
+      RAILS_ENV: test
+      DATABASE_URL: ${{ matrix.url }}
+      REDIS_URL: redis://127.0.0.1:6379/0
+
+    defaults:
+      run:
+        working-directory: example
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.4'
+          bundler-cache: true
+          working-directory: example
+
+      - name: Prepare the ${{ matrix.database }} test database
+        run: bin/rails db:create db:schema:load
+
+      - name: End-to-end tests on ${{ matrix.database }}
+        run: bundle exec rspec

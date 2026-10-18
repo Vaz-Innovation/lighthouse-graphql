@@ -44,17 +44,19 @@ RSpec.describe Lighthouse::Generators::InstallGenerator do
     ].each { |path| expect(exist?(path)).to be(true), "expected #{path}" }
   end
 
-  it "writes graphql-ruby's base classes of resolvers, mutations and subscriptions" do
+  it "writes graphql-ruby's base classes of resolvers, mutations, subscriptions and types" do
     run_generator
 
     expect(read('app/graphql/resolvers/base_resolver.rb')).to include('module Resolvers', 'class BaseResolver < GraphQL::Schema::Resolver')
     expect(read('app/graphql/mutations/base_mutation.rb')).to include('module Mutations', 'class BaseMutation < GraphQL::Schema::Mutation')
     expect(read('app/graphql/subscriptions/base_subscription.rb'))
       .to include("class BaseSubscription < GraphQL::Schema::Subscription\n    include Lighthouse::GraphQL::Subscription")
+    expect(read('app/graphql/types/base_object.rb')).to include('module Types', 'class BaseObject < GraphQL::Schema::Object')
     expect(read('app/graphql/app_schema.rb')).to include(
-      'resolver: Resolvers::BaseResolver', 'mutation: Mutations::BaseMutation', 'subscription: Subscriptions::BaseSubscription'
+      'resolver: Resolvers::BaseResolver', 'mutation: Mutations::BaseMutation', 'subscription: Subscriptions::BaseSubscription',
+      'object: Types::BaseObject'
     )
-    %w[resolvers/base_resolver mutations/base_mutation subscriptions/base_subscription].each do |path|
+    %w[resolvers/base_resolver mutations/base_mutation subscriptions/base_subscription types/base_object].each do |path|
       expect { RubyVM::InstructionSequence.compile(read("app/graphql/#{path}.rb")) }.not_to raise_error
     end
   end

@@ -110,6 +110,9 @@ module Lighthouse::GraphQL::Pagination
       @items = items
     end
 
+    # The records on the page, for @lazyLoad.
+    attr_reader :items
+
     def marshal_dump
       [info, @items]
     end

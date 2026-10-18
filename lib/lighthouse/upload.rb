@@ -1,0 +1,26 @@
+# frozen_string_literal: true
+
+# The `Upload` scalar: a file a client sends with a multipart request (the
+# GraphQL multipart request specification, MultipartRequest). `scalar Upload`
+# in the SDL reads its values through it unless the SDL or a type class names
+# another class. The resolver gets the uploaded file (an
+# ActionDispatch::Http::UploadedFile in Rails): attach it to a model
+# (`avatar: Upload` with @create on a model with has_one_attached :avatar), or
+# store it with @upload.
+class Lighthouse::GraphQL::Upload < GraphQL::Schema::Scalar
+  graphql_name 'Upload'
+
+  def self.coerce_input(value, _context)
+    return value if file?(value)
+
+    raise ::GraphQL::CoercionError, 'Could not get uploaded file, be sure to conform to the GraphQL multipart request specification.'
+  end
+
+  def self.coerce_result(_value, _context)
+    raise ::GraphQL::Error, 'The Upload scalar can only be used as an argument, not returned.'
+  end
+
+  def self.file?(value)
+    value.respond_to?(:read) && (value.respond_to?(:original_filename) || value.respond_to?(:path))
+  end
+end

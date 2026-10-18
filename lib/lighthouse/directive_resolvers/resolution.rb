@@ -18,13 +18,28 @@ module Lighthouse::GraphQL::DirectiveResolvers::Resolution
         original_singleton.call(obj, arguments, ctx)
       elsif original_proc
         original_proc.call(obj, arguments, ctx)
-      elsif obj.respond_to?(field_name)
-        obj.public_send(field_name)
       else
-        snake = Lighthouse::Support::Naming.attribute(field_name)
-        obj.respond_to?(snake) ? obj.public_send(snake) : nil
+        Lighthouse::GraphQL::DirectiveResolvers::Resolution.read(obj, field_name)
       end
     end
+  end
+
+  # The default reader: a Hash's key, else the object's method of the field's
+  # name or its snake_case.
+  def read(obj, field_name)
+    return read_hash(obj, field_name) if obj.is_a?(Hash)
+    return obj.public_send(field_name) if obj.respond_to?(field_name)
+
+    snake = Lighthouse::Support::Naming.attribute(field_name)
+    obj.respond_to?(snake) ? obj.public_send(snake) : nil
+  end
+
+  # A Hash's value for the field, as the default reader finds it: by the field's
+  # name or its snake_case, as a String or a Symbol key.
+  def read_hash(hash, field_name)
+    snake = Lighthouse::Support::Naming.attribute(field_name)
+    key = [field_name.to_s, field_name.to_sym, snake, snake.to_sym].find { |candidate| hash.key?(candidate) }
+    key.nil? ? nil : hash[key]
   end
 
   # graphql-ruby's SDL builder defines `resolve_field_*` methods of its own

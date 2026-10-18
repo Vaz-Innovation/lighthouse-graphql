@@ -151,11 +151,12 @@ module Lighthouse::GraphQL::Complexity
 
   # The class @field names, looked up as @field looks it up.
   def field_class_lookup(directive, kind)
-    class_name = %w[resolver class].filter_map { |name| Lighthouse::Support::DirectiveArgs.literal(directive, name) }.first
-    return unless class_name
+    reference = %w[resolver class].filter_map { |name| Lighthouse::Support::DirectiveArgs.literal(directive, name) }.first
+    return unless reference
 
-    namespaces = kind ? Lighthouse::Config.namespaces[kind] : Lighthouse::Config.resolver_namespaces
-    -> { Lighthouse::Support::ModelResolver.constantize(class_name, namespaces: namespaces) }
+    class_name, = Lighthouse::GraphQL::DirectiveResolvers::FieldDirectiveResolver.reference(reference)
+
+    -> { Lighthouse::GraphQL::DirectiveResolvers::FieldDirectiveResolver.lookup(class_name, kind) }
   end
 
   # Scores each query as graphql-ruby's MaxQueryComplexity scores it against

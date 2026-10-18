@@ -104,8 +104,9 @@ module Lighthouse
         # Install the field's resolver on `target_type_class` (a graphql-ruby type class).
         def define_resolver: (untyped target_type_class) -> untyped
 
-        def apply_where_filters: (relation relation, untyped args) -> relation
-        def apply_arg_builders: (relation relation, arguments args_h) -> relation
+        # `ctx`: the query's context, which @builder on an argument receives.
+        def apply_where_filters: (relation relation, untyped args, ?context? ctx) -> relation
+        def apply_arg_builders: (relation relation, arguments args_h, ?context? ctx) -> relation
         def extract_relation_name_from_directive: (untyped arg_node) -> String?
         def constantize_model: (String? name) -> Class?
         def apply_scopes: (relation relation) -> relation

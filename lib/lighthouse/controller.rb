@@ -19,7 +19,8 @@ require 'json'
 #
 # `execute` dispatches StartRequest, reads the variables (a JSON String, a Hash
 # or parameters), runs the operation through PersistedQueries.execute (or
-# PersistedQueries.multiplex for a batch, a JSON array body), sets the
+# PersistedQueries.multiplex for a batch, a JSON array body; a multipart
+# request's operations, with its files, as MultipartRequest reads them), sets the
 # Cache-Control header the selected fields' @cacheControl hints allow, renders
 # the JSON and dispatches EndRequest. In development an error renders as JSON.
 #
@@ -46,11 +47,11 @@ module Lighthouse::GraphQL::Controller
 
   def execute
     lighthouse_request do
-      batch = params[:_json]
-      if batch.is_a?(Array)
-        render json: lighthouse_batch(batch)
+      operations = lighthouse_operations
+      if operations.is_a?(Array)
+        render json: lighthouse_batch(operations.map { |operation| lighthouse_hash(operation) })
       else
-        result = lighthouse_operation
+        result = lighthouse_operation(operations)
         Lighthouse::GraphQL::CacheControl.apply(response, result)
         render json: result
       end
@@ -80,6 +81,11 @@ module Lighthouse::GraphQL::Controller
     respond_to?(:current_user, true) ? { current_user: current_user } : {}
   end
 
+  # graphql_context, with the client's IP (for @throttle) unless it sets its own.
+  def lighthouse_context
+    { remote_ip: request.remote_ip }.merge(graphql_context)
+  end
+
   def graphql_schema
     source = lighthouse_schema_source
     case source
@@ -103,11 +109,23 @@ module Lighthouse::GraphQL::Controller
     end
   end
 
-  def lighthouse_operation
+  # A multipart request's operation(s), a batch (a JSON array body), or the parameters.
+  def lighthouse_operations
+    Lighthouse::GraphQL::MultipartRequest.operations(params) || params[:_json] || params
+  end
+
+  # Parameters, or a Hash from a multipart request's JSON, read by key either way.
+  def lighthouse_hash(operation)
+    (operation.respond_to?(:to_unsafe_h) ? operation.to_unsafe_h : operation.to_h).with_indifferent_access
+  end
+
+  # `operation`: the request's parameters, or a multipart request's operation.
+  def lighthouse_operation(operation = params)
+    operation = operation.with_indifferent_access if operation.is_a?(Hash)
     Lighthouse::GraphQL::PersistedQueries.execute(
       graphql_schema,
-      query: params[:query], extensions: params[:extensions],
-      variables: graphql_variables(params[:variables]), operation_name: params[:operationName], context: graphql_context
+      query: operation[:query], extensions: operation[:extensions],
+      variables: graphql_variables(operation[:variables]), operation_name: operation[:operationName], context: lighthouse_context
     )
   end
 
@@ -116,7 +134,7 @@ module Lighthouse::GraphQL::Controller
   def lighthouse_batch(operations)
     operations = operations.map do |operation|
       { query: operation[:query], extensions: operation[:extensions], variables: graphql_variables(operation[:variables]),
-        operation_name: operation[:operationName], context: graphql_context }
+        operation_name: operation[:operationName], context: lighthouse_context }
     end
     Lighthouse::GraphQL::PersistedQueries.multiplex(graphql_schema, operations)
   end

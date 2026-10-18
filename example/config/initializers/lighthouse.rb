@@ -10,20 +10,27 @@ Lighthouse.configure do |config|
   # field without a resolving directive resolves by convention: Query.latestPosts
   # to Resolvers::LatestPosts (a Resolvers::BaseResolver), Mutation.publishPost
   # to Mutations::PublishPost (a GraphQL::Schema::Mutation). @builder classes
-  # come from :builders and @validator contracts from :validators. Generate them
-  # with `rails g lighthouse:query|mutation|builder|validator Name`.
+  # come from :builders and @validator contracts from :validators. Post.readingTime,
+  # with no resolving directive, resolves with Types::PostType#reading_time (a
+  # Types::BaseObject including Lighthouse::GraphQL::Type), from :types. Generate them with
+  # `rails g lighthouse:query|mutation|type|builder|validator Name`.
   # config.namespaces = {
   #   queries: ['Resolvers'], mutations: ['Mutations'], builders: ['Builders'], validators: ['Validators'],
-  #   analyzers: ['Analyzers']
+  #   analyzers: ['Analyzers'], types: ['Types']
   # }
 
   # Namespaces tried, in order, for models (@all(model: "User")) and for
-  # @field(resolver:) on types other than Query and Mutation. Fully-qualified
-  # names (containing `::`) are used as-is.
+  # @field(resolver:) on types other than Query and Mutation, after :queries
+  # (@field(resolver: "Posts::TagsCount") is Resolvers::Posts::TagsCount).
+  # Fully-qualified names (containing `::`) are used as-is.
   # config.resolver_namespaces = ['App::Graphql']
 
-  # Store for @cache and @clearCache.
+  # Store for @cache, @clearCache and @throttle's counts.
   # config.cache_store = Rails.cache
+
+  # Where @upload stores a file: call(file, disk:, path:, public:) returns what the
+  # argument holds. By default an ActiveStorage blob, and its signed id.
+  # config.upload_store = Lighthouse::GraphQL::UploadStore
 
   # Run @create/@update/@createMany/@updateMany in a database transaction.
   # config.transactional_mutations = true

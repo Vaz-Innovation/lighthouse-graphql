@@ -25,6 +25,7 @@ module Lighthouse::GraphQL::GeneratedResolvers
 
   # Generated resolvers take either (obj, args) or (obj, args, ctx).
   def invoke(resolver, obj, args, ctx)
+    args = take_lookahead(args, ctx)
     return resolver.call(obj, args) if resolver.parameters.length == 2
 
     resolver.call(obj, args, ctx)
@@ -37,13 +38,7 @@ module Lighthouse::GraphQL::GeneratedResolvers
   def install_dispatcher(schema)
     return unless schema.respond_to?(:definition_default_resolve=) && schema.respond_to?(:definition_default_resolve)
 
-    previous_default = schema.definition_default_resolve
-    schema.definition_default_resolve = proc do |type, field, obj, arguments, ctx|
-      resolver = generated_resolver(schema, type, field)
-      next invoke(resolver, obj, arguments, ctx) if resolver
-
-      previous_default.call(type, field, obj, arguments, ctx)
-    end
+    schema.definition_default_resolve = Lighthouse::GraphQL::DefaultResolveDispatcher.new(schema, schema.definition_default_resolve)
   end
 
   # Our generated resolver for `field`, looked up on the schema's own type
@@ -65,6 +60,16 @@ module Lighthouse::GraphQL::GeneratedResolvers
     end
   end
 
+  # The arguments without graphql-ruby's lookahead extra, which a field resolved
+  # by a class asks for (ResolveInfo.request_lookahead): it is kept in the
+  # field's scoped context, for its ResolveInfo, and no wrapper sees it.
+  def take_lookahead(args, ctx)
+    return args unless args.is_a?(Hash) && args[:lookahead].is_a?(::GraphQL::Execution::Lookahead)
+
+    ctx.scoped_set!(Lighthouse::GraphQL::ResolveInfo::LOOKAHEAD, args[:lookahead]) if ctx.respond_to?(:scoped_set!)
+    args.except(:lookahead)
+  end
+
   # GraphQL-Ruby's SDL builder defines `resolve_<field>` methods that call
   # the schema's `definition_default_resolve`. Override `resolve_<field>`
   # to delegate to our generated `resolve_field_<field>` when present, so
@@ -74,7 +79,7 @@ module Lighthouse::GraphQL::GeneratedResolvers
     return unless type.respond_to?(generated)
 
     type.define_singleton_method("resolve_#{field_def.name}") do |obj, arguments, ctx|
-      public_send(generated, obj, arguments, ctx)
+      public_send(generated, obj, Lighthouse::GraphQL::GeneratedResolvers.take_lookahead(arguments, ctx), ctx)
     end
   rescue StandardError
     # ignore override failures

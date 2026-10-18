@@ -18,6 +18,10 @@ type Query {
   posts(
     where: _ @whereConditions(columns: ["title", "author_id"])
     orderBy: [PostOrderByClause!] @orderBy
+    "Posts whose metadata.labels holds this label (@whereJsonContains, on SQLite, PostgreSQL and MySQL)."
+    label: String @whereJsonContains(key: "metadata->labels")
+    "Posts whose metadata.labels holds every one of these."
+    labels: [String!] @whereJsonContains(key: "metadata->labels")
   ): [Post!]! @paginate(defaultCount: 10) @builder(class: "Published") @cacheControl(maxAge: 60)
 
   "The same posts as a Relay-style connection."
@@ -32,8 +36,27 @@ type Query {
   "Every tag. Kept in Rails.cache for five minutes; createTag clears it."
   tags: [Tag!]! @all @cache(maxAge: 300) @cacheControl(maxAge: 300)
 
-  "Full-text-ish search over published posts — resolved by Resolvers::SearchPosts."
-  searchPosts(term: String!): [Post!]!
+  "Full-text-ish search over published posts — resolved by Resolvers::SearchPosts. Ten a minute per client (@throttle)."
+  searchPosts(term: String!): [Post!]! @throttle(maxAttempts: 10)
+
+  "The tags on the most published posts — resolved by Resolvers::Tags::Popular, which @field names."
+  popularTags(limit: Int = 5): [Tag!]! @field(resolver: "Tags::Popular")
+
+  "Published posts and users matching a term — resolved by Resolvers::Search. Each result is a Post or a User."
+  search(term: String!): [SearchResult!]!
+
+  "The newest published posts and comments on them, optionally since a time — resolved by Resolvers::LatestActivity."
+  latestActivity(first: Int = 10, since: DateTime): [Authored!]!
+
+  "How many of each there are — Resolvers::Statistics#counts, which @field names after the @."
+  counts: Counts! @field(resolver: "Statistics@counts")
+
+  """
+  The signed-in user's posts, drafts included. Resolvers::MyPosts builds the query, and
+  resolve_info.enhance_builder applies this field's @like and @orderBy to it.
+  """
+  myPosts(title: String @like, orderBy: [PostOrderByClause!] @orderBy): [Post!]! @guard
+
 }
 
 type Mutation {
@@ -61,6 +84,12 @@ type Mutation {
   "Publish a post — resolved by Mutations::PublishPost."
   publishPost(id: ID!): Post! @guard @canFind(ability: "publish", find: "id") @broadcast(subscription: "postPublished")
 
+  """
+  Publish a post from the queue: @guard and @canFind decide now, and Mutations::PublishPost, which
+  @field names, runs in a Solid Queue job (@async). Answers true once the job is queued.
+  """
+  schedulePublish(id: ID!): Boolean! @guard @canFind(ability: "publish", find: "id", model: "Post") @async @field(resolver: "PublishPost")
+
   "Comment on a post as the signed-in user."
   addComment(postId: ID! @rename(attribute: "post_id"), body: String!): Comment!
     @guard
@@ -70,6 +99,25 @@ type Mutation {
 
   "Add a tag, and drop the cached tag list."
   createTag(name: String!): Tag! @guard @create @clearCache(type: "Query", field: "tags")
+
+  """
+  Set the signed-in user's avatar, sent as a multipart request (the GraphQL multipart request
+  specification). @upload stores the file with ActiveStorage, under avatars/, and passes its
+  blob's signed id, which @update attaches to User#avatar.
+  """
+  updateAvatar(avatar: Upload! @upload(path: "avatars")): User!
+    @guard
+    @update
+    @inject(context: "current_user.id", name: "id")
+}
+
+"A file sent with a multipart request. Lighthouse reads it (Lighthouse::GraphQL::Upload)."
+scalar Upload
+
+type Counts {
+  posts: Int!
+  users: Int!
+  comments: Int!
 }
 
 # Subscriptions arrive over ActionCable (app/channels/graphql_channel.rb). Each is a

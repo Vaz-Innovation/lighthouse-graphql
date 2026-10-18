@@ -6,8 +6,9 @@ require 'generators/lighthouse/mutation_generator'
 require 'generators/lighthouse/builder_generator'
 require 'generators/lighthouse/validator_generator'
 require 'generators/lighthouse/subscription_generator'
+require 'generators/lighthouse/type_generator'
 
-RSpec.describe 'lighthouse:query, :mutation, :subscription, :builder and :validator generators' do
+RSpec.describe 'lighthouse:query, :mutation, :subscription, :type, :builder and :validator generators' do
   let(:root) { Dir.mktmpdir }
 
   after { FileUtils.remove_entry(root) }
@@ -96,6 +97,24 @@ RSpec.describe 'lighthouse:query, :mutation, :subscription, :builder and :valida
       expect(klass.instance_methods(false)).to contain_exactly(:authorized?)
       expect(klass.trigger_arguments(Object.new, nil)).to eq({})
       expect(source).to include('# def subscribe(**args)', '# def update(**args)', 'NO_UPDATE')
+    end
+  end
+
+  describe 'lighthouse:type' do
+    it 'generates Types::<Name>Type in app/graphql/types under Types::BaseObject, written first' do
+      output = generate(Lighthouse::Generators::TypeGenerator, 'GeneratedPost')
+
+      klass = load_generated('app/graphql/types/base_object.rb', 'app/graphql/types/generated_post_type.rb', 'Types::GeneratedPostType')
+      expect(klass.superclass.name).to end_with('Types::BaseObject')
+      expect(klass.superclass.superclass).to eq(GraphQL::Schema::Object)
+      expect(klass).to include(Lighthouse::GraphQL::Type)
+      expect(output).to include('Fields of GeneratedPost without a resolving directive now resolve with Types::GeneratedPostType')
+    end
+
+    it 'does not append Type twice' do
+      generate(Lighthouse::Generators::TypeGenerator, 'ReadingTimeType')
+
+      expect(read('app/graphql/types/reading_time_type.rb')).to include('class ReadingTimeType < BaseObject')
     end
   end
 

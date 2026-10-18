@@ -6,6 +6,124 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `Lighthouse::GraphQL::Type`, a concern that hands a graphql-ruby type class to Lighthouse, in
+  graphql-ruby's `app/graphql/types` structure. A field of an object type with no resolving
+  directive resolves with the method of its snake_case name on `Types::<Type>Type`, when that class
+  includes the concern and defines it (`Post.readingTime` → `Types::PostType#reading_time`). As in
+  graphql-ruby, the method has `object` (the parent), `context`, the `dataload*` helpers, and the
+  field's arguments as keywords. The SDL still declares the fields; the ones the class does not
+  define are read off the object as before. A type class that does not include the concern is left
+  alone. The class is looked up in the new `types` namespace (default `['Types']`), and must inherit
+  from `base_types[:object]` when one is given.
+- `@model(class:)`, as PHP Lighthouse's: maps an object type to the ActiveRecord model of another
+  name. Every directive taking `model:` (`@all`, `@find`, `@paginate`, `@create`, `@update`, the
+  `@can*` family...) on a field returning the type gets it, unless it names its own; unions,
+  interfaces and `@node` resolve the model's records to the type; the schema does not build unless
+  it is a model; and a type class's methods only run on its records (another parent is reported
+  through `on_error`).
+- `rails g lighthouse:type Post` writes `Types::PostType` including the concern, and
+  `Types::BaseObject` when it is missing. `lighthouse:install` writes
+  `Types::BaseObject` too, and names it as the schema's `base_types[:object]`.
+- Unions and interfaces resolve each value to its object type as PHP Lighthouse does: a Hash's
+  `__typename`, else the type named after the value's class or a superclass (STI), else the type
+  whose `@model` names its model. A union's type class (`Types::SearchResultType` including the
+  concern) can take over with graphql-ruby's `self.resolve_type(object, context)`, an interface's
+  with `definition_methods { def resolve_type }`, and `@union(resolveType:)` /
+  `@interface(resolveType:)` name a class in the SDL. A value nothing resolves, or one resolved
+  outside the union, raises `Lighthouse::DefinitionError` naming the ways out.
+- Custom scalars read and write their values through their class: `Types::DateTimeType` (a
+  `GraphQL::Schema::Scalar` including the concern), or the class `@scalar(class:)` names, with
+  graphql-ruby's `coerce_input` / `coerce_result`. A `GraphQL::CoercionError` makes the argument
+  invalid with its message. A scalar with no class passes its values through, as before.
+- `@method` passes the field's arguments to the method: as snake_case keywords when it takes
+  keywords, otherwise positionally in SDL order, as PHP Lighthouse does.
+- `base_types[:union]`, `[:interface]` and `[:scalar]`, like `[:object]`, are the bases the type
+  classes of their kind must inherit from.
+- `docs/types.md`: unions, interfaces and scalars.
+- `@field(resolver: "Class@method")`, as PHP Lighthouse's: the method replaces `call` on a plain
+  class (as a class method, else an instance method), or `resolve` on a resolver class, whose
+  `ready?` / `authorized?` still run.
+- `ResolveInfo`, PHP Lighthouse's `$resolveInfo`: `resolve_info` in `Resolvers::` / `Mutations::`
+  classes, classes `@field` names and type class methods, and a fourth argument for a plain callable
+  that takes one. It has the field, its parent type, object, arguments, context and path, and
+  `enhance_builder(relation, scopes: [])`, which applies the field's `@builder` classes and argument
+  directives (`@eq`, `@where`, `@orderBy`, `@whereConditions`, ...) to a query the class builds.
+- `@with(relation:, scopes:)` and `@withCount(relation:, scopes:)` eager-load a relation, or its
+  count (kept on the parent as `<relation>_count`), before the field resolves; `@lazyLoad(relations:)`
+  eager-loads relations of the records a field returns. All three load across every parent in the
+  response at once, through the Dataloader, and take nested relations (`"posts.comments"`).
+- Relay global object identification: `@globalId` encodes a field (base64 of `Type:id`) and decodes
+  an argument or input field (`decode: ARRAY | TYPE | ID`); `@node` makes a type implement `Node` and
+  adds `Query.node(id:)`, which finds the record through the type's model or `@node(resolver:)`. The
+  new `global_id` setting takes your own encoder. `docs/relay.md`.
+- A union's or interface's class may answer `[type, value]`, as graphql-ruby allows.
+- File uploads: the `Upload` scalar (Lighthouse's own for `scalar Upload`), the GraphQL multipart
+  request specification in `Lighthouse::GraphQL::Controller`, and `@upload(disk:, path:)`, which
+  stores the file through the new `upload_store` setting (an ActiveStorage blob by default) and
+  passes its signed id. `docs/uploads.md`.
+- Filters: `@whereNull`, `@whereNotNull`, `@whereBetween`, `@whereNotBetween`, `@whereJsonContains`
+  (PostgreSQL, MySQL, SQLite), `@scope`, `@nest` (the filters of an input's fields) and `@limit`
+  (a LIMIT, or a per-parent cut of a relation's records); `@whereAuth(relation:)` keeps the
+  signed-in user's records.
+- Argument directives: `@trim`, `@drop`, `@hash` (BCrypt) and `@bind(class:)`, which replaces an id
+  with its record(s) or fails validation. Rewriting ones (`@globalId`, `@trim`, `@drop`) run before
+  `@guard`, `@can*` and `@validator`; effectful ones (`@hash`, `@bind`, `@upload`) after them.
+- `@builder` on an argument or input field, as PHP Lighthouse's: the method gets the argument's
+  value whenever the client sends it, `null` included. `method: "Class@method"` names the builder
+  without `class:`, and `value:` on a field passes a fixed value in place of the arguments.
+- `@limit(builder: true)` puts the LIMIT on the field's query; `@limit` must be on an `Int` argument,
+  and is accepted on the field itself, as PHP Lighthouse allows.
+- `@hasManyThrough` and `@hasOneThrough`, PHP Lighthouse's names, as aliases of `@hasMany` and
+  `@hasOne`, which resolve `has_many` / `has_one :through`.
+- `ResolveInfo#lookahead`: graphql-ruby's Lookahead for a field resolved by a class (a `Resolvers::`
+  class, `@field`, a type class method). It never reaches the arguments, so `@cache` keys are unchanged.
+- `@throttle` logs a warning when the cache store is a `:null_store`, which counts nothing.
+- `@enum(value:)` for an enum value's internal value; `@namespaced` to group fields; `@throttle` to
+  rate-limit a field per user or IP (the controller concern now puts `:remote_ip` in the context);
+  `@async` to run a mutation in an ActiveJob and answer `true`; `@hide(env:)` / `@show(env:)` to leave
+  fields out by environment (the schema cache key now includes it).
+
+### Changed
+
+- `@field(resolver:)` on a field of a type other than `Query` and `Mutation` looks the class up in
+  the resolvers namespace first, nested names included: `@field(resolver: "Posts::TagsCount")`
+  resolves to `Resolvers::Posts::TagsCount`. Then it tries `resolver_namespaces`, as before, so
+  full names and classes outside `Resolvers::` resolve as they did. A class `Resolvers::X` now
+  wins over one that `resolver_namespaces` would find for the same name.
+
+### Fixed
+
+- A wrapping directive (`@globalId`, `@guard`, `@cache`, ...) on a field of a type whose objects are
+  Hashes read nothing: the wrapped default reader only called methods. It now reads the Hash's
+  keys, as the default reader does.
+
+- A field returning a union or an interface no longer raises `undefined method 'resolve_type' for
+  an instance of Proc`. Lighthouse's field dispatcher replaced the schema's default resolve with a
+  Proc, which graphql-ruby also asks for `resolve_type` and scalar coercion; it now hands both on.
+
+- `@field(resolver:)` on a `Query` or `Mutation` field finds a nested name in the resolvers /
+  mutations namespaces, as documented: `"Feeds::Home"` resolves to `Resolvers::Feeds::Home`,
+  then to `Feeds::Home`. It used to try only `Feeds::Home`, so the field resolved to `null`.
+  The field's `complexity` is looked up the same way.
+
+### Documentation
+
+- `docs/resolvers.md`: fields of types other than `Query` and `Mutation` resolved with `@field`,
+  whose class receives the parent record as `object`. The example app resolves `Post.tagsCount`
+  (batched through the dataloader), `Post.excerpt(length:)` and `Query.popularTags` this way.
+  It resolves `Post.readingTime` and the `ReadingTime` type, which is not a model, with
+  `Types::PostType` and `Types::ReadingTimeType`, `Query.search` (a union of `Post` and `User`)
+  and `Query.latestActivity` (an `Authored` interface) by the default, `DateTime` with
+  `Types::DateTimeType`, and `Post.summary(words:)` with `@method`. `Tag` is a Relay node with
+  global ids; `User.latestPostTitle` uses `@with`, `Tag.usage` `@withCount`, `User.posts`
+  `@lazyLoad`, `Query.counts` `@field(resolver: "Statistics@counts")`, and `Query.myPosts`
+  `resolve_info.enhance_builder`. `Mutation.updateAvatar` takes a multipart upload with `@upload`
+  (the example now loads ActiveStorage). `Mutation.schedulePublish` is `@async` on Solid Queue,
+  `Query.searchPosts` is `@throttle`d, and `Query.posts` filters `metadata` with `@whereJsonContains`;
+  the example's suite runs on PostgreSQL and MySQL too (`DATABASE_URL`, a new CI job), with Redis.
+
 ## [0.4.0] - 2026-10-17
 
 ### Added

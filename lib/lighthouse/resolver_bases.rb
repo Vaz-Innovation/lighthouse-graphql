@@ -31,8 +31,13 @@ module Lighthouse::GraphQL::ResolverBases
 
   module_function
 
+  # graphql-ruby's base types that the type classes of the same kind
+  # (Types::PostType, Types::DateTimeType, ...) inherit from too.
+  TYPE_KINDS = %i[object union interface scalar].freeze
+
   # Take the three keys out of opts[:base_types] (the caller's Hash is not
-  # changed) and return { root kind => base class } for those given.
+  # changed) and return { root kind => base class } for those given, plus
+  # :types => { kind => base } for graphql-ruby's own, which stay in opts.
   def extract!(opts)
     base_types = opts[:base_types]
     return {} unless base_types.is_a?(Hash)
@@ -40,7 +45,9 @@ module Lighthouse::GraphQL::ResolverBases
     given = base_types.slice(*GRAPHQL_CLASSES.keys).compact
     opts[:base_types] = base_types.except(*GRAPHQL_CLASSES.keys)
     given.each { |key, klass| validate!(key, klass) }
-    KEYS.filter_map { |kind, key| [kind, given[key]] if given[key] }.to_h
+    bases = KEYS.filter_map { |kind, key| [kind, given[key]] if given[key] }.to_h
+    type_bases = base_types.slice(*TYPE_KINDS).compact
+    type_bases.empty? ? bases : bases.merge(types: type_bases)
   end
 
   def validate!(key, klass)

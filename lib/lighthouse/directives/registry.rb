@@ -61,13 +61,17 @@ class Lighthouse::DirectiveRegistry
   # authorization, argument validation, then @cache (so a cache hit is still
   # authorized and validated), @clearCache (which acts once the resolver
   # succeeded), @event and @broadcast (likewise), and finally the data resolver (0).
+  # @throttle counts every call, before anything else runs; @async queues what is
+  # below @cache, once the request has authorized and validated the call.
   RESOLUTION_ORDER = {
+    'throttle' => 7,
     'convertEmptyStringsToNull' => 6,
     'guard' => 5, 'auth' => 5,
     'canFind' => 4, 'canModel' => 4, 'canQuery' => 4, 'canResolved' => 4, 'canRoot' => 4,
     'validator' => 3,
-    'cache' => 2,
-    'clearCache' => 1, 'event' => 1, 'broadcast' => 1
+    'cache' => 2, 'async' => 2,
+    'clearCache' => 1, 'event' => 1, 'broadcast' => 1,
+    'with' => 1, 'withCount' => 1, 'lazyLoad' => 1, 'globalId' => 1
   }.freeze
 
   def resolution_order(name)
@@ -164,6 +168,8 @@ class Lighthouse::DirectiveRegistry
     'rename' => :RenameDirectiveResolver,
     'method' => :MethodDirectiveResolver,
     'auth' => :AuthDirectiveResolver,
+    'hasManyThrough' => :HasManyDirectiveResolver,
+    'hasOneThrough' => :HasOneDirectiveResolver,
     'guard' => :GuardDirectiveResolver
   }.freeze
 
@@ -181,17 +187,15 @@ class Lighthouse::DirectiveRegistry
     CacheDirectiveResolver ClearCacheDirectiveResolver EventDirectiveResolver
     ValidatorDirectiveResolver ConvertEmptyStringsToNullDirectiveResolver
     SubscriptionDirectiveResolver BroadcastDirectiveResolver
+    WithDirectiveResolver WithCountDirectiveResolver LazyLoadDirectiveResolver
+    GlobalIdDirectiveResolver NamespacedDirectiveResolver ThrottleDirectiveResolver AsyncDirectiveResolver
   ].freeze
 
   # Argument-builder filter/sort directives.
-  ARG_BUILDERS = %i[Eq Neq In NotIn Like Where WhereKey OrderBy Trashed WithoutGlobalScopes].freeze
-
-  # Read by other directives rather than resolving anything themselves.
-  PASSIVE_DEFINITIONS = {
-    'spread' => 'directive @spread on ARGUMENT_DEFINITION | INPUT_FIELD_DEFINITION',
-    'inject' => 'directive @inject(context: String!, name: String!) repeatable on FIELD_DEFINITION',
-    'cacheKey' => 'directive @cacheKey on FIELD_DEFINITION'
-  }.freeze
+  ARG_BUILDERS = %i[
+    Eq Neq In NotIn Like Where WhereKey OrderBy Trashed WithoutGlobalScopes
+    WhereNull WhereNotNull WhereBetween WhereNotBetween WhereJsonContains Scope Limit
+  ].freeze
 
   def register_defaults
     resolvers = Lighthouse::GraphQL::DirectiveResolvers
@@ -200,9 +204,14 @@ class Lighthouse::DirectiveRegistry
     ARG_BUILDERS.each { |constant| register(Lighthouse::GraphQL::Directives::Arguments.const_get(constant, false)) }
 
     # SDL manipulators run in registration order during the manipulation phase.
+    # @hide / @show first, so a removed field generates nothing; then @model,
+    # which names the model of fields @paginate then rewrites.
+    register_manipulator(Lighthouse::GraphQL::Directives::VisibilityDirective)
+    register_manipulator(Lighthouse::GraphQL::Directives::ModelDirective)
     register_manipulator(Lighthouse::GraphQL::Directives::PaginationManipulator)
     register_manipulator(Lighthouse::GraphQL::Directives::WhereConditionsDirective)
     register_manipulator(Lighthouse::GraphQL::Directives::SoftDeletesDirective)
+    register_manipulator(Lighthouse::GraphQL::Directives::NodeDirective)
 
     register_default_definitions
     self
@@ -213,17 +222,8 @@ class Lighthouse::DirectiveRegistry
   # SDL of the directives (and the types they refer to) that no registered
   # class contributes.
   def register_default_definitions
-    register_definition('builder', Lighthouse::GraphQL::DirectiveResolvers::BuilderApplier::DEFINITION)
-    PASSIVE_DEFINITIONS.each { |name, definition| register_definition(name, definition) }
-    register_definition('cacheControl', Lighthouse::GraphQL::CacheControl::DEFINITION)
-    Lighthouse::GraphQL::CacheControl::TYPE_DEFINITIONS.each { |name, sdl| register_type_definition(name, sdl) }
-    register_definition('feature', Lighthouse::GraphQL::FeatureDirective::DEFINITION)
-    register_definition('complexity', Lighthouse::GraphQL::Complexity::DEFINITION)
-    Lighthouse::GraphQL::FeatureDirective::TYPE_DEFINITIONS.each { |name, sdl| register_type_definition(name, sdl) }
-    Lighthouse::GraphQL::Directives::WhereConditionsDirective::DEFINITIONS.each do |name, definition|
-      register_definition(name, definition)
-    end
-    Lighthouse::GraphQL::Directives::SoftDeletesDirective::DEFINITIONS.each { |name, definition| register_definition(name, definition) }
+    Lighthouse::GraphQL::Directives::Definitions.directives.each { |name, definition| register_definition(name, definition) }
+    Lighthouse::GraphQL::Directives::Definitions.types.each { |name, sdl| register_type_definition(name, sdl) }
   end
 
   def safe_definition(klass)

@@ -4,7 +4,12 @@
 # namespaces follow graphql-ruby's contract — GraphQL::Schema::Resolver and
 # GraphQL::Schema::Mutation: `resolve(**args)` with `object` and `context`,
 # plus `ready?` / `authorized?` — exactly as in a graphql-ruby schema.
-# @field also accepts a plain callable, `call(object, args, context)`.
+# @field also accepts a plain callable, `call(object, args, context)`, which
+# gets the ResolveInfo as a fourth argument when it takes one.
+#
+# `method:` is the method after `@` in `@field(resolver: "Class@method")`: it
+# replaces `resolve` (keeping `ready?` / `authorized?`) on a resolver class, and
+# `call` on a plain class, as a class method or else an instance method.
 module Lighthouse::GraphQL::ResolverDispatch
   module_function
 
@@ -12,15 +17,35 @@ module Lighthouse::GraphQL::ResolverDispatch
     klass.is_a?(Class) && klass < ::GraphQL::Schema::Resolver
   end
 
-  def call(klass, field_def, obj, args, ctx)
-    if graphql_resolver?(klass)
-      kwargs = Lighthouse::Support::Arguments.prepare(field_def, args, ctx)
-      klass.new(object: obj, context: ctx, field: field_def).resolve_with_support(**kwargs)
-    elsif klass.respond_to?(:call)
-      klass.call(obj, args, ctx)
-    else
-      instance = klass.new
-      instance.respond_to?(:call) ? instance.call(obj, args, ctx) : instance.resolve(obj, args, ctx)
-    end
+  # `info`: the ResolveInfo of the field being resolved, which carries its
+  # object, arguments and context.
+  def call(klass, info, method: nil)
+    return call_resolver(klass, info, method) if graphql_resolver?(klass)
+
+    receiver = callable_receiver(klass, method || :call)
+    callable = receiver.method(method || (receiver.respond_to?(:call) ? :call : :resolve))
+    args = [info.object, info.arguments, info.context]
+    takes_info?(receiver, callable) ? callable.call(*args, info) : callable.call(*args)
+  end
+
+  def call_resolver(klass, info, method)
+    kwargs = Lighthouse::Support::Arguments.prepare(info.field, info.arguments, info.context)
+    instance = Lighthouse::GraphQL::ResolveInfo.attach(klass.new(object: info.object, context: info.context, field: info.field), info)
+    instance.define_singleton_method(:resolve) { |**values| public_send(method, **values) } if method
+    instance.resolve_with_support(**kwargs)
+  end
+
+  # The class itself when it answers `name` as a class method, else an instance.
+  def callable_receiver(klass, name)
+    klass.respond_to?(name) ? klass : klass.new
+  end
+
+  POSITIONAL = %i[req opt].freeze
+
+  # Does the callable take a fourth argument? A lambda's own parameters count,
+  # not Proc#call's (*args).
+  def takes_info?(receiver, callable)
+    params = receiver.is_a?(Proc) && callable.name == :call ? receiver.parameters : callable.parameters
+    params.any? { |type, _| type == :rest } || params.count { |type, _| POSITIONAL.include?(type) } >= 4
   end
 end

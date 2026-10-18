@@ -6,15 +6,19 @@
 # app/channels/graphql_channel.rb); `@broadcast` on a mutation triggers them.
 # base_types names the base classes: every class a Query, Mutation or Subscription
 # field resolves to must inherit from its kind's, and a Subscription field with no
-# class of its own resolves with Subscriptions::BaseSubscription.
+# class of its own resolves with Subscriptions::BaseSubscription. graphql-ruby
+# builds the SDL's object types from object: and its scalars from scalar:, and
+# the type classes in app/graphql/types (Types::PostType, Types::DateTimeType)
+# inherit from them.
 AppSchema = Lighthouse::GraphQL::RbLightHouse.get_schema(
   options: {
     using: { GraphQL::Dataloader => {}, GraphQL::Subscriptions::ActionCableSubscriptions => {} },
     base_types: {
       resolver: Resolvers::BaseResolver,
       mutation: Mutations::BaseMutation,
-      subscription: Subscriptions::BaseSubscription
-      # object: Types::BaseObject, ... # graphql-ruby's base classes of the SDL's types
+      subscription: Subscriptions::BaseSubscription,
+      object: Types::BaseObject,
+      scalar: Types::BaseScalar
     }
   }
 )

@@ -7,4 +7,15 @@ class Post < ApplicationRecord
   validates :title, presence: true, length: { maximum: 120 }
 
   scope :published, -> { where(published: true) }
+
+  # Post.summary(words:) calls it through @method, with the field's argument.
+  def summary(words:)
+    body.to_s.split.first(words).join(' ')
+  end
+
+  # Post.tagNames calls it through @method. Where User.posts' @lazyLoad has loaded
+  # every post's tags at once, it reads them without a query.
+  def tag_names
+    tags.map(&:name).sort
+  end
 end

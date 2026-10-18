@@ -17,6 +17,9 @@ AllCops:
     - 'website/**/*'
     - 'example/bin/**/*'
     - 'example/db/schema.rb'
+    # Copied as they are from Rails (bin/rails active_storage:install, solid_queue:install).
+    - 'example/db/migrate/*.active_storage.rb'
+    - 'example/db/migrate/*.solid_queue.rb'
     - 'example/config/environments/**/*'
     - 'example/log/**/*'
     - 'example/public/**/*'

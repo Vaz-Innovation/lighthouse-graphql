@@ -18,6 +18,7 @@ class Lighthouse::GraphQL::DirectiveResolvers::ConventionResolver < Lighthouse::
   end
 
   def define_resolver(target_type_class)
+    Lighthouse::GraphQL::ResolveInfo.request_lookahead(@field_def)
     me = self
     inner = capture_inner(target_type_class)
 
@@ -54,7 +55,7 @@ class Lighthouse::GraphQL::DirectiveResolvers::ConventionResolver < Lighthouse::
     end
     Lighthouse::GraphQL::ResolverBases.check!(klass, @base, location)
 
-    Lighthouse::GraphQL::ResolverDispatch.call(klass, @field_def, obj, args, ctx)
+    Lighthouse::GraphQL::ResolverDispatch.call(klass, Lighthouse::GraphQL::ResolveInfo.for(@field_def, @type_def, obj, args, ctx))
   end
 
   # No class: the root object may still answer (a custom root_value);

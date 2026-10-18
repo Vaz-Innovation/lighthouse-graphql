@@ -27,7 +27,7 @@ Or with curl:
 
 ```shell
 curl -s localhost:3000/graphql -H 'Content-Type: application/json' \
-  -d '{"query":"{ posts(first: 5) { data { title author { name } tags { name } } paginatorInfo { total } } }"}'
+  -d '{"query":"{ posts(first: 5) { data { title author { name } tags { name } tagsCount excerpt(length: 40) } paginatorInfo { total } } }"}'
 
 curl -s localhost:3000/graphql -H 'Content-Type: application/json' -H 'Authorization: Bearer <token from db:seed>' \
   -d '{"query":"mutation { createPost(input: { title: \"Hello\", tags: { connect: [1], create: [{ name: \"new\" }] } }) { id tags { name } } }"}'
@@ -35,6 +35,24 @@ curl -s localhost:3000/graphql -H 'Content-Type: application/json' -H 'Authoriza
 
 Run the end-to-end suite with `bundle exec rspec`, or `bin/ci`, which also
 checks `persisted-queries.json` against the schema.
+
+It runs on SQLite by default. `DATABASE_URL` runs it on PostgreSQL or MySQL, and
+`REDIS_URL` adds a Redis cache store to the `@throttle` specs, as CI does:
+
+```shell
+docker run -d -p 5433:5432 -e POSTGRES_PASSWORD=postgres postgres:16
+docker run -d -p 3307:3306 -e MYSQL_ROOT_PASSWORD=root mysql:8.4
+docker run -d -p 6380:6379 redis:7
+
+export REDIS_URL=redis://127.0.0.1:6380/0 RAILS_ENV=test
+DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5433/lighthouse_example_test bin/rails db:create db:schema:load
+DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5433/lighthouse_example_test bundle exec rspec
+DATABASE_URL=trilogy://root:root@127.0.0.1:3307/lighthouse_example_test bin/rails db:create db:schema:load
+DATABASE_URL=trilogy://root:root@127.0.0.1:3307/lighthouse_example_test bundle exec rspec
+```
+
+`@async` mutations run in Solid Queue, whose tables are in the app's database: start
+a worker with `bin/jobs` next to `bin/rails server`.
 
 ## Where things are
 
@@ -45,15 +63,17 @@ checks `persisted-queries.json` against the schema.
 | The endpoint (`current_user` in the context, `Cache-Control`) | [`app/controllers/graphql_controller.rb`](app/controllers/graphql_controller.rb) |
 | GraphiQL, routed in development only | [`app/controllers/graphiql_controller.rb`](app/controllers/graphiql_controller.rb), [`app/views/graphiql/show.html.erb`](app/views/graphiql/show.html.erb) |
 | Query fields resolved by convention (`Query.searchPosts` → `Resolvers::SearchPosts`, a `Resolvers::BaseResolver`) | [`app/graphql/resolvers/`](app/graphql/resolvers) |
+| Fields resolved by the class `@field` names: on Query (`popularTags` → `Resolvers::Tags::Popular`), and on Post, where `object` is the post (`tagsCount` → `Resolvers::Posts::TagsCount`, `excerpt(length:)` → `Resolvers::Posts::Excerpt`) | [`app/graphql/resolvers/tags/`](app/graphql/resolvers/tags), [`app/graphql/resolvers/posts/`](app/graphql/resolvers/posts) |
 | Mutations resolved by convention (`Mutation.publishPost` → `Mutations::PublishPost`, a `Mutations::BaseMutation`) | [`app/graphql/mutations/`](app/graphql/mutations) |
 | Subscriptions resolved by convention (`Subscription.postCreated` → `Subscriptions::PostCreated`), each a `Subscriptions::BaseSubscription`, which includes the Lighthouse concern: `filter?` hooks, or graphql-ruby's own `authorized?`/`update` | [`app/graphql/subscriptions/`](app/graphql/subscriptions) |
 | The ActionCable socket: `GraphqlChannel` runs the operations, `Connection` identifies `current_user` by the API token | [`app/channels/`](app/channels), [`config/cable.yml`](config/cable.yml) |
+| Type classes, in graphql-ruby's structure, handed to Lighthouse by `include Lighthouse::GraphQL::Type`: `Post.readingTime` → `Types::PostType#reading_time` (`model Post`), the fields of `ReadingTime`, which is not a model, → `Types::ReadingTimeType`, and the `DateTime` scalar → `Types::DateTimeType` (a `Types::BaseScalar`). The `SearchResult` union and `Authored` interface need no class: each record resolves to its model's type | [`app/graphql/types/`](app/graphql/types) |
 | `@builder` classes | [`app/graphql/builders/`](app/graphql/builders) |
 | `@validator` contracts (Dry::Validation) | [`app/graphql/validators/`](app/graphql/validators) |
 | Policies behind `@canFind`, `@canModel`, `@canRoot` | [`app/policies/`](app/policies) |
 | Trusted operations, served by hash | [`persisted-queries.json`](persisted-queries.json) |
 
-The classes under `app/graphql` were generated with `bin/rails g lighthouse:query`,
+The classes under `app/graphql` were generated with `bin/rails g lighthouse:query`, `:type`,
 `:mutation`, `:subscription`, `:builder` and `:validator`, and the setup with
 `bin/rails g lighthouse:install`. As in a graphql-ruby app, resolvers, mutations and
 subscriptions inherit from their namespace's base class (`Resolvers::BaseResolver`,
@@ -66,6 +86,12 @@ share goes: the subscriptions' concern is included there, once.
 | --- | --- |
 | [`requests/graphql/queries_spec.rb`](spec/requests/graphql/queries_spec.rb) | `@find`, `@paginate` (paginator and Relay connection), `@like`, `@orderBy`, `@whereConditions`, `@builder`, `scopes:`, `@count`, a `Resolvers::` class |
 | [`requests/graphql/cursor_connection_spec.rb`](spec/requests/graphql/cursor_connection_spec.rb) | Relay cursor pagination on a relationship (`User.comments`, `@hasMany(type: CONNECTION)`): `pageInfo`, `after`, and a client loop that walks every page |
+| [`requests/graphql/field_resolvers_spec.rb`](spec/requests/graphql/field_resolvers_spec.rb) | `@field(resolver:)`: on `Post`, the class receives the post as `object`, in a paginated list, on a single post, under `me`; field arguments with an SDL default; `tagsCount` batched through the dataloader (no N+1); on `Query`, a nested name looked up in the resolvers namespace |
+| [`requests/graphql/real_backends_spec.rb`](spec/requests/graphql/real_backends_spec.rb) | What depends on the real backends: `@whereJsonContains` on the database's JSON (SQLite, PostgreSQL, MySQL), `@async` queued in Solid Queue and run by a real worker (and nothing queued when `@canFind` refuses), `@throttle` counting per IP and user in a file store and in Redis, across two clients of the same store |
+| [`requests/graphql/uploads_spec.rb`](spec/requests/graphql/uploads_spec.rb) | A multipart request (the GraphQL multipart request specification) to `Mutation.updateAvatar`: `@upload` stores the file with ActiveStorage under `avatars/`, `@update` attaches it; a guest's call stores nothing |
+| [`requests/graphql/relay_and_eager_loading_spec.rb`](spec/requests/graphql/relay_and_eager_loading_spec.rb) | `@node` and `@globalId` (`Tag` ids, `Query.node`); `@withCount` (`Tag.usage`, one COUNT for every tag), `@with` (`User.latestPostTitle`) and `@lazyLoad` (`User.posts` with their tags), with no N+1; `@field(resolver: "Statistics@counts")`; `resolve_info.enhance_builder` in `Resolvers::MyPosts` |
+| [`requests/graphql/types_spec.rb`](spec/requests/graphql/types_spec.rb) | A union (`Query.search`: `Post` and `User` records) and an interface (`Query.latestActivity`: `Authored`, implemented by `Post` and `Comment`) resolved to each record's type by default; the `DateTime` scalar's `Types::DateTimeType` writing ISO 8601 and reading an argument as a `Time`, refusing one it cannot read; `@method` passing a field's argument to `Post#summary` |
+| [`requests/graphql/type_classes_spec.rb`](spec/requests/graphql/type_classes_spec.rb) | Type classes: `Types::PostType#reading_time` resolves `Post.readingTime`, `Types::ReadingTimeType#minutes(words_per_minute:)` a field of a type that is not a model, beside fields read off the model and resolved by directives and `@field` |
 | [`requests/graphql/relationships_spec.rb`](spec/requests/graphql/relationships_spec.rb) | `@belongsTo`, `@hasMany` (paginated too), `@belongsToMany`, `@count(relation:)`, and no N+1: the number of SQL queries does not grow with the number of records |
 | [`requests/graphql/authorization_spec.rb`](spec/requests/graphql/authorization_spec.rb) | `@guard`, `@canRoot`, `@canFind` with Pundit |
 | [`requests/graphql/mutations_spec.rb`](spec/requests/graphql/mutations_spec.rb) | `@create`, `@update`, `@delete`, `@validator`, model validation errors, nested mutations (`connect`, `create`, `sync`) with rollback, `@inject`, `@rename`, a `Mutations::` class |

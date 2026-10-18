@@ -1,29 +1,74 @@
 # @cacheControl on a type sets the maxAge of every field that returns it.
-type Post @cacheControl(maxAge: 60) {
+type Post implements Authored @cacheControl(maxAge: 60) {
   id: ID!
   title: String!
   body: String
   published: Boolean!
+  createdAt: DateTime!
   author: User! @belongsTo
+  "The first words of the body. @method calls Post#summary, passing the field's argument."
+  summary(words: Int = 20): String! @method
+  "Its tags' names, read by Post#tag_names. User.posts loads every post's tags at once (@lazyLoad)."
+  tagNames: [String!]! @method
   "Comments, paginated: comments(first: 10, page: 1) { data { body } paginatorInfo { total } }."
   comments: [Comment!]! @hasMany(type: PAGINATOR, defaultCount: 10)
   tags: [Tag!]! @belongsToMany
   commentsCount: Int! @count(relation: "comments")
+  """
+  How many tags the post has. Resolved by Resolvers::Posts::TagsCount, which
+  receives this post as `object`, batched across every post in the response.
+  """
+  tagsCount: Int! @field(resolver: "Posts::TagsCount")
+  "The body cut at a word boundary. Resolved by Resolvers::Posts::Excerpt."
+  excerpt(length: Int = 80): String @field(resolver: "Posts::Excerpt")
+  "How long the post takes to read. No directive: Types::PostType#reading_time resolves it."
+  readingTime: ReadingTime!
 }
 
-type Comment @cacheControl(maxAge: 60) {
+"Not a model: computed from a post by Types::PostType and Types::ReadingTimeType."
+type ReadingTime {
+  "How many words the body has, read off what Types::PostType#reading_time returns."
+  words: Int!
+  "Minutes to read the body, at least one. Computed by Types::ReadingTimeType#minutes."
+  minutes(wordsPerMinute: Int = 200): Int!
+}
+
+type Comment implements Authored @cacheControl(maxAge: 60) {
   id: ID!
   body: String!
+  createdAt: DateTime!
   author: User! @belongsTo
   post: Post! @belongsTo
 }
 
-type Tag @cacheControl(maxAge: 300) {
-  id: ID!
+"""
+@node makes Tag a Relay Node: Query.node(id:) finds a tag by the global id its
+`id` answers (base64 of "Tag:<id>"), through the Tag model.
+"""
+type Tag @node @cacheControl(maxAge: 300) {
+  id: ID! @globalId
   name: String!
   "Not paginated, so it costs what Analyzers::TagPostsComplexity estimates."
   posts: [Post!]! @belongsToMany @complexity(resolver: "TagPostsComplexity")
+  "How many published posts carry it: @withCount counts every tag's in one query, Tag#usage reads posts_count."
+  usage: String! @withCount(relation: "posts", scopes: ["published"]) @method
 }
+
+"""
+Something a user wrote. Lighthouse resolves each value to the type of its model's
+class: a Post record to Post, a Comment to Comment.
+"""
+interface Authored {
+  id: ID!
+  createdAt: DateTime!
+  author: User!
+}
+
+"An ISO 8601 date and time, read and written by Types::DateTimeType."
+scalar DateTime
+
+"What Query.search finds: each value resolves to the type of its model's class."
+union SearchResult = Post | User
 
 enum PostOrderColumn {
   TITLE

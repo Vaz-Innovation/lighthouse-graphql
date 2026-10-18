@@ -1,0 +1,9 @@
+# Where ActiveStorage keeps files: what @upload stores (see app/graphql and
+# docs/directives.md#upload). The test service writes under tmp/.
+test:
+  service: Disk
+  root: <%= Rails.root.join("tmp/storage") %>
+
+local:
+  service: Disk
+  root: <%= Rails.root.join("storage") %>

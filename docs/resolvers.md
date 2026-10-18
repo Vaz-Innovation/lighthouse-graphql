@@ -10,14 +10,15 @@ interchangeable. Each kind has its own contract and its own folder:
 | Resolver | `app/graphql/resolvers` · `Resolvers::` | `Resolvers::BaseResolver` (a `GraphQL::Schema::Resolver`) | `Query` fields |
 | Mutation | `app/graphql/mutations` · `Mutations::` | `Mutations::BaseMutation` (a `GraphQL::Schema::Mutation`) | `Mutation` fields |
 | Subscription | `app/graphql/subscriptions` · `Subscriptions::` | `Subscriptions::BaseSubscription` (a `GraphQL::Schema::Subscription`) | `Subscription` fields ([subscriptions.md](subscriptions.md)) |
+| Type | `app/graphql/types` · `Types::` | `Types::BaseObject` (a `GraphQL::Schema::Object`) including `Lighthouse::GraphQL::Type`, named `<Type>Type` | Fields of other types, through its methods ([type classes](#type-classes)); unions, interfaces and scalars too ([types.md](types.md)) |
 | Builder | `app/graphql/builders` · `Builders::` | `call(relation, args, context)` → relation | `@builder` |
 
-Validators (`app/graphql/validators`) are the fourth kind. They are covered in
+Validators (`app/graphql/validators`) are one more kind. They are covered in
 [validation.md](validation.md).
 
 ## Base classes
 
-As in any graphql-ruby app, each of the first three kinds has a base class in its
+As in any graphql-ruby app, each of the first four kinds has a base class in its
 namespace, and every class of the kind inherits from it:
 
 ```ruby
@@ -39,14 +40,20 @@ module Subscriptions
     include Lighthouse::GraphQL::Subscription
   end
 end
+
+# app/graphql/types/base_object.rb
+module Types
+  class BaseObject < GraphQL::Schema::Object
+  end
+end
 ```
 
 What every class of a kind shares goes in its base, once: a concern (as
 `BaseSubscription` includes Lighthouse's, see [subscriptions.md](subscriptions.md)),
 a helper, graphql-ruby settings such as `argument_class Types::BaseArgument`.
-`rails g lighthouse:install` writes the three, and the class generators write the
+`rails g lighthouse:install` writes the four, and the class generators write the
 one they need when it is missing. graphql-ruby's own `graphql:install` writes
-`Resolvers::BaseResolver` and `Mutations::BaseMutation` too, and Lighthouse keeps
+`Resolvers::BaseResolver`, `Mutations::BaseMutation` and `Types::BaseObject` too, and Lighthouse keeps
 whatever is already there: an existing base is never replaced.
 
 ### Handing the bases to the schema
@@ -61,8 +68,9 @@ AppSchema = Lighthouse::GraphQL::RbLightHouse.get_schema(
     base_types: {
       resolver: Resolvers::BaseResolver,
       mutation: Mutations::BaseMutation,
-      subscription: Subscriptions::BaseSubscription
-      # object: Types::BaseObject, ... (graphql-ruby's, for the SDL's types)
+      subscription: Subscriptions::BaseSubscription,
+      object: Types::BaseObject
+      # interface:, union:, ... (graphql-ruby's, for the SDL's other kinds)
     }
   }
 )
@@ -78,6 +86,9 @@ AppSchema = Lighthouse::GraphQL::RbLightHouse.get_schema(
   (`GraphQL::Schema::Resolver`, `GraphQL::Schema::Mutation`, which
   `RelayClassicMutation` is, `GraphQL::Schema::Subscription`), or the schema does not
   build. graphql-ruby never sees these three keys.
+- `object:` is graphql-ruby's: it builds the SDL's object types from it. A
+  [type class](#type-classes) (one including `Lighthouse::GraphQL::Type`) that does not inherit from it raises
+  `Lighthouse::DefinitionError` when the schema is built.
 
 `rails g lighthouse:install` writes the schema class with them. Without them,
 Lighthouse requires only the graphql-ruby class (`GraphQL::Schema::Resolver`, …),
@@ -174,7 +185,233 @@ type Query {
 ```
 
 Besides graphql-ruby resolver classes, `@field` also accepts a plain callable:
-anything with `call(object, args, context)`.
+anything with `call(object, args, context)`, and `call(object, args, context,
+resolve_info)` when it takes a fourth argument.
+
+A method after `@` (PHP Lighthouse's `Class@method`) replaces `call`, or `resolve` on
+a resolver class (whose `authorized?` still runs). One class can then hold several
+fields' resolvers:
+
+```graphql
+type Query {
+  counts: Counts! @field(resolver: "Statistics@counts")
+  latest: [Post!]! @field(resolver: "Statistics@latest")
+}
+```
+
+```ruby
+class Resolvers::Statistics
+  def self.counts(_root, _args, _context) = { posts: Post.count, users: User.count }
+  def self.latest(_root, _args, _context) = Post.order(created_at: :desc).limit(5)
+end
+```
+
+### ResolveInfo
+
+What PHP Lighthouse hands a resolver as `$resolveInfo`. A `Resolvers::` or
+`Mutations::` class, a class `@field` names and a type class's methods read it as
+`resolve_info`:
+
+| | |
+| --- | --- |
+| `field_name`, `field`, `return_type` | the field being resolved |
+| `parent_type` | the type it belongs to |
+| `object`, `arguments`, `context` | what it resolves with |
+| `path` | `["posts", 0, "author"]` |
+| `lookahead` | graphql-ruby's [`Lookahead`](https://graphql-ruby.org/queries/lookahead.html): what the client selects below the field (`lookahead.selects?(:author)`) |
+| `enhance_builder(relation, scopes: [])` | `relation` with the field's query directives applied |
+
+`enhance_builder` lets a class build the query no directive could, and still honour
+what the field declares: its `@builder` classes, and the argument directives the
+client used (`@eq`, `@where`, `@in`, `@like`, `@orderBy`, `@whereConditions`, ...),
+as `@all` and `@paginate` apply them. `scopes:` adds model scopes.
+
+```graphql
+type Query {
+  myPosts(title: String @like, orderBy: [PostOrderByClause!] @orderBy): [Post!]! @guard
+}
+```
+
+```ruby
+class Resolvers::MyPosts < Resolvers::BaseResolver
+  def resolve(**)
+    resolve_info.enhance_builder(context[:current_user].posts, scopes: [:recent])
+  end
+end
+```
+
+### Fields of other types
+
+A field of any other type resolves with the default reader: `Post.commentsCount`
+reads `post.comments_count`. When its value takes more than reading an attribute
+or calling a method ([`@method`](directives.md#method)), name a class with
+`@field`. The class is a resolver like the ones above, and its `object` is the
+**parent**: the record the field belongs to (PHP Lighthouse's `$root`). It
+resolves wherever the type appears in a response: in a list, under a
+relationship, or under another class's result.
+
+```graphql
+type Post {
+  tagsCount: Int! @field(resolver: "Posts::TagsCount")
+  excerpt(length: Int = 80): String @field(resolver: "Posts::Excerpt")
+}
+```
+
+```ruby
+# app/graphql/resolvers/posts/tags_count.rb
+module Resolvers
+  module Posts
+    class TagsCount < BaseResolver
+      def resolve
+        dataload_association(object, :tags).size
+      end
+    end
+  end
+end
+
+# app/graphql/resolvers/posts/excerpt.rb
+module Resolvers
+  module Posts
+    class Excerpt < BaseResolver
+      def resolve(length:)
+        object.body&.truncate(length, separator: ' ')
+      end
+    end
+  end
+end
+```
+
+```graphql
+{
+  posts(first: 10) { data { title tagsCount excerpt(length: 40) } }
+}
+```
+
+The field's arguments arrive as keyword arguments, with the SDL's default when the
+client leaves one out, as on a root field. The class runs once per parent, so load
+anything beyond the parent's own columns through graphql-ruby's dataloader
+(`dataload_association`, `dataload_record`, or a `GraphQL::Dataloader::Source` of
+your own). Then listing ten posts runs one query for their tags, not ten.
+
+A field can also resolve with a method of its type's class, as in a graphql-ruby
+app. See [type classes](#type-classes), next: they suit a field that only the type
+needs, and a class named by `@field` suits one with its own logic, its own
+arguments, or that you want to find in the schema.
+
+On these types the name is looked up in the resolvers namespace first, a nested
+name too, so `Posts::TagsCount` is `Resolvers::Posts::TagsCount`, kept in
+`app/graphql/resolvers/posts/`. A folder per type keeps these classes apart from
+the `Query` ones. Name it in the plural (`Posts`): a `Resolvers::Post` module would
+hide the `Post` model from code written inside `module Resolvers`. When the
+resolvers namespace has no such class, the name is looked up in
+[`resolver_namespaces`](configuration.md#resolver_namespaces), and a full name
+(`Resolvers::Posts::TagsCount`) works as well. The schema's `base_types` are not
+enforced here, but inheriting from `Resolvers::BaseResolver` still gives the class
+what every resolver shares.
+
+### Type classes
+
+graphql-ruby keeps the Ruby side of each object type in `app/graphql/types`:
+`Types::PostType`, inheriting from `Types::BaseObject`. Lighthouse keeps that
+structure. A type class that includes `Lighthouse::GraphQL::Type` is handed to
+Lighthouse: the SDL still declares the type and its fields, and the class says how
+the fields with no resolving directive resolve. A field calls the method of its
+snake_case name, when the class defines it. Fields it does not define are read off
+the object, as before, and fields with a resolving directive keep it.
+
+That makes a type that is not a model as easy to resolve as a model's: the parent
+returns any object (a Hash, a Struct, a client's response), and the type's class
+reads or computes each field from it.
+
+```graphql
+type Post {
+  title: String!
+  readingTime: ReadingTime!
+}
+
+type ReadingTime {
+  words: Int!
+  minutes(wordsPerMinute: Int = 200): Int!
+}
+```
+
+```ruby
+# app/graphql/types/post_type.rb
+module Types
+  class PostType < BaseObject
+    include Lighthouse::GraphQL::Type
+
+    def reading_time
+      { words: object.body.to_s.split.size }
+    end
+  end
+end
+
+# app/graphql/types/reading_time_type.rb
+module Types
+  class ReadingTimeType < BaseObject
+    include Lighthouse::GraphQL::Type
+
+    def minutes(words_per_minute:)
+      [(object[:words] / words_per_minute.to_f).ceil, 1].max
+    end
+  end
+end
+```
+
+`Post.title` is the model's column. `Post.readingTime` calls
+`Types::PostType#reading_time`. `ReadingTime.words` is read off the Hash it
+returns, and `ReadingTime.minutes` calls `Types::ReadingTimeType#minutes`.
+
+As in graphql-ruby, the class is instantiated per parent, so a method has:
+
+- `object`: the parent, here the post;
+- `context`: the query's context;
+- the field's arguments, as snake_case keywords, with the SDL's default when the
+  client leaves one out;
+- graphql-ruby's `dataload`, `dataload_record` and `dataload_association`, to load
+  anything beyond the parent's own columns without N+1.
+
+Wrapping directives (`@guard`, `@can*`, `@cache`) on the field run around the
+method. A method every `GraphQL::Schema::Object` has (`object`, `context`) never
+resolves a field.
+
+#### The model
+
+The type's model is the SDL's to say, as in PHP Lighthouse: a type named after its
+model needs nothing, and [`@model`](directives.md#model) maps one that is not:
+
+```graphql
+type Article @model(class: "Post") {
+  title: String!
+  headline: String!
+}
+```
+
+`Types::ArticleType`'s methods then only ever run on a `Post`: a parent of another
+class (a Hash a resolver returned by mistake, another model) is reported through
+[`on_error`](configuration.md#on_error), which raises in test, and the field
+resolves to `null`. `@model` also gives `@all`, `@find`, `@paginate`, `@create`... on
+fields returning `Article` their model, and resolves a `Post` in a union or
+interface to `Article` ([types.md](types.md#the-default)).
+
+#### Opting in
+
+The class is the type's name plus `Type`, looked up in `namespaces[:types]`
+(default `['Types']`) when the schema is built. Only a class that includes
+`Lighthouse::GraphQL::Type` counts: any other `Types::PostType`, such as the ones
+a graphql-ruby app already has, is left alone, and its methods resolve nothing.
+Include the concern in `Types::BaseObject` to hand every type class over at once.
+
+A class that includes the concern must inherit from the schema's
+`base_types[:object]` when one is given, or the schema does not build. The concern
+also hands over the classes of unions, interfaces and scalars, which pick the type
+of a union's values or coerce a scalar's: see [types.md](types.md). It is not the schema's type: it only lends its
+methods. Fields are declared in the SDL, so `field` declarations in it are ignored,
+and graphql-ruby's type-level `authorized?` does not run; authorize with
+[`@can*`](authorization.md). `Query`, `Mutation` and `Subscription` fields resolve
+with their own classes, [by convention](#resolution-by-convention), not with a type
+class.
 
 ### `@spread` and `@inject`
 
@@ -238,13 +475,14 @@ end
 bin/rails generate lighthouse:query LatestPosts        # app/graphql/resolvers/latest_posts.rb
 bin/rails generate lighthouse:mutation PublishPost     # app/graphql/mutations/publish_post.rb
 bin/rails generate lighthouse:subscription PostUpdated # app/graphql/subscriptions/post_updated.rb
+bin/rails generate lighthouse:type Post                # app/graphql/types/post_type.rb
 bin/rails generate lighthouse:builder Published        # app/graphql/builders/published.rb
 bin/rails generate lighthouse:validator CreatePostInput # app/graphql/validators/create_post_input_validator.rb
 ```
 
 Each one writes the class with its contract, into the first namespace configured
-for its kind (or `--namespace=…`). A resolver, mutation or subscription inherits
-from the namespace's base class, which is written first when it is missing.
+for its kind (or `--namespace=…`). A resolver, mutation, subscription or type
+class inherits from the namespace's base class, which is written first when it is missing.
 Namespaced names nest modules: `lighthouse:mutation Blog::Publish` writes
 `Mutations::Blog::Publish < BaseMutation`. These
 generators do not collide with graphql-ruby's `graphql:*` generators. A

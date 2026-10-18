@@ -27,14 +27,10 @@ class SchemaImplementation
     read_attribute(obj, field_name)
   end
 
-  def resolve_type(abstract_type, _obj, _ctx)
-    # Try to resolve to a Ruby type class under Types::<Name>Type
-    type_name = abstract_type.respond_to?(:name) ? abstract_type.name : abstract_type.to_s
-    begin
-      Object.const_get("Types::#{type_name}Type")
-    rescue StandardError
-      nil
-    end
+  # The object type of a union's or interface's value (see TypeResolution).
+  def resolve_type(abstract_type, obj, ctx)
+    schema = ctx.respond_to?(:schema) && ctx.schema ? ctx.schema : @schema
+    Lighthouse::GraphQL::TypeResolution.resolve(schema, abstract_type, obj, ctx)
   end
 
   def coerce_input(_type, value, _ctx)

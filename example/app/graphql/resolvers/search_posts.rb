@@ -11,7 +11,7 @@ class Resolvers::SearchPosts < Resolvers::BaseResolver
   def resolve(term:)
     pattern = "%#{Post.sanitize_sql_like(term.strip)}%"
     Post.published
-        .where('posts.title LIKE :pattern OR posts.body LIKE :pattern', pattern: pattern)
+        .where(Post.arel_table[:title].matches(pattern).or(Post.arel_table[:body].matches(pattern)))
         .order(created_at: :desc)
         .limit(MAX_RESULTS)
   end

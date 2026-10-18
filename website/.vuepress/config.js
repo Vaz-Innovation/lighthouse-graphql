@@ -15,9 +15,12 @@ const sidebar = [
     text: 'The Basics',
     children: [
       '/docs/resolvers.md',
+      '/docs/types.md',
+      '/docs/relay.md',
       '/docs/relationships.md',
       '/docs/filtering-and-ordering.md',
       '/docs/mutations.md',
+      '/docs/uploads.md',
       '/docs/validation.md',
       '/docs/subscriptions.md',
     ],

@@ -208,3 +208,20 @@ GraphQL::Analysis.analyze_query(query, [GraphQL::Analysis::QueryComplexity]).fir
 `QueryComplexity` logs a warning unless the schema chooses an algorithm with
 `AppSchema.complexity_cost_calculation_mode(:future)`. `max_complexity` and
 `query_complexity` always use the `:future` algorithm.
+
+## Rate limiting
+
+[`@throttle`](directives.md#throttle) caps how often one client may call a field —
+a login, a search, an expensive mutation:
+
+```graphql
+type Mutation {
+  login(email: String!, password: String!): User @throttle(maxAttempts: 5, decayMinutes: 1)
+}
+```
+
+Attempts are counted in [`cache_store`](configuration.md#cache_store), so use a store
+the app servers share (Redis, Solid Cache) in production; `:null_store` counts
+nothing. A client is the signed-in user, else the `:remote_ip` the controller concern
+puts in the context (override `graphql_context` to set another). A refused call never
+reaches `@guard` or the resolver.

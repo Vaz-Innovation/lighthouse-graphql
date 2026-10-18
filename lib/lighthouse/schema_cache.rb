@@ -72,7 +72,8 @@ module Lighthouse::GraphQL::SchemaCache
       registry.directive_definitions.sort,
       registry.type_definitions.sort,
       manipulators,
-      Lighthouse::Config.pagination_default_count
+      Lighthouse::Config.pagination_default_count,
+      Lighthouse::Support::Environment.current # @hide / @show
     ].inspect
   end
 

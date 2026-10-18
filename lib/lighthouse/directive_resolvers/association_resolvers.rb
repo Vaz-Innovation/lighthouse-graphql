@@ -92,8 +92,8 @@ module Lighthouse::GraphQL::DirectiveResolvers
 
     # The field's scopes and filters on the association's query, for one
     # parent or a RelationBatch of them.
-    def decorate_relation(relation, args, _ctx)
-      apply_where_filters(scoped(relation), args)
+    def decorate_relation(relation, args, ctx)
+      apply_where_filters(scoped(relation), args, ctx)
     end
 
     protected

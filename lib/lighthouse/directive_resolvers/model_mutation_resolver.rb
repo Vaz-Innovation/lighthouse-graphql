@@ -196,7 +196,7 @@ module Lighthouse::GraphQL::DirectiveResolvers
       args = Lighthouse::Support::Arguments.shallow(args)
       raise ::GraphQL::ExecutionError, WOULD_MODIFY_ALL unless filtered?(args)
 
-      records = apply_where_filters(records_of(model), args).to_a
+      records = apply_where_filters(records_of(model), args, ctx).to_a
       records.each do |record|
         next if modify(record)
 

@@ -5,9 +5,13 @@ type User @cacheControl(maxAge: 300) {
   "Visible to the user themselves and to admins only (UserPolicy#view_email?)."
   email: String @canRoot(ability: "view_email")
   role: String!
-  "Their posts, published or not — a plain list, loaded in one query per page of users."
-  posts: [Post!]! @hasMany
+  "Their posts, published or not — a plain list, loaded in one query per page of users, with their tags."
+  posts: [Post!]! @hasMany @lazyLoad(relations: ["tags"])
   postsCount: Int! @count(relation: "posts")
+  "Where their avatar is served, when they set one (Mutation.updateAvatar)."
+  avatarUrl: String @method
+  "Their newest post's title. @with loads every user's posts at once; User#latest_post_title reads them."
+  latestPostTitle: String @with(relation: "posts") @method
   """
   Their comments, oldest first, as a Relay cursor connection:
   comments(first: 10, after: $cursor) { edges { cursor node { body } } pageInfo { hasNextPage endCursor } }.

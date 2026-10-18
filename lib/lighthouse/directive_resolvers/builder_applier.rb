@@ -2,39 +2,99 @@
 
 require_relative 'base'
 
+# The field-level query directives, in SDL order: @builder classes, and
+# @whereAuth, which keeps the records the signed-in user owns. @builder on an
+# argument is applied with the other argument directives (apply_argument).
+#
+# A builder is `class:` and `method:` (default `call`), or PHP Lighthouse's
+# `method: "Class@method"`, looked up in Config.namespaces[:builders]. It gets
+# the relation, a second value and the context, and returns the relation:
+#
+#   on a field                 (relation, args, context), or the directive's `value:` instead of args
+#   on an argument             (relation, the argument's value, context), whenever the client sends
+#                              the argument, null included
 class Lighthouse::GraphQL::DirectiveResolvers::BuilderApplier
-  DEFINITION = 'directive @builder(class: String!, method: String) repeatable on FIELD_DEFINITION'
+  DEFINITION = <<~GRAPHQL.chomp
+    """
+    Manipulate the query builder with a method.
+    """
+    directive @builder(
+      "The builder class, in the builders namespace."
+      class: String
+      "The method to call: a name (default `call`), or a class and a method separated by `@`."
+      method: String
+      "On a field, the value the method gets after the relation, instead of the arguments."
+      value: BuilderValue
+    ) repeatable on ARGUMENT_DEFINITION | INPUT_FIELD_DEFINITION | FIELD_DEFINITION
+  GRAPHQL
+
+  TYPE_DEFINITIONS = {
+    'BuilderValue' => <<~GRAPHQL.chomp
+      "Any constant literal value: https://graphql.github.io/graphql-spec/draft/#sec-Input-Values"
+      scalar BuilderValue
+    GRAPHQL
+  }.freeze
+
+  WHERE_AUTH_DEFINITION = <<~GRAPHQL.chomp
+    """
+    Filter a type to only return instances owned by the current user.
+    """
+    directive @whereAuth(
+      "The relation of the model that links it to the user: a belongs_to, a has_many, a :through."
+      relation: String!
+      "Accepted for PHP Lighthouse parity: the user is Config.authenticated_user's."
+      guards: [String!]
+    ) on FIELD_DEFINITION
+  GRAPHQL
+
+  DEFINITIONS = { 'builder' => DEFINITION, 'whereAuth' => WHERE_AUTH_DEFINITION }.freeze
 
   def self.apply(relation, field_def_ast_node, args, ctx, resolver_instance)
     return relation unless field_def_ast_node&.directives
 
-    builder_directives = field_def_ast_node.directives.select { |d| d.name == 'builder' }
-    return relation if builder_directives.empty?
-
-    builder_directives.each do |directive_node|
-      relation = apply_directive(relation, directive_node, args, ctx, resolver_instance)
+    field_def_ast_node.directives.each do |directive_node|
+      case directive_node.name
+      when 'builder' then relation = apply_directive(relation, directive_node, args, ctx, resolver_instance)
+      when 'whereAuth' then relation = where_auth(relation, directive_node, ctx)
+      end
     end
 
     relation
   end
 
+  # The records whose `relation:` links them to the signed-in user; none for a guest.
+  def self.where_auth(relation, directive_node, ctx)
+    user = Lighthouse::Support::Authorization.authenticated_user(ctx)
+    return relation.none unless user
+
+    model = relation.klass
+    name = extract_directive_arg(directive_node, 'relation').to_sym
+    reflection = model.reflect_on_association(name)
+    raise Lighthouse::DefinitionError, "@whereAuth: #{model} has no relation #{name}." unless reflection
+    return relation.where(name => user) if reflection.belongs_to?
+
+    owned = model.unscoped.joins(name).where(reflection.klass.table_name => { reflection.klass.primary_key => user.id })
+    relation.where(model.primary_key => owned.select(model.arel_table[model.primary_key]))
+  end
+
   def self.apply_directive(relation, directive_node, args, ctx, _resolver_instance)
-    class_name = extract_directive_arg(directive_node, 'class')
-    method_name = extract_directive_arg(directive_node, 'method') || 'call'
+    value = directive_node.arguments&.any? { |a| a.name == 'value' } ? extract_directive_arg(directive_node, 'value') : args
+    call_builder(relation, directive_node, value, ctx)
+  end
 
-    return relation unless class_name
+  # @builder on an argument the client sent: the method gets its value.
+  def self.apply_argument(relation, directive_node, value, ctx)
+    call_builder(relation, directive_node, value, ctx)
+  end
 
-    # Builders are not resolvers: they compose onto a relation, and live in
-    # their own namespace (Config.namespaces[:builders], app/graphql/builders).
-    builder_class = Lighthouse::Support::ModelResolver.constantize(
-      class_name, namespaces: Lighthouse::Config.namespaces[:builders]
-    )
+  def self.call_builder(relation, directive_node, value, ctx)
+    builder_class, method_name = reference(directive_node)
     return relation unless builder_class
 
     receiver = builder_receiver(builder_class, method_name)
     return relation unless receiver
 
-    receiver.public_send(method_name, relation, args, ctx) || relation
+    receiver.public_send(method_name, relation, value, ctx) || relation
   rescue ::GraphQL::ExecutionError
     # Client-facing errors (e.g. authorization / scoping guards raised by a
     # builder) MUST propagate — never silently fall back to the unscoped
@@ -45,11 +105,21 @@ class Lighthouse::GraphQL::DirectiveResolvers::BuilderApplier
     relation
   end
 
-  def self.extract_directive_arg(directive_node, name)
-    arg = directive_node.arguments&.find { |a| a.name == name }
-    return nil unless arg
+  # [builder class, method name] from `class:` and `method:`, or from
+  # `method: "Class@method"`. Builders are not resolvers: they live in their
+  # own namespace (Config.namespaces[:builders], app/graphql/builders).
+  def self.reference(directive_node)
+    class_name = extract_directive_arg(directive_node, 'class')
+    method_name = extract_directive_arg(directive_node, 'method')
+    class_name, method_name = method_name.to_s.split('@', 2) if class_name.nil? && method_name
+    return [nil, nil] unless class_name
 
-    arg.value.respond_to?(:value) ? arg.value.value : arg.value
+    builder_class = Lighthouse::Support::ModelResolver.constantize(class_name, namespaces: Lighthouse::Config.namespaces[:builders])
+    [builder_class, method_name.presence || 'call']
+  end
+
+  def self.extract_directive_arg(directive_node, name)
+    Lighthouse::Support::DirectiveArgs.literal(directive_node, name)
   end
 
   # What answers the builder method: the class itself, else an instance

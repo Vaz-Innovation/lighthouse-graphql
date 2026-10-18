@@ -6,7 +6,7 @@ require_relative '../base_classes'
 
 # `rails generate lighthouse:install` — sets a Rails app up for Lighthouse:
 # the initializer, a starter SDL file, the schema class, the base classes of
-# resolvers, mutations and subscriptions, a controller and its route, plus the
+# resolvers, mutations, subscriptions and types, a controller and its route, plus the
 # graphql-config file IDEs read. Rerunning it skips the route, SDL, base classes
 # and .gitignore entries that are already in place.
 #

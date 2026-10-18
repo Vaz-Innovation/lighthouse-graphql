@@ -39,6 +39,18 @@ module Lighthouse
     def call: (StandardError error, context? context) -> void
   end
 
+  # Config.global_id: encodes and decodes Relay global ids (@globalId, @node).
+  interface _GlobalId
+    def encode: (String type, untyped id) -> String
+    def decode: (String global_id) -> Array[String]
+  end
+
+  # Config.upload_store: stores the file an @upload argument carries, and returns
+  # what the argument holds instead (an ActiveStorage blob's signed id by default).
+  interface _UploadStore
+    def call: (untyped file, ?disk: String?, ?path: String?, ?public: bool?) -> untyped
+  end
+
   # Config.authenticated_user and Config.policy_user: the user of a request.
   interface _UserReader
     def call: (context? context) -> untyped
@@ -131,6 +143,12 @@ module Lighthouse
 
     def self.convert_empty_strings_to_null: () -> bool
     def self.convert_empty_strings_to_null=: (bool? enabled) -> bool?
+
+    def self.global_id: () -> _GlobalId
+    def self.global_id=: (_GlobalId? codec) -> _GlobalId?
+
+    def self.upload_store: () -> _UploadStore
+    def self.upload_store=: (_UploadStore? store) -> _UploadStore?
 
     # Whether @broadcast triggers in an ActiveJob (Lighthouse::GraphQL::BroadcastJob)
     # unless the directive says shouldQueue; and the job's queue (nil: ActiveJob's default).

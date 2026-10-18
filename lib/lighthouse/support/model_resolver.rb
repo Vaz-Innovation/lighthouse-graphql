@@ -26,14 +26,16 @@ module Lighthouse::Support::ModelResolver
   # `namespaces:` overrides the configured resolver_namespaces, e.g. with
   # Config.namespaces[:builders] to look a builder class up.
   # `fallback: false` skips the bare name, so `Resolvers::User` is never
-  # mistaken for the `User` model.
-  def constantize(name, namespaces: self.namespaces, fallback: true)
+  # mistaken for the `User` model. `nested: true` tries the namespaces before a
+  # name that already contains `::` too, so `Feeds::Home` is found as
+  # `Resolvers::Feeds::Home`; otherwise such a name is used as-is.
+  def constantize(name, namespaces: self.namespaces, fallback: true, nested: false)
     return nil unless name
 
     raw = name.to_s.strip
     return nil if raw.empty?
 
-    candidates_for(raw, namespaces, fallback: fallback).each do |candidate|
+    candidates_for(raw, namespaces, fallback: fallback, nested: nested).each do |candidate|
       klass = try_constantize(candidate)
       return klass if klass
     end
@@ -41,8 +43,8 @@ module Lighthouse::Support::ModelResolver
     nil
   end
 
-  def candidates_for(raw, namespaces = self.namespaces, fallback: true)
-    if raw.include?('::')
+  def candidates_for(raw, namespaces = self.namespaces, fallback: true, nested: false)
+    if raw.include?('::') && !nested
       [raw]
     else
       Array(namespaces).map { |ns| "#{ns}::#{raw}" } + (fallback ? [raw] : [])

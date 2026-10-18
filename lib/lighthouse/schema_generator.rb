@@ -15,8 +15,8 @@ module Lighthouse::GraphQL::SchemaGenerator
       obj.respond_to?(field_name) ? obj.public_send(field_name) : nil
     end
 
-    def resolve_type(_abstract_type, _obj, _ctx)
-      nil
+    def resolve_type(abstract_type, obj, ctx)
+      Lighthouse::GraphQL::TypeResolution.resolve(ctx.respond_to?(:schema) && ctx.schema ? ctx.schema : schema, abstract_type, obj, ctx)
     end
 
     def coerce_input(_type, value, _ctx)
@@ -139,7 +139,9 @@ module Lighthouse::GraphQL::SchemaGenerator
       # Apply object-level federation directives to generated types so the
       # Apollo Federation helper can detect entities and add _entities.
       Lighthouse::GraphQL::FederationDirectives.apply(type)
-      type.fields.each_value { |field_def| process_field(type, field_def, root_kinds[type.graphql_name], bases) }
+      root_kind = root_kinds[type.graphql_name]
+      type_class = root_kind ? nil : Lighthouse::GraphQL::DirectiveResolvers::TypeMethodResolver.type_class(type.graphql_name, bases)
+      type.fields.each_value { |field_def| process_field(type, field_def, root_kind, bases, type_class) }
     end
 
     # @complexity, and paginated fields, give graphql-ruby's complexity analysis their cost.
@@ -150,6 +152,9 @@ module Lighthouse::GraphQL::SchemaGenerator
 
     # Every @broadcast must name a field of the Subscription type.
     Lighthouse::GraphQL::Broadcasting.validate!(schema)
+
+    # Unions, interfaces and scalars get the classes that resolve and coerce them.
+    Lighthouse::GraphQL::Type.apply(schema, bases.fetch(:types, {}))
 
     # return schema for convenience
     schema
@@ -163,10 +168,11 @@ module Lighthouse::GraphQL::SchemaGenerator
 
   # A field's generated resolvers, then the runtime hooks that make
   # graphql-ruby reach them.
-  def process_field(type, field_def, root_kind, bases = {})
+  def process_field(type, field_def, root_kind, bases = {}, type_class = nil)
     return unless field_def.ast_node
 
-    apply_field_resolvers(type, field_def, field_def.ast_node.directives || [], root_kind, bases)
+    # Installed in resolution order (see FieldResolverStack).
+    Lighthouse::GraphQL::FieldResolverStack.apply(type, field_def, root_kind, bases: bases, type_class: type_class)
     Lighthouse::GraphQL::GeneratedResolvers.route_runtime_resolver(type, field_def)
     ensure_connection_extension(field_def)
   end
@@ -185,11 +191,6 @@ module Lighthouse::GraphQL::SchemaGenerator
     field_def.extension(::GraphQL::Schema::Field::ConnectionExtension, call_after_define: false)
   rescue StandardError
     # ignore failures during post-processing
-  end
-
-  # A field's resolvers, installed in resolution order (see FieldResolverStack).
-  def apply_field_resolvers(type, field_def, directives, root_kind, bases = {})
-    Lighthouse::GraphQL::FieldResolverStack.apply(type, field_def, directives, root_kind, bases: bases)
   end
 
   # Scan SDL string for list-typed fields that carry relationship directives

@@ -12,7 +12,8 @@ class Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
     raise NotImplementedError
   end
 
-  def apply_where_filters(relation, args)
+  # `ctx`: the query's context, for @builder on an argument.
+  def apply_where_filters(relation, args, ctx = nil)
     return relation unless relation.respond_to?(:where)
 
     args_h = args.respond_to?(:to_h) ? args.to_h : (args || {})
@@ -22,7 +23,7 @@ class Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
       relation = apply_where_has_conditions(relation, arg_node, args_h)
     end
 
-    apply_arg_builders(relation, args_h)
+    apply_arg_builders(relation, args_h, ctx)
   rescue ::GraphQL::ExecutionError
     raise
   rescue StandardError => e
@@ -33,16 +34,13 @@ class Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
   # Compose argument-builder directives (@eq, @neq, @in, @notIn, @like,
   # @where, @orderBy) onto the relation, in SDL argument order, for each
   # field argument that carries one and that the client supplied a value
-  # for.
-  def apply_arg_builders(relation, args_h)
+  # for — and for the input fields of an argument carrying @nest.
+  def apply_arg_builders(relation, args_h, ctx = nil)
     return relation unless relation.respond_to?(:where)
     return relation unless @field_def.ast_node
 
-    arg_builders.each do |arg_node, dnode, builder_class|
-      value = Lighthouse::Support::Naming.fetch_arg(args_h, arg_node.name)
-      next if value.nil?
-
-      relation = builder_class.new(arg_node, dnode).handle_builder(relation, value)
+    arg_builders.each do |path, arg_node, dnode, builder_class|
+      relation = apply_arg_builder(relation, args_h, ctx, [path, arg_node, dnode, builder_class])
     end
 
     relation
@@ -136,13 +134,64 @@ class Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
   end
 
   # Every (argument, directive, builder class) on the field, in SDL order.
+  # One argument directive: @builder whenever the client sent the argument,
+  # null included (as PHP Lighthouse's); the others when its value is not null.
+  def apply_arg_builder(relation, args_h, ctx, (path, arg_node, dnode, builder_class))
+    if builder_class == :builder
+      return relation unless arg_present?(args_h, path)
+
+      return Lighthouse::GraphQL::DirectiveResolvers::BuilderApplier.apply_argument(relation, dnode, dig_arg(args_h, path), ctx)
+    end
+
+    value = dig_arg(args_h, path)
+    value.nil? ? relation : builder_class.new(arg_node, dnode).handle_builder(relation, value)
+  end
+
+  # Did the client send the argument at `path`, even as null?
+  def arg_present?(args_h, path)
+    parent = path.size == 1 ? args_h : dig_arg(args_h, path[0...-1])
+    hash = parent.respond_to?(:to_h) && !parent.is_a?(Array) ? parent.to_h : parent
+    hash.is_a?(Hash) && Lighthouse::Support::Naming.candidate_keys(path.last).any? { |key| hash.key?(key) }
+  end
+
+  # [path, node, directive, builder class] for every argument-builder
+  # directive, in SDL order. An argument carrying @nest adds its input type's
+  # fields', at any depth, with their path into the value.
   def arg_builders
-    registry = Lighthouse::DirectiveRegistry.default
     (@field_def.ast_node.arguments || []).flat_map do |arg_node|
-      (arg_node.directives || []).filter_map do |dnode|
-        builder_class = registry.arg_builder_class(dnode.name)
-        [arg_node, dnode, builder_class] if builder_class
-      end
+      builders_of(arg_node, [arg_node.name], @field_def.arguments[arg_node.name])
+    end
+  end
+
+  def builders_of(node, path, argument)
+    registry = Lighthouse::DirectiveRegistry.default
+    own = (node.directives || []).filter_map do |dnode|
+      builder_class = dnode.name == 'builder' ? :builder : registry.arg_builder_class(dnode.name)
+      [path, node, dnode, builder_class] if builder_class
+    end
+    own + (argument && nest?(node) ? nested_builders(argument, path) : [])
+  end
+
+  def nest?(node)
+    (node.directives || []).any? { |d| d.name == 'nest' }
+  end
+
+  def nested_builders(argument, path)
+    type = argument.type.unwrap
+    return [] unless type.kind.input_object?
+
+    type.arguments.each_value.flat_map do |field|
+      field.ast_node ? builders_of(field.ast_node, path + [field.ast_node.name], field) : []
+    end
+  end
+
+  # The client's value at `path` (an argument, then input fields), or nil.
+  def dig_arg(args_h, path)
+    path.reduce(args_h) do |value, name|
+      hash = value.respond_to?(:to_h) && !value.is_a?(Array) ? value.to_h : value
+      break nil unless hash.is_a?(Hash)
+
+      Lighthouse::Support::Naming.fetch_arg(hash, name)
     end
   end
 end

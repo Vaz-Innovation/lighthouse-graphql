@@ -28,6 +28,19 @@ module Resolvers
     def resolve = 'explicit'
   end
 
+  module Nested; end
+
+  class Nested::Explicit < BaseResolver
+    def resolve = 'nested'
+  end
+
+  # A field of another type: `object` is the parent post.
+  module Posts; end
+
+  class Posts::Shout < BaseResolver
+    def resolve(suffix: '!') = "#{object.title.upcase}#{suffix}"
+  end
+
   class NotAResolver
     def self.call(*) = 'never'
   end
@@ -65,6 +78,11 @@ class Custom::Greeting < GraphQL::Schema::Resolver
   def resolve(**) = 'custom namespace'
 end
 
+# Outside the resolvers namespace: found through resolver_namespaces' fallback.
+class ResolverConventionsSpecWhisper
+  def self.call(post, _args, _ctx) = post.title.downcase
+end
+
 RSpec.describe 'Query and Mutation resolver classes' do
   let(:sdl) do
     <<~GRAPHQL
@@ -72,6 +90,8 @@ RSpec.describe 'Query and Mutation resolver classes' do
         greeting(name: String!, shout: Boolean): String
         guardedGreeting(name: String!): String @guard @cache
         explicitly: String @field(resolver: "Explicit")
+        nested: String @field(resolver: "Nested::Explicit")
+        qualified: String @field(resolver: "Resolvers::Nested::Explicit")
         missing: String
         notAResolver: String
         posts: [Post!]! @paginate @builder(class: "Published")
@@ -91,6 +111,9 @@ RSpec.describe 'Query and Mutation resolver classes' do
         title: String
         published: Boolean
         authorId: ID
+        shout(suffix: String): String @field(resolver: "Posts::Shout")
+        qualifiedShout: String @field(resolver: "Resolvers::Posts::Shout")
+        whisper: String @field(resolver: "ResolverConventionsSpecWhisper")
       }
     GRAPHQL
   end
@@ -122,6 +145,10 @@ RSpec.describe 'Query and Mutation resolver classes' do
 
     it 'resolve @field(resolver:) in the Query resolvers namespace' do
       expect(run('{ explicitly }')).to eq('data' => { 'explicitly' => 'explicit' })
+    end
+
+    it 'resolve a nested @field(resolver:) name in that namespace too, or as written' do
+      expect(run('{ nested qualified }')).to eq('data' => { 'nested' => 'nested', 'qualified' => 'nested' })
     end
 
     it 'report a field with no resolver class through on_error' do
@@ -172,6 +199,17 @@ RSpec.describe 'Query and Mutation resolver classes' do
       result = run('mutation { createDraft(input: { title: "Mine" }) { title authorId } }', current_user: Struct.new(:id).new(7))
 
       expect(result).to eq('data' => { 'createDraft' => { 'title' => 'Mine', 'authorId' => '7' } })
+    end
+  end
+
+  describe 'fields of other types' do
+    it 'resolve @field(resolver:) in the resolvers namespace, with the parent as object' do
+      Post.create!(title: 'Shown', published: true)
+
+      result = run('{ posts(first: 1) { data { shout loud: shout(suffix: "?!") qualifiedShout whisper } } }')
+
+      expect(result.dig('data', 'posts', 'data'))
+        .to eq([{ 'shout' => 'SHOWN!', 'loud' => 'SHOWN?!', 'qualifiedShout' => 'SHOWN!', 'whisper' => 'shown' }])
     end
   end
 

@@ -16,7 +16,7 @@ require_relative 'pagination_info_types'
 # relation directive (no `type:`) and @all keep returning the list.
 # The runtime side is Lighthouse::GraphQL::Pagination.
 class Lighthouse::GraphQL::Directives::PaginationManipulator
-  RELATION_DIRECTIVES = %w[hasMany belongsToMany morphMany morphToMany].freeze
+  RELATION_DIRECTIVES = %w[hasMany hasManyThrough belongsToMany morphMany morphToMany].freeze
   OBJECT_DEFINITIONS = [
     ::GraphQL::Language::Nodes::ObjectTypeDefinition,
     ::GraphQL::Language::Nodes::ObjectTypeExtension

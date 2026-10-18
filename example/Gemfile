@@ -12,6 +12,17 @@ gem 'lighthouse-graphql', path: '..'
 gem 'dry-validation', '~> 1.10'
 gem 'pundit', '~> 2.4'
 
+# @async runs mutations through ActiveJob; this app queues them in Solid Queue,
+# Rails' default, in its own database.
+gem 'solid_queue', '~> 1.2'
+
+# The databases and cache the end-to-end suite also runs against
+# (spec/requests/graphql/real_backends_spec.rb): DATABASE_URL picks PostgreSQL or
+# MySQL instead of SQLite, REDIS_URL a Redis cache store for @throttle.
+gem 'pg', '~> 1.5', require: false
+gem 'redis', '~> 5.0', require: false
+gem 'trilogy', '~> 2.9', require: false
+
 # Windows does not include zoneinfo files, so bundle the tzinfo-data gem
 gem 'tzinfo-data', platforms: %i[windows jruby]
 

@@ -4,11 +4,11 @@ require 'rails/generators'
 require 'lighthouse-graphql'
 
 # The base class graphql-ruby's convention puts in each namespace:
-# Resolvers::BaseResolver, Mutations::BaseMutation and
-# Subscriptions::BaseSubscription. The classes Lighthouse generates inherit from
-# them, so what every class of a kind shares (a concern, graphql-ruby's base type
-# hookups) is written once, in the base. graphql-ruby's `graphql:install` writes
-# the first two the same way.
+# Resolvers::BaseResolver, Mutations::BaseMutation,
+# Subscriptions::BaseSubscription and Types::BaseObject. The classes Lighthouse
+# generates inherit from them, so what every class of a kind shares (a concern,
+# graphql-ruby's base type hookups) is written once, in the base.
+# graphql-ruby's `graphql:install` writes the first two and the last the same way.
 #
 # A base that already exists is never replaced, not even with --force: it holds
 # the app's own code, and one written by graphql-ruby works as it is.
@@ -47,6 +47,18 @@ module Lighthouse::Generators::BaseClasses
         # :arguments` brings back graphql-ruby's exact-argument matching.
         class BaseSubscription < GraphQL::Schema::Subscription
           include Lighthouse::GraphQL::Subscription
+        end
+      RUBY
+    },
+    types: {
+      name: 'BaseObject',
+      source: <<~RUBY
+        # What every type class shares. The schema builds the SDL's object types from
+        # it (base_types' object:). A subclass that includes Lighthouse::GraphQL::Type
+        # (Types::PostType) resolves fields of its type, such as Post.readingTime with
+        # Types::PostType#reading_time. graphql-ruby's `graphql:install` writes the
+        # same class.
+        class BaseObject < GraphQL::Schema::Object
         end
       RUBY
     }

@@ -23,7 +23,7 @@ class Lighthouse::GraphQL::DirectiveResolvers::FirstDirectiveResolver < Lighthou
       args_h = arguments.respond_to?(:to_h) ? arguments.to_h : {}
       relation = resolver_instance.apply_scopes(model_class.all)
       relation = Lighthouse::GraphQL::DirectiveResolvers::BuilderApplier.apply(relation, field_ast_node, args_h, ctx, resolver_instance)
-      relation = resolver_instance.apply_where_filters(relation, args_h)
+      relation = resolver_instance.apply_where_filters(relation, args_h, ctx)
       relation.first
     end
 

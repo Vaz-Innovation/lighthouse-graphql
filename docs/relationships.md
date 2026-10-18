@@ -31,6 +31,10 @@ The `morph*` names are PHP Lighthouse's. ActiveRecord resolves polymorphic
 associations the same way as any other, so they behave exactly like their
 non-polymorphic counterparts. Use whichever reads better.
 
+`@hasMany` and `@hasOne` resolve `has_many` / `has_one :through` associations as
+they are. PHP Lighthouse's `@hasManyThrough` and `@hasOneThrough` work too, as
+aliases, so an SDL written for it builds unchanged.
+
 ## Avoiding the N+1 problem
 
 The relationship directives load through graphql-ruby's **Dataloader** and
@@ -49,6 +53,44 @@ the Dataloader, the directives still work, but they load one parent at a time.
 
 A field with `scopes:` or a filter argument the client supplied runs its own query
 per parent, because each parent's query differs.
+
+## Eager loading for other fields
+
+The relationship directives load their own association. Three directives load for
+the fields that only read one: a method, a type class method, a field read off
+the model. Each one loads across every parent in the response at once, through the
+Dataloader:
+
+- `@with(relation: "tasks")` loads a relation of the parent before the field
+  resolves. `user.tasks` is then in memory for the method that reads it.
+- `@withCount(relation: "posts")` counts a relation for every parent in one
+  `GROUP BY` query, and keeps each count on its parent as `<relation>_count`, as
+  Laravel's `withCount` does. It is not the field's value: the field's resolver,
+  or the default reader of a `postsCount` field, reads `user.posts_count`.
+- `@lazyLoad(relations: ["tags"])` loads relations of the records the field
+  returns: a list, a relation, a `@paginate` page. On a `@hasMany`, the records of
+  every parent load their relations together.
+
+```graphql
+type User {
+  latestPostTitle: String @with(relation: "posts") @method
+  usage: String! @withCount(relation: "posts", scopes: ["published"]) @method
+  posts: [Post!]! @hasMany @lazyLoad(relations: ["tags"])
+}
+```
+
+```ruby
+class User < ApplicationRecord
+  def latest_post_title = posts.max_by(&:created_at)&.title
+  def usage = "#{posts_count} published posts"
+end
+```
+
+Relations may be nested with dots (`"posts.comments"`), and `scopes` narrow what is
+loaded or counted, as model scopes. A count loads in one query when the database has
+window functions and the relation links its parent through one column, as a
+[paginated relation](#paginating-many-parents-at-once) does; otherwise once per
+parent.
 
 ## Lists, and paginating them
 

@@ -25,6 +25,8 @@ group :development, :test do
   gem 'paranoia', '>= 2.6'
   # Backs @feature by default; the specs use its in-memory adapter.
   gem 'flipper', '~> 1.3'
+  # Optional at runtime: @hash hashes with it, as has_secure_password does.
+  gem 'bcrypt', '~> 3.1'
 end
 
 # dry-schema 1.14 forwards anonymous blocks in a way Ruby 3.1's parser rejects,

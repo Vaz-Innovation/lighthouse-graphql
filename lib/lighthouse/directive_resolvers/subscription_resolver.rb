@@ -32,7 +32,8 @@ class Lighthouse::GraphQL::DirectiveResolvers::SubscriptionDirectiveResolver < L
     @field_def.define_singleton_method(:subscription_scope) { me.subscription_class.subscription_scope }
 
     install(target_type_class, lambda do |obj, args, ctx|
-      Lighthouse::GraphQL::ResolverDispatch.call(me.subscription_class, me.field_def, obj, args, ctx)
+      info = Lighthouse::GraphQL::ResolveInfo.for(me.field_def, target_type_class, obj, args, ctx)
+      Lighthouse::GraphQL::ResolverDispatch.call(me.subscription_class, info)
     end)
   end
 

@@ -1,6 +1,13 @@
 require "active_support/core_ext/integer/time"
 
 Rails.application.configure do
+  # @async mutations and ActiveStorage's jobs run in Solid Queue (bin/jobs), whose
+  # tables are in the app's database (db/migrate/*_create_solid_queue_tables).
+  config.active_job.queue_adapter = :solid_queue
+
+  # ActiveStorage keeps uploads (config/storage.yml).
+  config.active_storage.service = :local
+
   # Settings specified here will take precedence over those in config/application.rb.
 
   # Make code changes take effect immediately without server restart.

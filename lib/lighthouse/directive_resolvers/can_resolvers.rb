@@ -136,7 +136,7 @@ module Lighthouse::GraphQL::DirectiveResolvers
 
     # The records the field's argument filters (@eq, @where, ...) select.
     def authorize_before(_obj, args, ctx)
-      authorize_each!(ctx, apply_where_filters(scoped(model_class.all), args).to_a, args)
+      authorize_each!(ctx, apply_where_filters(scoped(model_class.all), args, ctx).to_a, args)
     end
   end
 

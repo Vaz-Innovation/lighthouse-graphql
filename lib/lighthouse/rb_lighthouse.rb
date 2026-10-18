@@ -29,6 +29,8 @@ require_relative 'namespaces'
   support/arguments
   support/batching
   support/soft_deletes
+  support/preload
+  support/environment
   where_conditions/operator_map
   contracts/directive
   contracts/field_resolver
@@ -38,6 +40,7 @@ require_relative 'namespaces'
   contracts/arg_builder
   sdl_loader
   generated_resolvers
+  default_resolve_dispatcher
   federation_directives
   field_resolver_stack
   events
@@ -60,12 +63,26 @@ require_relative 'namespaces'
   complexity_analyzer
   broadcasting
   subscription
+  type
+  type_resolution
+  resolve_info
+  global_id
+  enum_directive
+  upload
+  upload_store
+  multipart_request
+  node_registry
+  scalar_coercion
   pagination
   relation_batch
+  relation_counts
   nested_mutations
   directives/pagination_manipulator
   directives/where_conditions_directive
   directives/soft_deletes_directive
+  directives/node_directive
+  directives/model_directive
+  directives/visibility_directive
   directive_resolvers/aggregate_resolver
   directive_resolvers/field_resolver
   directive_resolvers/where_conditions_applier
@@ -83,6 +100,7 @@ require_relative 'namespaces'
   directive_resolvers/association_resolvers
   directive_resolvers/can_resolvers
   directive_resolvers/convention_resolver
+  directive_resolvers/type_method_resolver
   directive_resolvers/model_mutation_resolver
   directive_resolvers/soft_delete_resolvers
   directive_resolvers/cache_resolvers
@@ -91,15 +109,29 @@ require_relative 'namespaces'
   directive_resolvers/broadcast_resolver
   directive_resolvers/event_resolver
   directive_resolvers/convert_empty_strings_resolver
+  directive_resolvers/with_resolver
+  directive_resolvers/with_count_resolver
+  directive_resolvers/lazy_load_resolver
+  directive_resolvers/limit_resolver
+  directive_resolvers/namespaced_resolver
+  directive_resolvers/throttle_resolver
+  directive_resolvers/async_resolver
+  directive_resolvers/global_id_resolver
+  directive_resolvers/argument_binding
+  directive_resolvers/argument_transforms_resolver
   directives/arguments/base
   directives/arguments/filters
+  directives/arguments/more_filters
   directives/arguments/order_by
   directives/arguments/soft_deletes
+  directives/definitions
   directives/registry
   dataloader_sources/association_loader
   dataloader_sources/model_loader
   dataloader_sources/relation_page_loader
   dataloader_sources/relation_count_loader
+  dataloader_sources/relation_counts_loader
+  dataloader_sources/preload_loader
   ide_helper
 ].each do |rel|
   require_relative rel
@@ -109,6 +141,7 @@ end
 
 # The activejob gem is optional: the job that queues @broadcast loads on first use.
 Lighthouse::GraphQL.autoload(:BroadcastJob, File.expand_path('broadcast_job.rb', __dir__))
+Lighthouse::GraphQL.autoload(:AsyncMutationJob, File.expand_path('async_mutation_job.rb', __dir__))
 
 require_relative 'railtie' if defined?(Rails::Railtie)
 

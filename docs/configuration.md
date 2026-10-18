@@ -38,6 +38,7 @@ different contracts, so they live apart ([resolvers.md](resolvers.md)):
 | `events` | `['Events']` | Classes `@event(dispatch:)` names ([events.md](events.md)) |
 | `subscriptions` | `['Subscriptions']` | `Subscriptions::BaseSubscription` classes (a `GraphQL::Schema::Subscription`; the base includes `Lighthouse::GraphQL::Subscription`) for `Subscription` fields, and `@subscription(class:)` ([subscriptions.md](subscriptions.md)) |
 | `analyzers` | `['Analyzers']` | `GraphQL::Analysis::Analyzer` classes (optionally including `Lighthouse::GraphQL::ComplexityAnalyzer`) that `@complexity(resolver:)` names ([security.md](security.md)) |
+| `types` | `['Types']` | `Types::<Name>Type` classes including `Lighthouse::GraphQL::Type`: an object type's, whose methods resolve the fields of the SDL type `<Name>` ([resolvers.md](resolvers.md#type-classes)); a union's or interface's, which picks its values' types; a scalar's, which coerces its values ([types.md](types.md)). Also where `@union`, `@interface` and `@scalar` look classes up |
 
 ```ruby
 config.namespaces = { queries: ['Api::Resolvers'] }   # the other kinds keep their defaults
@@ -47,8 +48,9 @@ config.namespaces = { queries: ['Api::Resolvers'] }   # the other kinds keep the
 
 An ordered list of namespaces tried for **models** named by a directive
 (`@all(model: "User")`) and for `@field(resolver:)` on types other than `Query`
-and `Mutation`. Fully-qualified names (containing `::`) are used as-is. Defaults
-to `['App::Graphql']`.
+and `Mutation`, after the resolvers namespace
+([resolvers.md](resolvers.md#fields-of-other-types)). Fully-qualified names
+(containing `::`) are used as-is. Defaults to `['App::Graphql']`.
 
 ```ruby
 config.resolver_namespaces = ['App::Graphql', 'Resolvers']
@@ -113,6 +115,28 @@ initializer.
 
 ```ruby
 config.convert_empty_strings_to_null = true
+```
+
+### `global_id`
+
+Encodes and decodes Relay global ids for [`@globalId` and `@node`](relay.md): any
+object with `encode(type, id)` returning the global id, and `decode(global_id)`
+returning `[type, id]`. Defaults to `Lighthouse::GraphQL::GlobalId`, the base64 of
+`Type:id`, as PHP Lighthouse's.
+
+```ruby
+config.global_id = SignedGlobalIds
+```
+
+### `upload_store`
+
+Stores the file an [`@upload`](uploads.md) argument carries: any object with
+`call(file, disk:, path:, public:)`, whose return value the argument then holds.
+Defaults to `Lighthouse::GraphQL::UploadStore`, which makes an ActiveStorage blob and
+returns its signed id.
+
+```ruby
+config.upload_store = ->(file, path: '/', **) { S3Uploader.put(file, prefix: path) }
 ```
 
 ### `queue_broadcasts`, `broadcast_queue`

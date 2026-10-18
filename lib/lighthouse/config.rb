@@ -20,7 +20,8 @@ module Lighthouse
       validators: ['Validators'],
       events: ['Events'],
       subscriptions: ['Subscriptions'],
-      analyzers: ['Analyzers']
+      analyzers: ['Analyzers'],
+      types: ['Types']
     }.freeze
 
     # Every setting reset! forgets, so the next read falls back to its default.
@@ -32,13 +33,14 @@ module Lighthouse
       convert_empty_strings_to_null
       soft_deletes
       queue_broadcasts broadcast_queue
+      global_id upload_store
     ].freeze
 
     class << self
       attr_writer :sdl_folder, :resolver_namespaces, :on_error, :authenticated_user, :policy_user, :authorizer, :cache_store,
                   :transactional_mutations, :schema_cache, :watch_sdl, :persisted_queries, :persisted_queries_store, :persisted_queries_only,
                   :queue_broadcasts,
-                  :convert_empty_strings_to_null, :feature_checker, :feature_actor
+                  :convert_empty_strings_to_null, :feature_checker, :feature_actor, :global_id, :upload_store
 
       def sdl_folder
         @sdl_folder ||= (defined?(Rails) && Rails.respond_to?(:root) ? Rails.root.join('graphql').to_s : nil)
@@ -103,6 +105,15 @@ module Lighthouse
       # Make every field behave as if it carried @convertEmptyStringsToNull. Read
       # when the schema is built, so set it in an initializer.
       def convert_empty_strings_to_null = @convert_empty_strings_to_null || false
+
+      # Encodes and decodes Relay global ids (@globalId, @node): `encode(type, id)`
+      # and `decode(global_id)` -> [type, id]. Base64 of "Type:id" by default.
+      def global_id = @global_id || Lighthouse::GraphQL::GlobalId
+
+      # Stores the file an @upload argument carries: `call(file, disk:, path:,
+      # public:)` returns what the argument holds instead. An ActiveStorage blob's
+      # signed id by default.
+      def upload_store = @upload_store || Lighthouse::GraphQL::UploadStore
 
       def persisted_queries_store
         @persisted_queries_store || cache_store

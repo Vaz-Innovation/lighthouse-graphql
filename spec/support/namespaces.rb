@@ -8,3 +8,5 @@ module FederationTestTypes; end
 
 module Validators; end
 module Validators::Mutation; end
+
+module Types; end
