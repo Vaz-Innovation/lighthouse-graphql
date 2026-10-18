@@ -24,6 +24,11 @@ require 'json'
 # Cache-Control header the selected fields' @cacheControl hints allow, renders
 # the JSON and dispatches EndRequest. In development an error renders as JSON.
 #
+# A field's @throttle that renders past its limit (its `with:` method, or
+# `head :too_many_requests`, rate_limit's default on Rails 7.2) ends the request
+# with that response, as a before_action that renders does: the operation stops
+# there (Performed), and `execute` renders nothing more.
+#
 # Hooks, private so they are not actions: `graphql_context` (default:
 # `{ current_user: current_user }` when the controller has a current_user, else
 # `{}`), `graphql_schema` and `graphql_variables(param)`. A controller with an
@@ -31,6 +36,11 @@ require 'json'
 # events; a nested call dispatches them once.
 module Lighthouse::GraphQL::Controller
   extend ActiveSupport::Concern
+
+  # Raised once a @throttle `with:` method has performed the response: control
+  # flow, as `throw :abort` in a before_action, so no `rescue StandardError` (a
+  # schema's rescue_from) catches it on its way out of the operation.
+  class Performed < Exception; end # rubocop:disable Lint/InheritException
 
   included do
     class_attribute :lighthouse_schema_source, instance_writer: false
@@ -57,7 +67,7 @@ module Lighthouse::GraphQL::Controller
       end
     end
   rescue StandardError => e
-    raise e unless defined?(::Rails) && ::Rails.env.development?
+    raise e unless defined?(::Rails) && ::Rails.env.development? && !rails_response?(e)
 
     lighthouse_development_error(e)
   end
@@ -65,13 +75,18 @@ module Lighthouse::GraphQL::Controller
   private
 
   # Dispatch StartRequest, run the block, dispatch EndRequest with the
-  # response. Only the outermost call dispatches.
+  # response. Only the outermost call dispatches, and stops the block where a
+  # @throttle `with:` method performed the response.
   def lighthouse_request
     return yield if @lighthouse_request_started
 
     @lighthouse_request_started = true
     Lighthouse::Events.dispatch(Lighthouse::Events::StartRequest.new(request))
-    result = yield
+    result = begin
+      yield
+    rescue Performed
+      nil
+    end
     Lighthouse::Events.dispatch(Lighthouse::Events::EndRequest.new(response))
     result
   end
@@ -81,9 +96,11 @@ module Lighthouse::GraphQL::Controller
     respond_to?(:current_user, true) ? { current_user: current_user } : {}
   end
 
-  # graphql_context, with the client's IP (for @throttle) unless it sets its own.
+  # graphql_context, with what @throttle reads unless it sets its own: the
+  # client's IP (rate_limit's default by:) and the controller, whose cache_store,
+  # controller_path and methods rate_limit uses.
   def lighthouse_context
-    { remote_ip: request.remote_ip }.merge(graphql_context)
+    { remote_ip: request.remote_ip, lighthouse_controller: self }.merge(graphql_context)
   end
 
   def graphql_schema
@@ -137,6 +154,12 @@ module Lighthouse::GraphQL::Controller
         operation_name: operation[:operationName], context: lighthouse_context }
     end
     Lighthouse::GraphQL::PersistedQueries.multiplex(graphql_schema, operations)
+  end
+
+  # An error Rails answers with a status of its own (config.action_dispatch.rescue_responses):
+  # ActionController::TooManyRequests from @throttle is a 429 in development too.
+  def rails_response?(error)
+    ::ActionDispatch::ExceptionWrapper.status_code_for_exception(error.class.name) != 500
   end
 
   def lighthouse_development_error(error)

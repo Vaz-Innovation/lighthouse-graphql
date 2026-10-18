@@ -36,7 +36,7 @@ type Query {
   "Every tag. Kept in Rails.cache for five minutes; createTag clears it."
   tags: [Tag!]! @all @cache(maxAge: 300) @cacheControl(maxAge: 300)
 
-  "Full-text-ish search over published posts — resolved by Resolvers::SearchPosts. Ten a minute per client (@throttle)."
+  "Full-text-ish search over published posts — resolved by Resolvers::SearchPosts. Ten a minute per IP (@throttle), a 429 past that."
   searchPosts(term: String!): [Post!]! @throttle(maxAttempts: 10)
 
   "The tags on the most published posts — resolved by Resolvers::Tags::Popular, which @field names."
@@ -97,8 +97,12 @@ type Mutation {
     @inject(context: "current_user.id", name: "author_id")
     @broadcast(subscription: "commentAdded")
 
-  "Add a tag, and drop the cached tag list."
-  createTag(name: String!): Tag! @guard @create @clearCache(type: "Query", field: "tags")
+  "Add a tag, and drop the cached tag list. Twenty a minute per user, past which GraphqlController#too_many_requests answers."
+  createTag(name: String!): Tag!
+    @throttle(maxAttempts: 20, by: "current_user.id", with: "too_many_requests")
+    @guard
+    @create
+    @clearCache(type: "Query", field: "tags")
 
   """
   Set the signed-in user's avatar, sent as a multipart request (the GraphQL multipart request

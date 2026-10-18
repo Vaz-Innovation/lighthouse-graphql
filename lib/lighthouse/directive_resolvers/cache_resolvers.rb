@@ -3,7 +3,7 @@
 require_relative 'base'
 
 module Lighthouse::GraphQL::DirectiveResolvers
-  # @cache — keep a field's resolved value in Config.cache_store (Rails.cache).
+  # @cache — keep a field's resolved value in Rails.cache (Caching.store).
   #
   # The key covers the parent type and its key (the field marked @cacheKey,
   # else the first `ID` field; none on Query/Mutation), the field, and its

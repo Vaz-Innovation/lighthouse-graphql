@@ -15,6 +15,8 @@ RSpec.describe "GraphQL on the app's real backends (#{ActiveRecord::Base.connect
     response.parsed_body
   end
 
+  def status_from(...) = graphql_from(...) && response.status
+
   describe '@whereJsonContains' do
     before do
       create(:post, title: 'Both', metadata: { labels: %w[ruby graphql] })
@@ -108,29 +110,30 @@ RSpec.describe "GraphQL on the app's real backends (#{ActiveRecord::Base.connect
         let(:store) { build.call.tap(&:clear) }
         let(:search) { '{ searchPosts(term: "x") { title } }' }
 
+        # Where Rails' rate_limit counts too: the controller's cache_store.
         around do |example|
-          previous = Lighthouse::Config.cache_store
-          Lighthouse::Config.cache_store = store
+          previous = GraphqlController.cache_store
+          GraphqlController.cache_store = store
           example.run
         ensure
-          Lighthouse::Config.cache_store = previous
+          GraphqlController.cache_store = previous
         end
 
-        it 'refuses a client its eleventh search in a minute, counting each IP and user apart' do
+        it 'answers a client its eleventh search in a minute with a 429, counting each IP apart, as rate_limit' do
           ten = Array.new(10) { graphql_from('10.0.0.1', search) }
-          eleventh = graphql_from('10.0.0.1', search)
 
           expect(ten.pluck('errors')).to all(be_nil)
-          expect(error_messages(eleventh)).to eq(['Rate limit for Query.searchPosts exceeded. Try again later.'])
-          expect(graphql_from('10.0.0.2', search)['errors']).to be_nil
-          expect(graphql_from('10.0.0.1', search, as: create(:user))['errors']).to be_nil
+          expect(status_from('10.0.0.1', search)).to eq(429)
+          expect(status_from('10.0.0.2', search)).to eq(200)
+          expect(status_from('10.0.0.1', search, as: create(:user))).to eq(429)
         end
 
         it 'counts on another app server too: the count lives in the store, not in the process' do
           10.times { graphql_from('10.0.0.3', search) }
-          Lighthouse::Config.cache_store = build.call # a new client of the same store, as another server holds
+          GraphqlController.cache_store = build.call # a new client of the same store, as another server holds
+          graphql_from('10.0.0.3', search)
 
-          expect(error_messages(graphql_from('10.0.0.3', search))).to eq(['Rate limit for Query.searchPosts exceeded. Try again later.'])
+          expect(response).to have_http_status(:too_many_requests)
         end
       end
     end

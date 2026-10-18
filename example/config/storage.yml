@@ -7,3 +7,9 @@ test:
 local:
   service: Disk
   root: <%= Rails.root.join("storage") %>
+
+# A public service (anyone may read its files): what @upload(public: true) needs.
+test_public:
+  service: Disk
+  root: <%= Rails.root.join("tmp/storage_public") %>
+  public: true

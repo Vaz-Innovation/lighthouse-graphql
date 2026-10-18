@@ -41,9 +41,10 @@ such as a Relay connection object, is reported through
 [`on_error`](configuration.md#on_error) and returned uncached. So cache list
 fields, not connection fields.
 
-The store is [`Config.cache_store`](configuration.md#cache_store), `Rails.cache`
-by default. Note that Rails uses a `:null_store` in development and test unless
-you enable caching (`bin/rails dev:cache`).
+The store is your app's cache, `Rails.cache` (`config.cache_store`), as PHP
+Lighthouse uses Laravel's: Lighthouse keeps no store of its own. Note that Rails
+uses a `:null_store` in development and test unless you enable caching
+(`bin/rails dev:cache`).
 
 A cached value is still authorized and validated on every request: `@cache` runs
 inside `@guard`, `@can*` and `@validator`, never around them.

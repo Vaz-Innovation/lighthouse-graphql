@@ -1,11 +1,15 @@
 # frozen_string_literal: true
 
+require 'active_support/cache'
 require 'digest'
 require 'json'
 require 'securerandom'
 
-# Keys and invalidation for @cache / @clearCache over Config.cache_store
-# (Rails.cache by default).
+# The app's cache stores, and keys and invalidation for @cache / @clearCache.
+#
+# Lighthouse keeps no store of its own, as PHP Lighthouse uses Laravel's: @cache,
+# @clearCache and APQ use Rails.cache (config.cache_store), and @throttle counts
+# where Rails' own `rate_limit` does, in the controller's cache_store.
 #
 # PHP Lighthouse invalidates with cache tags, which Rails cache stores do not
 # have (and `delete_matched` is not universal). Instead every entry key embeds
@@ -19,8 +23,10 @@ module Lighthouse::GraphQL::Caching
 
   module_function
 
+  # Rails.cache; outside Rails, one in-memory store for the process.
   def store
-    Lighthouse::Config.cache_store
+    rails_cache = ::Rails.cache if defined?(::Rails) && ::Rails.respond_to?(:cache)
+    rails_cache || (@memory_store ||= ActiveSupport::Cache::MemoryStore.new)
   end
 
   def entry_key(type, id, field, args, user_key)

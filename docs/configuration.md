@@ -70,15 +70,6 @@ reporter in production:
 config.on_error = ->(error, _ctx) { Sentry.capture_exception(error) }
 ```
 
-### `cache_store`
-
-The store behind [`@cache` / `@clearCache`](caching.md). Defaults to
-`Rails.cache` (an in-memory store outside Rails).
-
-```ruby
-config.cache_store = ActiveSupport::Cache::RedisCacheStore.new(url: ENV['REDIS_URL'])
-```
-
 ### `pagination_default_count`, `pagination_max_count`
 
 Defaults for paginated fields: the `first` used when a client leaves it out (so
@@ -99,7 +90,7 @@ Options for large schemas and high traffic, all off by default. See
 config.schema_cache = Rails.env.production?            # cache the built schema in tmp/cache
 config.watch_sdl = Rails.env.development?              # reload when a .graphql file changes
 config.persisted_queries = true                        # Apollo's Automatic Persisted Queries
-config.persisted_queries_store = Rails.cache           # where APQ keeps queries (default: cache_store)
+config.persisted_queries_store = Rails.cache           # where APQ keeps queries (default: Rails.cache)
 config.persisted_queries_ttl = 1.week.to_i             # how long they live there
 config.persisted_queries_manifest = Rails.root.join('persisted-queries.json')  # trusted operations
 config.persisted_queries_only = Rails.env.production?  # run nothing else
@@ -126,17 +117,6 @@ returning `[type, id]`. Defaults to `Lighthouse::GraphQL::GlobalId`, the base64 
 
 ```ruby
 config.global_id = SignedGlobalIds
-```
-
-### `upload_store`
-
-Stores the file an [`@upload`](uploads.md) argument carries: any object with
-`call(file, disk:, path:, public:)`, whose return value the argument then holds.
-Defaults to `Lighthouse::GraphQL::UploadStore`, which makes an ActiveStorage blob and
-returns its signed id.
-
-```ruby
-config.upload_store = ->(file, path: '/', **) { S3Uploader.put(file, prefix: path) }
 ```
 
 ### `queue_broadcasts`, `broadcast_queue`

@@ -283,16 +283,23 @@ type PostQueries {
 
 ### `@throttle`
 
-Rate-limits a field per client: at most `maxAttempts` calls every `decayMinutes`
-(default 60 a minute), counted in [`cache_store`](configuration.md#cache_store). A
-client is the signed-in user, else the context's `:remote_ip`, which the controller
-concern sets. Past the limit the field fails with `Rate limit for Query.x exceeded.
-Try again later.` before anything else runs. `name:` makes fields count together,
-`prefix:` separates groups.
+Rails' `rate_limit` on one field: at most `maxAttempts` calls (its `to:`) every
+`decayMinutes` (its `within:`, default 60 a minute), counted before anything else runs.
+It takes `rate_limit`'s options, and counts as `rate_limit` does: in the controller's
+`cache_store`, under the same key, and instrumented as `rate_limit.action_controller`.
+See [security.md](security.md#rate-limiting).
+
+| Argument | `rate_limit`'s | Default |
+| --- | --- | --- |
+| `by:` | `by:`, who the client is: a path in the context, as [`@inject`](resolvers.md#spread-and-inject)'s (`"current_user.id"`) | the client's IP |
+| `with:` | `with:`, the controller's method to call past the limit | `rate_limit`'s: a 429 (it raises `ActionController::TooManyRequests`) |
+| `name:` | `name:`; fields, and the controller's own `rate_limit`, of the same name count together | the field (`Query.x`) |
+| `prefix:` | `scope:` | the controller's path |
 
 ```graphql
 type Mutation {
   login(email: String!, password: String!): User @throttle(maxAttempts: 5)
+  createTag(name: String!): Tag! @throttle(maxAttempts: 20, by: "current_user.id", with: "too_many_requests") @guard @create
 }
 ```
 
@@ -584,7 +591,7 @@ order the SDL lists them:
 | `@drop` | nothing: the argument is removed |
 | `@hash` | the value hashed with BCrypt (the `bcrypt` gem, as `has_secure_password`) |
 | `@bind(class:, column: "id", with: [], optional: false)` | the model record(s) the value identifies, eager-loading `with`; or what a class's `call(value, context)` returns |
-| `@upload(disk:, path: "/")` | what [`upload_store`](configuration.md#upload_store) answers for the uploaded file: the signed id of an ActiveStorage blob, by default ([uploads.md](uploads.md)) |
+| `@upload(disk:, path: "/", public: false)` | the signed id of the ActiveStorage blob the file was stored as, on the app's service `disk` names ([uploads.md](uploads.md)) |
 
 ```graphql
 type Mutation {

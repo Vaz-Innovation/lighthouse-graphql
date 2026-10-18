@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require 'active_support/cache'
-
 module Lighthouse
   # Convenience entrypoint: `Lighthouse.configure { |c| c.resolver_namespaces = [...] }`.
   def self.configure(&block)
@@ -26,21 +24,21 @@ module Lighthouse
 
     # Every setting reset! forgets, so the next read falls back to its default.
     SETTINGS = %i[
-      sdl_folder resolver_namespaces namespaces cache_store transactional_mutations pagination_default_count pagination_max_count
+      sdl_folder resolver_namespaces namespaces transactional_mutations pagination_default_count pagination_max_count
       schema_cache schema_cache_path watch_sdl persisted_queries persisted_queries_store persisted_queries_ttl
       persisted_queries_manifest persisted_queries_only on_error directive_map authenticated_user policy_user authorizer
       feature_checker feature_actor
       convert_empty_strings_to_null
       soft_deletes
       queue_broadcasts broadcast_queue
-      global_id upload_store
+      global_id
     ].freeze
 
     class << self
-      attr_writer :sdl_folder, :resolver_namespaces, :on_error, :authenticated_user, :policy_user, :authorizer, :cache_store,
+      attr_writer :sdl_folder, :resolver_namespaces, :on_error, :authenticated_user, :policy_user, :authorizer,
                   :transactional_mutations, :schema_cache, :watch_sdl, :persisted_queries, :persisted_queries_store, :persisted_queries_only,
                   :queue_broadcasts,
-                  :convert_empty_strings_to_null, :feature_checker, :feature_actor, :global_id, :upload_store
+                  :convert_empty_strings_to_null, :feature_checker, :feature_actor, :global_id
 
       def sdl_folder
         @sdl_folder ||= (defined?(Rails) && Rails.respond_to?(:root) ? Rails.root.join('graphql').to_s : nil)
@@ -66,16 +64,6 @@ module Lighthouse
         @namespaces = namespaces.merge(overrides.to_h.transform_keys(&:to_sym).transform_values { |v| Array(v) })
       end
 
-      # Store backing @cache and @clearCache. Defaults to Rails.cache.
-      def cache_store
-        @cache_store ||=
-          if defined?(Rails) && Rails.respond_to?(:cache) && Rails.cache
-            Rails.cache
-          else
-            ActiveSupport::Cache::MemoryStore.new
-          end
-      end
-
       # --- Subscriptions (used by @broadcast) ----------------------------------
       #
       # queue_broadcasts  perform @broadcast triggers in a Lighthouse::GraphQL::BroadcastJob
@@ -91,7 +79,7 @@ module Lighthouse
       # schema_cache_path     where; default Rails.root/tmp/cache/lighthouse
       # watch_sdl             reload the app (and so the schema) when a .graphql file changes
       # persisted_queries     accept Apollo's Automatic Persisted Queries (PersistedQueries)
-      # persisted_queries_store     where APQ keeps queries; default cache_store
+      # persisted_queries_store     where APQ keeps queries; default Rails.cache
       # persisted_queries_ttl       how long they live there (seconds; nil: until evicted)
       # persisted_queries_manifest  a manifest of trusted operations, served by hash
       # persisted_queries_only      reject any operation not in the manifest
@@ -110,13 +98,8 @@ module Lighthouse
       # and `decode(global_id)` -> [type, id]. Base64 of "Type:id" by default.
       def global_id = @global_id || Lighthouse::GraphQL::GlobalId
 
-      # Stores the file an @upload argument carries: `call(file, disk:, path:,
-      # public:)` returns what the argument holds instead. An ActiveStorage blob's
-      # signed id by default.
-      def upload_store = @upload_store || Lighthouse::GraphQL::UploadStore
-
       def persisted_queries_store
-        @persisted_queries_store || cache_store
+        @persisted_queries_store || Lighthouse::GraphQL::Caching.store
       end
 
       # Pagination defaults, overridden by a directive's defaultCount / maxCount.

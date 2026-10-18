@@ -27,7 +27,7 @@ RSpec.describe 'File uploads' do
     stub_const('UploadSpecName', ->(_obj, args, _ctx) { args[:file].original_filename })
     stub_const('UploadSpecEcho', ->(_obj, args, _ctx) { args.values.first.inspect })
     calls = stored
-    Lighthouse.configure { |c| c.upload_store = ->(file, **options) { (calls << [file, options]) && "stored:#{file.original_filename}" } }
+    allow(Lighthouse::GraphQL::UploadStore).to receive(:call) { |file, **options| (calls << [file, options]) && "stored:#{file.original_filename}" }
   end
 
   def run(query, variables) = schema.execute(query, variables: variables).to_h
@@ -42,9 +42,9 @@ RSpec.describe 'File uploads' do
     expect(result['errors'].first.dig('extensions', 'problems').to_s).to include('Could not get uploaded file')
   end
 
-  it '@upload stores the file through Config.upload_store and passes what it answers, for lists too' do
+  it '@upload stores the file with ActiveStorage (UploadStore) and passes what it answers, for lists too' do
     expect(run('mutation($f: Upload!) { store(file: $f) }', { 'f' => avatar })).to eq('data' => { 'store' => '"stored:avatar.png"' })
-    expect(stored).to eq([[avatar, { disk: 's3', path: 'avatars' }]])
+    expect(stored).to eq([[avatar, { argument: 'file', disk: 's3', path: 'avatars', public: nil }]])
 
     expect(run('mutation($f: [Upload!]!) { storeMany(files: $f) }', { 'f' => [avatar, avatar] }).dig('data', 'storeMany'))
       .to eq('["stored:avatar.png", "stored:avatar.png"]')
@@ -55,6 +55,12 @@ RSpec.describe 'File uploads' do
 
     expect(result['errors'].pluck('message')).to eq(['Unauthenticated.'])
     expect(stored).to be_empty
+  end
+
+  it 'needs ActiveStorage, as the app stores files with it' do
+    allow(Lighthouse::GraphQL::UploadStore).to receive(:call).and_call_original
+
+    expect { Lighthouse::GraphQL::UploadStore.call(avatar, argument: 'file') }.to raise_error(Lighthouse::DefinitionError, /ActiveStorage/)
   end
 
   describe Lighthouse::GraphQL::MultipartRequest do

@@ -211,17 +211,61 @@ GraphQL::Analysis.analyze_query(query, [GraphQL::Analysis::QueryComplexity]).fir
 
 ## Rate limiting
 
-[`@throttle`](directives.md#throttle) caps how often one client may call a field —
-a login, a search, an expensive mutation:
+Rails' own [`rate_limit`](https://api.rubyonrails.org/classes/ActionController/RateLimiting/ClassMethods.html)
+limits the endpoint: every operation counts, and past the limit Rails answers 429.
+[`@throttle`](directives.md#throttle) is the same limit on one field — a login, a search,
+an expensive mutation — beside it:
+
+```ruby
+class GraphqlController < ApplicationController
+  include Lighthouse::GraphQL::Controller
+
+  lighthouse_schema AppSchema
+  rate_limit to: 600, within: 1.minute, name: 'endpoint'
+
+  private
+
+  def too_many_requests
+    render json: { errors: [{ message: 'Too many requests. Try again later.' }] }, status: :too_many_requests
+  end
+end
+```
 
 ```graphql
 type Mutation {
-  login(email: String!, password: String!): User @throttle(maxAttempts: 5, decayMinutes: 1)
+  login(email: String!, password: String!): User @throttle(maxAttempts: 5)
+  createTag(name: String!): Tag! @throttle(maxAttempts: 20, by: "current_user.id", with: "too_many_requests") @guard @create
 }
 ```
 
-Attempts are counted in [`cache_store`](configuration.md#cache_store), so use a store
-the app servers share (Redis, Solid Cache) in production; `:null_store` counts
-nothing. A client is the signed-in user, else the `:remote_ip` the controller concern
-puts in the context (override `graphql_context` to set another). A refused call never
-reaches `@guard` or the resolver.
+`@throttle` counts as `rate_limit` does, under its key (`rate-limit:<scope>:<name>:<by>`):
+
+- **Where.** In the controller's `cache_store`: `config.action_controller.cache_store`,
+  or `Rails.cache` when the app sets none (a controller can set its own with
+  `self.cache_store =`). Use a store the app servers share (Redis, Solid Cache) in
+  production; `:null_store` counts nothing.
+- **Who.** The client's IP, as `rate_limit`'s default. `by:` reads another value off the
+  context, as `@inject` does (`by: "current_user.id"`); when it is `nil`, as for a guest,
+  those calls count together, as in Rails.
+- **What counts together.** Each field counts under its own name (`Query.login`), apart
+  from the endpoint's `rate_limit` (`endpoint`). Give fields, or a field and a
+  controller's `rate_limit`, the same `name:` to count them together; `prefix:` is
+  `rate_limit`'s `scope:` (the controller's path by default).
+- **Past the limit.** As `rate_limit`'s default, `ActionController::TooManyRequests` is
+  raised, and Rails answers the request with a 429 (in development too); on Rails 7.2,
+  which has no such error, `head :too_many_requests`. With `with:`, the controller's
+  method runs instead, as `rate_limit`'s `with:`. If it renders or redirects, the request
+  ends with that response and the operation stops there, as when a `before_action`
+  renders. If it returns, the call goes through. If it raises a `GraphQL::ExecutionError`,
+  only that field fails, and the rest of the operation is answered:
+
+  ```ruby
+  def rate_limited = raise(GraphQL::ExecutionError, 'Too many requests. Try again later.')
+  ```
+
+  Without Action Pack, the field fails (`Rate limit for Query.x exceeded. Try again later.`).
+- **Instrumentation.** Each refused call is a `rate_limit.action_controller` event, with
+  `rate_limit`'s payload (`request`, `count`, `to`, `within`, `by`, `name`, `scope`,
+  `cache_key`).
+
+A refused call never reaches `@guard` or the resolver.

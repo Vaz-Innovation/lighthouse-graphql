@@ -11,7 +11,7 @@ require_relative 'base'
 #   @hash               the value hashed with BCrypt, for a password column
 #   @drop               the value removed: the resolver never sees it
 #   @bind(class:)       the value replaced by the record(s) it identifies
-#   @upload             the uploaded file stored (Config.upload_store), its blob's signed id passed
+#   @upload             the uploaded file stored with ActiveStorage (UploadStore), its blob's signed id passed
 #
 #   type Mutation {
 #     signUp(email: String! @trim, password: String! @trim @hash, captcha: String @drop): User! @create
@@ -69,16 +69,16 @@ class Lighthouse::GraphQL::DirectiveResolvers::ArgumentTransformsResolver < Ligh
     GRAPHQL
     'upload' => <<~GRAPHQL.chomp
       """
-      Store the file an Upload argument carries, and pass along what Config.upload_store
-      answers instead: by default, the signed id of an ActiveStorage blob, which an
-      attachment attribute (has_one_attached) attaches.
+      Store the file an Upload argument carries with ActiveStorage, and pass along the
+      signed id of its blob instead, which an attachment attribute (has_one_attached)
+      attaches. This does not change the schema from a client perspective.
       """
       directive @upload(
-        "The storage service to store the file on (an ActiveStorage service name). Defaults to the default one."
+        "The ActiveStorage service to store the file on (config/storage.yml). Defaults to config.active_storage.service."
         disk: String
-        "A prefix for the stored file's key."
+        "The directory the stored file's key starts with."
         path: String = "/"
-        "Accepted for PHP Lighthouse parity: whether files are public is the service's setting."
+        "Whether the file is public. ActiveStorage sets that per service, so it must agree with the service's."
         public: Boolean = false
       ) on ARGUMENT_DEFINITION | INPUT_FIELD_DEFINITION
     GRAPHQL
@@ -166,7 +166,7 @@ class Lighthouse::GraphQL::DirectiveResolvers::ArgumentTransformsResolver < Ligh
     return value.map { |item| upload(directive, argument, item, ctx) } if value.is_a?(Array)
 
     options = %w[disk path public].to_h { |name| [name.to_sym, Lighthouse::Support::DirectiveArgs.literal(directive, name)] }
-    Lighthouse::Config.upload_store.call(value, **options.compact)
+    Lighthouse::GraphQL::UploadStore.call(value, argument: argument.graphql_name, **options)
   end
 
   def decode(value, mode)

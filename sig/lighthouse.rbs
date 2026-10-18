@@ -45,12 +45,6 @@ module Lighthouse
     def decode: (String global_id) -> Array[String]
   end
 
-  # Config.upload_store: stores the file an @upload argument carries, and returns
-  # what the argument holds instead (an ActiveStorage blob's signed id by default).
-  interface _UploadStore
-    def call: (untyped file, ?disk: String?, ?path: String?, ?public: bool?) -> untyped
-  end
-
   # Config.authenticated_user and Config.policy_user: the user of a request.
   interface _UserReader
     def call: (context? context) -> untyped
@@ -112,8 +106,6 @@ module Lighthouse
     def self.directive_map: () -> Hash[untyped, untyped]
 
     # An ActiveSupport::Cache::Store; Rails.cache by default.
-    def self.cache_store: () -> untyped
-    def self.cache_store=: (untyped store) -> untyped
 
     def self.transactional_mutations: () -> bool
     def self.transactional_mutations=: (bool? enabled) -> bool?
@@ -147,8 +139,6 @@ module Lighthouse
     def self.global_id: () -> _GlobalId
     def self.global_id=: (_GlobalId? codec) -> _GlobalId?
 
-    def self.upload_store: () -> _UploadStore
-    def self.upload_store=: (_UploadStore? store) -> _UploadStore?
 
     # Whether @broadcast triggers in an ActiveJob (Lighthouse::GraphQL::BroadcastJob)
     # unless the directive says shouldQueue; and the job's queue (nil: ActiveJob's default).

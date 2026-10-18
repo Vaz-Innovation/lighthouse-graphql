@@ -13,11 +13,13 @@ class Lighthouse::GraphQL::Upload < GraphQL::Schema::Scalar
   def self.coerce_input(value, _context)
     return value if file?(value)
 
-    raise ::GraphQL::CoercionError, 'Could not get uploaded file, be sure to conform to the GraphQL multipart request specification.'
+    raise ::GraphQL::CoercionError,
+          'Could not get uploaded file, be sure to conform to GraphQL multipart request specification: ' \
+          "https://github.com/jaydenseric/graphql-multipart-request-spec. Instead got: #{value.inspect}."
   end
 
   def self.coerce_result(_value, _context)
-    raise ::GraphQL::Error, 'The Upload scalar can only be used as an argument, not returned.'
+    raise ::GraphQL::Error, '"Upload" cannot be serialized, it can only be used as an argument.'
   end
 
   def self.file?(value)

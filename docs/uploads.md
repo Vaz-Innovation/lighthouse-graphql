@@ -27,7 +27,9 @@ on `User`, the mutation above attaches it.
 
 ## `@upload`
 
-`@upload` stores the file first, and passes along what was stored instead:
+`@upload` stores the file first, and passes along what was stored instead, as PHP
+Lighthouse's `@upload` does on a Laravel disk. The file goes to your app's
+ActiveStorage, the way the rest of the app stores files:
 
 ```graphql
 type Mutation {
@@ -38,22 +40,41 @@ type Mutation {
 }
 ```
 
-By default the file becomes an ActiveStorage blob: on the service `disk:` names (the
-default service without it), with its key under `path:`. The argument then holds the
-blob's **signed id**, which an attachment attribute attaches (`user.avatar = signed_id`)
-and `ActiveStorage::Blob.find_signed` finds. Lists of files are stored one by one.
+| | PHP Lighthouse (Laravel) | lighthouse-graphql (ActiveStorage) |
+| --- | --- | --- |
+| `disk` | a disk of `config/filesystems.php`; `filesystems.default` without it | a service of `config/storage.yml`; `config.active_storage.service` without it |
+| `path` (`"/"`) | the directory the file is stored in | the directory the blob's key starts with (`avatars/<token>`); at `"/"`, ActiveStorage's own key |
+| `public` (`false`) | the file's visibility | must agree with the service's (see below) |
+| the argument holds | the stored path | the blob's **signed id** |
+
+The signed id is what an attachment attribute attaches (`user.avatar = signed_id`) and
+`ActiveStorage::Blob.find_signed` finds; the blob keeps the file's name and content
+type. Lists of files are stored one by one, and `null` stays `null`.
+
+ActiveStorage makes a whole service public (`public: true` in `config/storage.yml`)
+or private, never one file. So `public:` must agree with the service's, and the schema
+never says a file is private that anyone can read: `@upload(public: true)` on a private
+service fails, and so does `@upload` (`public: false`) on a public one. A service
+`config/storage.yml` does not declare fails too.
+
+To store files somewhere else (S3, GCS, Azure or a service of your own), declare an
+ActiveStorage service for it and name it with `disk:`, as a Laravel app declares a disk:
+
+```yaml
+# config/storage.yml
+avatars:
+  service: S3
+  bucket: my-app-avatars
+  region: us-east-1
+  public: true
+```
+
+```graphql
+updateAvatar(avatar: Upload! @upload(disk: "avatars", path: "users", public: true)): User!
+```
 
 `@upload` runs once `@guard`, the `@can*` family and `@validator` have let the call
 through, so a refused call stores nothing.
-
-To store files elsewhere, give [`upload_store`](configuration.md#upload_store) an
-object with `call(file, disk:, path:, public:)`; the argument holds what it returns:
-
-```ruby
-Lighthouse.configure do |config|
-  config.upload_store = ->(file, path: '/', **) { S3Uploader.put(file, prefix: path) }   # returns the key
-end
-```
 
 ## The request
 
@@ -67,6 +88,12 @@ curl localhost:3000/graphql \
 
 A batch sends an array as `operations`, and maps files to `"0.variables.avatar"`,
 `"1.variables.files.0"`, and so on.
+
+A multipart request is also what an HTML form on another site can send. If the GraphQL
+controller authenticates with the session cookie, keep Rails' CSRF protection on it
+(`protect_from_forgery`, on by default in `ActionController::Base`) and have clients send
+the `X-CSRF-Token` header, as PHP Lighthouse has them send `X-Requested-With` for its
+`EnsureXHR` middleware. A controller that authenticates with a token header is not exposed.
 
 In a request spec:
 

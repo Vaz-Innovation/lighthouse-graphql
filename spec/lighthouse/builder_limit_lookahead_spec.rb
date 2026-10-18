@@ -137,7 +137,6 @@ RSpec.describe '@builder on arguments, @limit and lookahead' do
     end
 
     it 'never reaches the arguments, so @cache keys on what the client sent' do
-      Lighthouse.configure { |c| c.cache_store = ActiveSupport::Cache::MemoryStore.new }
       calls = 0
       allow(LookaheadSpecPosts).to receive(:new).and_wrap_original do |original, **kwargs|
         calls += 1

@@ -6,6 +6,71 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Lighthouse now uses what the Rails app already has instead of settings of its own: the app's
+cache, its controllers' rate limiting and its ActiveStorage. Several defaults change.
+
+**Upgrading from 0.5:**
+
+1. Remove `config.cache_store =` and `config.upload_store =` from
+   `config/initializers/lighthouse.rb`. Configure the app's `config.cache_store` instead, and
+   `config.action_controller.cache_store` if rate limits should be counted somewhere else.
+2. `@throttle` counts per IP now. Add `by: "current_user.id"` where a field counted per user.
+3. Past a `@throttle` limit the request is answered with a 429, as Rails' `rate_limit` answers it.
+   To fail only the field, as before, give `with:` a controller method that raises a
+   `GraphQL::ExecutionError`.
+4. `@upload` checks `public:` against the ActiveStorage service. On a public service, add
+   `public: true`. Where `public: true` meets a private service, name a public one with `disk:`.
+
+### Added
+
+- `@throttle(by:)`: who the client is, as `rate_limit`'s `by:`. It is a path in the context, read
+  as `@inject` reads one (`by: "current_user.id"`).
+- `@throttle(with:)`: a controller method to call past the limit, as `rate_limit`'s `with:`. One
+  that renders or redirects ends the request with its response, as a `before_action` that renders
+  does. One that returns lets the call through, and one that raises a `GraphQL::ExecutionError`
+  fails only the field.
+- `@throttle` refusals are instrumented as `rate_limit.action_controller`, with `rate_limit`'s
+  payload (`request`, `count`, `to`, `within`, `by`, `name`, `scope`, `cache_key`).
+
+### Changed
+
+- `@cache`, `@clearCache` and Automatic Persisted Queries use the app's `Rails.cache`
+  (`config.cache_store`), as PHP Lighthouse uses Laravel's cache. Outside Rails they use an
+  in-memory store.
+- `@throttle` is Rails' `rate_limit` on one field, and counts as it does:
+  - It counts in the controller's `cache_store` (`config.action_controller.cache_store`,
+    `Rails.cache` unless set), under `rate_limit`'s key, `rate-limit:<scope>:<name>:<by>`.
+    Counts kept under the old `lighthouse:throttle:` keys start over.
+  - `name:` is `rate_limit`'s. Each field counts under its own name (`Query.x`) by default, apart
+    from the controller's `rate_limit`, or together with it when both use the same name.
+    `prefix:` is `rate_limit`'s `scope:`, the controller's path by default.
+  - The client is its IP, as `rate_limit`'s default `by:`, no longer the signed-in user.
+  - Past the limit it does what `rate_limit` does by default: it raises
+    `ActionController::TooManyRequests`, which Rails answers with a 429
+    (`head :too_many_requests` on Rails 7.2). The field used to fail on its own, with the rest of
+    the operation answered; that remains the behavior without Action Pack.
+- `Lighthouse::GraphQL::Controller` puts the controller in the context (`:lighthouse_controller`)
+  for `@throttle`. In development, an error Rails answers with a status of its own
+  (`config.action_dispatch.rescue_responses`, such as a 429 or a 404) now gets that status, as in
+  production, instead of being rendered as a JSON 500.
+- `@upload` stores files on the app's ActiveStorage only, with PHP Lighthouse's rules. `disk:`
+  names a service of `config/storage.yml` (`config.active_storage.service` without it), and
+  `path:` starts the blob's key. ActiveStorage sets visibility per service, so `public:` must now
+  agree with the service's: `public: true` on a private service, or the default `false` on a
+  public one, fails instead of being ignored. An unknown service, or a value that is not a file,
+  fails naming the argument. The file is rewound before it is stored, so a `@validator` may read
+  it first.
+- The `Upload` scalar's errors are PHP Lighthouse's: a value that is not a file names the GraphQL
+  multipart request specification and what was sent instead.
+
+### Removed
+
+- `Config.cache_store`: configure the app's `config.cache_store` instead, and
+  `config.action_controller.cache_store` (or a controller's `self.cache_store =`) for `@throttle`.
+  `Config.persisted_queries_store` stays, defaulting to `Rails.cache`.
+- `Config.upload_store`: to store files elsewhere, declare an ActiveStorage service and name it
+  with `@upload(disk:)`, as a Laravel app declares a disk.
+
 ### Fixed
 
 - On graphql-ruby 2.5, a schema using `@limit`, `@bind` or `@upload` without one of their optional
