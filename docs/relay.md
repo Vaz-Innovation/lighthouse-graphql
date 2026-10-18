@@ -160,9 +160,58 @@ directives then work on them. The schema has one kind of global id and one `Node
   `ID` gives its id, and `ARRAY` / `TYPE` its class name (`["Tag", 1]`, `"Tag"`).
 - `node:` is the SDL's `Node` interface: `interface Node`, which `@node` adds, and
   `implements Node` refer to `Types::NodeType`. A `@node` type implements it.
-- `Query.node` and `nodes` are graphql-ruby's code-first fields of
-  `Types::QueryType`, which find objects with `object_from_id`. The `node` field
-  `@node` would add to `Query` gives way to them.
+- `Query.node` and `nodes` find objects with `object_from_id`, through the
+  `#node` and `#nodes` methods of `Types::QueryType`. `lighthouse:install`
+  declares both fields in the starter `graphql/schema.graphql`, and removes the
+  `field :node` / `field :nodes` that graphql-ruby wrote in `Types::QueryType`,
+  so the SDL is where they are declared. An SDL field without a resolving
+  directive resolves with the root type class's method of its name. If the
+  fields stay in `Types::QueryType` instead, they are part of the schema too, and
+  the `node` field `@node` would add to `Query` gives way to them.
+
+The starter schema `lighthouse:install` writes on graphql-ruby's Relay:
+
+```graphql
+type Query {
+  "Fetches an object given its ID. Resolved by Types::QueryType#node, with AppSchema.object_from_id."
+  node("ID of the object." id: ID!): Node
+
+  "Fetches a list of objects given a list of IDs. Resolved by Types::QueryType#nodes."
+  nodes("IDs of the objects." ids: [ID!]!): [Node]
+
+  user(id: ID! @globalId(decode: ID) @eq): User @find
+  users: [User!]! @paginate(defaultCount: 10)
+}
+
+interface Node {
+  "ID of the object."
+  id: ID!
+}
+
+type User @node {
+  id: ID! @globalId
+  name: String
+  email: String
+}
+```
+
+```ruby
+module Types
+  class QueryType < Types::BaseObject
+    # Query.node and nodes are declared in graphql/schema.graphql; these methods resolve them.
+    def node(id:)
+      context.schema.object_from_id(id, context)
+    end
+
+    def nodes(ids:)
+      ids.map { |id| context.schema.object_from_id(id, context) }
+    end
+  end
+end
+```
+
+`lighthouse:install` writes this only when the app has no schema file yet, and
+only on the `node` / `nodes` fields as graphql-ruby writes them.
 
 ```graphql
 type Tag @node {

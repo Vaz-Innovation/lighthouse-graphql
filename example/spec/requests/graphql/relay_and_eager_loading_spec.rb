@@ -17,7 +17,9 @@ RSpec.describe 'GraphQL Relay ids, eager loading and resolver classes', type: :r
     it "makes Tag implement graphql-ruby's Node interface, the only Node" do
       expect(AppSchema.types['Node']).to equal(Types::NodeType)
       expect(AppSchema.types['Tag'].interfaces).to include(Types::NodeType)
-      expect(AppSchema.query.fields['node'].owner).to equal(Types::QueryType)
+      # Query.node is the SDL's, on the Query built on Types::QueryType, whose #node resolves it.
+      expect(AppSchema.query).to be < Types::QueryType
+      expect(AppSchema.query.fields['node'].owner).to equal(AppSchema.query)
     end
   end
 

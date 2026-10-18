@@ -6,6 +6,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **`lighthouse:install` on graphql-ruby's Relay** (`--relay`, its default) writes `node(id:)`
+  and `nodes(ids:)` in the starter `graphql/schema.graphql`, with `interface Node` and a
+  `User @node` whose ids are global (`id: ID! @globalId`, `user(id: ID! @globalId(decode: ID) @eq)`).
+  Graphql-ruby's `field :node` / `field :nodes` move out of `Types::QueryType`, whose
+  `#node` / `#nodes` methods resolve the SDL's fields. This happens only when the schema file
+  does not exist yet. An install without Relay writes the starter schema as before.
+
 ## [0.7.0] - 2026-10-18
 
 The schema is written by PHP Lighthouse's rules now: one entrypoint that imports

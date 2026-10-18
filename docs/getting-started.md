@@ -37,7 +37,7 @@ graphql-ruby wrote, and adds Lighthouse's own:
 | `app/graphql/types/base_*.rb`, `resolvers/base_resolver.rb`, `mutations/base_mutation.rb` | graphql-ruby's base classes. `BaseObject`, `BaseInterface`, `BaseUnion` and `BaseScalar` include `Lighthouse::GraphQL::Type` |
 | `app/controllers/graphql_controller.rb` | graphql-ruby's controller, replaced by one including `Lighthouse::GraphQL::Controller` |
 | `config/initializers/lighthouse.rb` | Every [configuration](configuration.md) option, commented out at its default |
-| `graphql/schema.graphql` | The schema's entrypoint: a starter schema (`user` via `@find`, `users` via `@paginate`) that assumes a `User` model. Skipped when the file exists |
+| `graphql/schema.graphql` | The schema's entrypoint: a starter schema (`user` via `@find`, `users` via `@paginate`) that assumes a `User` model. With graphql-ruby's Relay, also `node(id:)` and `nodes(ids:)` (see [relay.md](relay.md#relay-through-graphql-ruby)). Skipped when the file exists |
 | `graphql.config.yml` | IDE configuration — see [IDE support](#ide-support) |
 
 `--schema=ApiSchema`, `--schema-path=app/schema/schema.graphql`, `--subscriptions`,

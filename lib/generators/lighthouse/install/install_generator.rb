@@ -21,6 +21,9 @@ require_relative 'graphql_ruby_install'
 #   graphql-ruby's and stays, but the `resolve_type` stub (Lighthouse resolves
 #   types) and the root types it is built on;
 # - the example `test_field` goes from the root types;
+# - with Relay, the starter SDL declares Query.node and nodes (and a User
+#   @node with global ids), so their `field`s go from Types::QueryType, whose
+#   #node / #nodes methods resolve the SDL's fields;
 # - graphql-ruby's base object, interface, union and scalar include
 #   Lighthouse::GraphQL::Type, so every type class (Types::QueryType,
 #   Types::NodeType, what `graphql:object` writes) is Lighthouse's;
@@ -76,6 +79,7 @@ class Lighthouse::Generators::InstallGenerator < Rails::Generators::Base
       return
     end
 
+    @relay_starter = relay?
     template 'schema.graphql.tt', sdl_schema_path
   end
 
@@ -101,12 +105,15 @@ class Lighthouse::Generators::InstallGenerator < Rails::Generators::Base
     add_dataloader if source.include?('use GraphQL::Batch') && source.exclude?('use GraphQL::Dataloader')
   end
 
-  # The example field goes; the root types' own fields stay.
+  # The example field goes; the root types' own fields stay. With Relay, the
+  # starter SDL declares Query.node and nodes, so their `field`s go too, and
+  # the methods graphql-ruby wrote resolve the SDL's fields.
   def adapt_root_types
     %w[query_type mutation_type subscription_type].each do |name|
       path = types_path("#{name}.rb")
       gsub_file path, TEST_FIELD, "\n" if exist?(path) && read(path).match?(TEST_FIELD)
     end
+    move_relay_fields_to_sdl if @relay_starter
   end
 
   # Every type class is Lighthouse's: graphql-ruby's base object, interface,
@@ -221,6 +228,13 @@ class Lighthouse::Generators::InstallGenerator < Rails::Generators::Base
 
   def default_sdl_schema_path?
     sdl_schema_path == 'graphql/schema.graphql'
+  end
+
+  def move_relay_fields_to_sdl
+    path = types_path('query_type.rb')
+    gsub_file path, RELAY_FIELDS, ''
+    gsub_file path, /^([ \t]*)def node\(id:\)\n/,
+              "\\1# Query.node and nodes are declared in #{sdl_schema_path}; these methods resolve them.\n\\1def node(id:)\n"
   end
 
   def ide_helper_files

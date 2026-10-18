@@ -32,7 +32,7 @@ And it adds Lighthouse's own:
 | File | What it is |
 | --- | --- |
 | `config/initializers/lighthouse.rb` | Every [configuration](configuration.md) option, commented out |
-| `graphql/schema.graphql` | A starter schema, unless the folder holds `.graphql` files already |
+| `graphql/schema.graphql` | A starter schema, unless the file exists. With graphql-ruby's Relay (`--relay`, its default), it declares `Query.node` and `nodes`, `interface Node`, and a `User @node` with global ids, and `Types::QueryType`'s `field :node` / `:nodes` go: its `#node` / `#nodes` resolve the SDL's |
 | `graphql.config.yml` | IDE configuration, and `.gitignore` entries for the [IDE helper](getting-started.md#ide-support) files |
 | `app/graphql/subscriptions/base_subscription.rb` | With `--subscriptions` only: graphql-ruby has no subscription base. It includes `Lighthouse::GraphQL::Subscription` |
 | `config/routes.rb` | `post "/graphql", to: "graphql#execute"`, when missing |

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'tmpdir'
+require 'global_id'
 require 'rails/version'
 require 'generators/lighthouse/install/install_generator'
 require 'generators/graphql/install/mutation_root_generator'
@@ -80,8 +81,33 @@ RSpec.describe Lighthouse::Generators::InstallGenerator do
       expect { RubyVM::InstructionSequence.compile(schema) }.not_to raise_error
     end
 
-    it "drops the example field from the root types, keeping Relay's node and nodes" do
-      expect(read('app/graphql/types/query_type.rb')).to include('field :node,', 'field :nodes,').and exclude('test_field', 'TODO')
+    it "declares Relay's node and nodes in the starter SDL, which Types::QueryType's methods resolve" do
+      sdl = read('graphql/schema.graphql')
+      expect(sdl).to include('node("ID of the object." id: ID!): Node', 'nodes("IDs of the objects." ids: [ID!]!): [Node]',
+                             'interface Node {', 'type User @node {', 'id: ID! @globalId', 'user(id: ID! @globalId(decode: ID) @eq)')
+      expect(read('app/graphql/types/query_type.rb')).to eq(<<~RUBY)
+        # frozen_string_literal: true
+
+        module Types
+          class QueryType < Types::BaseObject
+            # Query.node and nodes are declared in graphql/schema.graphql; these methods resolve them.
+            def node(id:)
+              context.schema.object_from_id(id, context)
+            end
+
+            def nodes(ids:)
+              ids.map { |id| context.schema.object_from_id(id, context) }
+            end
+
+            # Add root-level fields here.
+            # They will be entry points for queries on your schema.
+          end
+        end
+      RUBY
+    end
+
+    it 'drops the example field from the root types' do
+      expect(read('app/graphql/types/query_type.rb')).not_to include('test_field', 'TODO')
       expect(read('app/graphql/types/mutation_type.rb')).to eq(<<~RUBY)
         # frozen_string_literal: true
 
@@ -140,6 +166,16 @@ RSpec.describe Lighthouse::Generators::InstallGenerator do
 
     schema = read('app/graphql/demo_schema.rb')
     expect(schema).to include('query_type:').and exclude('mutation_type:', 'node:', 'mutation:')
+    expect(read('graphql/schema.graphql')).to include('user(id: ID! @eq): User @find', 'type User {').and exclude('node', 'Node')
+  end
+
+  it "leaves Types::QueryType's Relay fields alone when the app has its schema already" do
+    graphql_install
+    FileUtils.mkdir_p(File.join(root, 'graphql'))
+    File.write(File.join(root, 'graphql/schema.graphql'), "type Query { a: String }\n")
+    run_generator
+
+    expect(read('app/graphql/types/query_type.rb')).to include('field :node,', 'field :nodes,')
   end
 
   it 'uses GraphQL::Dataloader beside --batch, as Lighthouse batches through it' do
@@ -190,7 +226,12 @@ RSpec.describe Lighthouse::Generators::InstallGenerator do
           t.string :email
         end
       end
-      stub_const('User', Class.new(ApplicationRecord) { self.table_name = 'users' })
+      # Rails' ActiveRecord railtie gives every model its GlobalID, which graphql-ruby's Relay ids are.
+      stub_const('User', Class.new(ApplicationRecord) do
+        self.table_name = 'users'
+        include GlobalID::Identification
+      end)
+      GlobalID.app ||= 'demo'
       User.create!(name: 'Ada Lovelace', email: 'ada@example.com')
       User.create!(name: 'Alan Turing', email: 'alan@example.com')
       graphql_install
@@ -232,15 +273,29 @@ RSpec.describe Lighthouse::Generators::InstallGenerator do
       expect(schema.types['Node']).to include(Lighthouse::GraphQL::Type)
     end
 
-    it "answers the starter SDL's queries, beside graphql-ruby's Relay fields" do
+    it "answers the starter SDL's queries, with graphql-ruby's Relay ids" do
       users = schema.execute('{ users { data { name } paginatorInfo { total } } }').to_h
       expect(users).to eq('data' => { 'users' => { 'data' => [{ 'name' => 'Ada Lovelace' }, { 'name' => 'Alan Turing' }],
                                                    'paginatorInfo' => { 'total' => 2 } } })
 
-      id = User.find_by(name: 'Alan Turing').id
-      expect(schema.execute("{ user(id: #{id}) { email } }").to_h).to eq('data' => { 'user' => { 'email' => 'alan@example.com' } })
+      id = User.find_by(name: 'Alan Turing').to_gid_param
+      expect(schema.execute("{ user(id: \"#{id}\") { id email } }").to_h)
+        .to eq('data' => { 'user' => { 'id' => id, 'email' => 'alan@example.com' } })
       expect(schema.query.fields.keys).to include('node', 'nodes', 'users', 'user')
       expect(schema.validate_max_errors).to eq(100)
+    end
+
+    it 'finds a user by its id through Query.node and nodes' do
+      ada, alan = User.order(:id).map(&:to_gid_param)
+      result = schema.execute(<<~GRAPHQL).to_h
+        {
+          node(id: "#{ada}") { id ... on User { name } }
+          nodes(ids: ["#{alan}", "#{ada}"]) { ... on User { email } }
+        }
+      GRAPHQL
+
+      expect(result).to eq('data' => { 'node' => { 'id' => ada, 'name' => 'Ada Lovelace' },
+                                       'nodes' => [{ 'email' => 'alan@example.com' }, { 'email' => 'ada@example.com' }] })
     end
   end
 end

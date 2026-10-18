@@ -12,6 +12,12 @@
 #import posts.graphql
 
 type Query {
+  "Fetches an object given its ID. Resolved by Types::QueryType#node, with AppSchema.object_from_id (Rails' GlobalID)."
+  node("ID of the object." id: ID!): Node
+
+  "Fetches a list of objects given a list of IDs. Resolved by Types::QueryType#nodes."
+  nodes("IDs of the objects." ids: [ID!]!): [Node]
+
   "Published posts and users matching a term — resolved by Resolvers::Search. Each result is a Post or a User."
   search(term: String!): [SearchResult!]!
 
@@ -35,6 +41,12 @@ type Mutation {
     @guard
     @create
     @clearCache(type: "Query", field: "tags")
+}
+
+"An object with an ID: graphql-ruby's Types::NodeType. Every @node type implements it."
+interface Node {
+  "ID of the object."
+  id: ID!
 }
 
 "A file sent with a multipart request. Lighthouse reads it (Lighthouse::GraphQL::Upload)."

@@ -26,6 +26,10 @@ module Lighthouse::Generators::GraphqlRubyInstall
   # The example field graphql-ruby's install puts in each root type.
   TEST_FIELD = /\n+[ \t]*# TODO: remove me\n[ \t]*field :test_field,.*?\n[ \t]*def test_field\n.*?\n[ \t]*end\n/m
 
+  # The `node` and `nodes` fields graphql-ruby's install (--relay, its default)
+  # puts in Types::QueryType, without the methods that resolve them.
+  RELAY_FIELDS = /^[ \t]*field :nodes?, \[?Types::NodeType\b.*? do\n(?:[ \t]*argument .*\n)*[ \t]*end\n\n?/
+
   # The `resolve_type` stub graphql-ruby's install puts in the schema class.
   RESOLVE_TYPE_STUB = /
     \n+[ \t]*\#\ Union\ and\ Interface\ Resolution\n
@@ -96,6 +100,16 @@ module Lighthouse::Generators::GraphqlRubyInstall
 
   def subscription_base?
     options[:subscriptions] || exist?(File.join(directory, 'subscriptions', 'base_subscription.rb'))
+  end
+
+  # Did graphql-ruby's install write Relay's side (--relay, its default):
+  # Types::NodeType, and Types::QueryType's node and nodes, as it writes them?
+  def relay?
+    query_type = types_path('query_type.rb')
+    return false unless exist?(types_path('node_type.rb')) && exist?(query_type)
+
+    source = read(query_type)
+    source.scan(RELAY_FIELDS).size == 2 && source.include?('def node(id:)') && source.include?('def nodes(ids:)')
   end
 
   def graphql_ruby_controller?(source)

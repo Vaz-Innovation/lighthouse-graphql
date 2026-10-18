@@ -83,7 +83,8 @@ bin/rails g lighthouse:install --subscriptions
 
 graphql-ruby's install wrote the schema class, the root types (`Types::QueryType`
 with Relay's `node` / `nodes`, `Types::MutationType`), `Types::NodeType`, the base
-classes and the controller; Lighthouse's adapted them. The app then added its own
+classes and the controller; Lighthouse's adapted them. Relay's `node` / `nodes` are
+declared in `graphql/schema.graphql`, and `Types::QueryType`'s methods resolve them. The app then added its own
 settings: ActionCable subscriptions and `max_complexity` in the schema class body,
 the controller's `rate_limit` and `graphql_context`, and the initializer's schema
 cache and persisted queries. The subscriptions, builders and validators come from
