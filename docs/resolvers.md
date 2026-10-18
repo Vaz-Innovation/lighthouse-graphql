@@ -18,43 +18,42 @@ Validators (`app/graphql/validators`) are one more kind. They are covered in
 
 ## Base classes
 
-As in any graphql-ruby app, each of the first four kinds has a base class in its
-namespace, and every class of the kind inherits from it:
+As in any graphql-ruby app, each kind of class has a base class in its namespace,
+and every class of the kind inherits from it. graphql-ruby's `graphql:install`,
+which `rails g lighthouse:install` runs, writes `Resolvers::BaseResolver`,
+`Mutations::BaseMutation` and the `Types::Base*` classes; Lighthouse adds
+`Subscriptions::BaseSubscription`, which graphql-ruby has none of, and makes the
+mutation base a plain `GraphQL::Schema::Mutation`, as the SDL declares a mutation's
+arguments ([generators.md](generators.md)):
 
 ```ruby
-# app/graphql/resolvers/base_resolver.rb
+# app/graphql/resolvers/base_resolver.rb          (graphql-ruby's)
 module Resolvers
   class BaseResolver < GraphQL::Schema::Resolver
   end
 end
 
-# app/graphql/mutations/base_mutation.rb
+# app/graphql/mutations/base_mutation.rb          (graphql-ruby's, made a Mutation)
 module Mutations
   class BaseMutation < GraphQL::Schema::Mutation
+    argument_class Types::BaseArgument
+    field_class Types::BaseField
+    object_class Types::BaseObject
   end
 end
 
-# app/graphql/subscriptions/base_subscription.rb
+# app/graphql/subscriptions/base_subscription.rb  (Lighthouse's)
 module Subscriptions
   class BaseSubscription < GraphQL::Schema::Subscription
     include Lighthouse::GraphQL::Subscription
-  end
-end
-
-# app/graphql/types/base_object.rb
-module Types
-  class BaseObject < GraphQL::Schema::Object
   end
 end
 ```
 
 What every class of a kind shares goes in its base, once: a concern (as
 `BaseSubscription` includes Lighthouse's, see [subscriptions.md](subscriptions.md)),
-a helper, graphql-ruby settings such as `argument_class Types::BaseArgument`.
-`rails g lighthouse:install` writes the four, and the class generators write the
-one they need when it is missing. graphql-ruby's own `graphql:install` writes
-`Resolvers::BaseResolver`, `Mutations::BaseMutation` and `Types::BaseObject` too, and Lighthouse keeps
-whatever is already there: an existing base is never replaced.
+a helper, graphql-ruby settings such as `argument_class Types::BaseArgument`. An
+existing base is never replaced.
 
 ### Handing the bases to the schema
 
@@ -69,8 +68,12 @@ AppSchema = Lighthouse::GraphQL::RbLightHouse.get_schema(
       resolver: Resolvers::BaseResolver,
       mutation: Mutations::BaseMutation,
       subscription: Subscriptions::BaseSubscription,
-      object: Types::BaseObject
-      # interface:, union:, ... (graphql-ruby's, for the SDL's other kinds)
+      object: Types::BaseObject,
+      interface: Types::BaseInterface,
+      union: Types::BaseUnion,
+      scalar: Types::BaseScalar,
+      enum: Types::BaseEnum,
+      input_object: Types::BaseInputObject
     }
   }
 )
@@ -86,9 +89,10 @@ AppSchema = Lighthouse::GraphQL::RbLightHouse.get_schema(
   (`GraphQL::Schema::Resolver`, `GraphQL::Schema::Mutation`, which
   `RelayClassicMutation` is, `GraphQL::Schema::Subscription`), or the schema does not
   build. graphql-ruby never sees these three keys.
-- `object:` is graphql-ruby's: it builds the SDL's object types from it. A
-  [type class](#type-classes) (one including `Lighthouse::GraphQL::Type`) that does not inherit from it raises
-  `Lighthouse::DefinitionError` when the schema is built.
+- The others are graphql-ruby's: it builds the SDL's types of each kind from them.
+  A [type class](#type-classes) (one including `Lighthouse::GraphQL::Type`) that
+  does not inherit from its kind's raises `Lighthouse::DefinitionError` when the
+  schema is built.
 
 `rails g lighthouse:install` writes the schema class with them. Without them,
 Lighthouse requires only the graphql-ruby class (`GraphQL::Schema::Resolver`, …),
@@ -312,8 +316,8 @@ what every resolver shares.
 ### Type classes
 
 graphql-ruby keeps the Ruby side of each object type in `app/graphql/types`:
-`Types::PostType`, inheriting from `Types::BaseObject`. Lighthouse keeps that
-structure. A type class that includes `Lighthouse::GraphQL::Type` is handed to
+`Types::PostType`, inheriting from `Types::BaseObject`, as `rails g graphql:object
+Post` writes it. Lighthouse keeps that structure. A type class that includes `Lighthouse::GraphQL::Type` is handed to
 Lighthouse: the SDL still declares the type and its fields, and the class says how
 the fields with no resolving directive resolve. A field calls the method of its
 snake_case name, when the class defines it. Fields it does not define are read off
@@ -475,19 +479,16 @@ end
 bin/rails generate lighthouse:query LatestPosts        # app/graphql/resolvers/latest_posts.rb
 bin/rails generate lighthouse:mutation PublishPost     # app/graphql/mutations/publish_post.rb
 bin/rails generate lighthouse:subscription PostUpdated # app/graphql/subscriptions/post_updated.rb
-bin/rails generate lighthouse:type Post                # app/graphql/types/post_type.rb
 bin/rails generate lighthouse:builder Published        # app/graphql/builders/published.rb
 bin/rails generate lighthouse:validator CreatePostInput # app/graphql/validators/create_post_input_validator.rb
+bin/rails generate graphql:object Post                 # a type class: then include Lighthouse::GraphQL::Type
 ```
 
-Each one writes the class with its contract, into the first namespace configured
-for its kind (or `--namespace=…`). A resolver, mutation, subscription or type
-class inherits from the namespace's base class, which is written first when it is missing.
-Namespaced names nest modules: `lighthouse:mutation Blog::Publish` writes
-`Mutations::Blog::Publish < BaseMutation`. These
-generators do not collide with graphql-ruby's `graphql:*` generators. A
-`lighthouse:mutation` and a `graphql:mutation` of the same name target the same
-file, and Rails asks before overwriting it.
+Each writes the class with its contract, into the first namespace configured for its
+kind (or `--namespace=…`), inheriting from the namespace's base class. Type classes
+come from graphql-ruby's own `graphql:object`, `graphql:scalar`, `graphql:union` and
+`graphql:interface`. [generators.md](generators.md) has what each generator writes,
+and which of graphql-ruby's fit a Lighthouse app.
 
 ## Changing the namespaces
 

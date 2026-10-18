@@ -44,21 +44,58 @@ RSpec.describe Lighthouse::Generators::InstallGenerator do
     ].each { |path| expect(exist?(path)).to be(true), "expected #{path}" }
   end
 
-  it "writes graphql-ruby's base classes of resolvers, mutations, subscriptions and types" do
+  it "runs graphql-ruby's install for its base classes, and writes only the subscription base itself" do
     run_generator
 
-    expect(read('app/graphql/resolvers/base_resolver.rb')).to include('module Resolvers', 'class BaseResolver < GraphQL::Schema::Resolver')
-    expect(read('app/graphql/mutations/base_mutation.rb')).to include('module Mutations', 'class BaseMutation < GraphQL::Schema::Mutation')
+    %w[base_object base_field base_argument base_interface base_union base_scalar base_enum base_input_object].each do |base|
+      expect(exist?("app/graphql/types/#{base}.rb")).to be(true), "expected graphql-ruby's types/#{base}.rb"
+    end
+    expect(read('app/graphql/resolvers/base_resolver.rb')).to include('class BaseResolver < GraphQL::Schema::Resolver')
     expect(read('app/graphql/subscriptions/base_subscription.rb'))
       .to include("class BaseSubscription < GraphQL::Schema::Subscription\n    include Lighthouse::GraphQL::Subscription")
-    expect(read('app/graphql/types/base_object.rb')).to include('module Types', 'class BaseObject < GraphQL::Schema::Object')
     expect(read('app/graphql/app_schema.rb')).to include(
       'resolver: Resolvers::BaseResolver', 'mutation: Mutations::BaseMutation', 'subscription: Subscriptions::BaseSubscription',
-      'object: Types::BaseObject'
+      'object: Types::BaseObject', 'interface: Types::BaseInterface', 'union: Types::BaseUnion', 'scalar: Types::BaseScalar',
+      'enum: Types::BaseEnum', 'input_object: Types::BaseInputObject'
     )
-    %w[resolvers/base_resolver mutations/base_mutation subscriptions/base_subscription types/base_object].each do |path|
-      expect { RubyVM::InstructionSequence.compile(read("app/graphql/#{path}.rb")) }.not_to raise_error
+  end
+
+  it "makes graphql-ruby's base mutation a plain GraphQL::Schema::Mutation, and drops its code-first root types" do
+    run_generator
+
+    base_mutation = read('app/graphql/mutations/base_mutation.rb')
+    expect(base_mutation).to include('class BaseMutation < GraphQL::Schema::Mutation')
+    expect(base_mutation).not_to include('RelayClassicMutation', 'input_object_class')
+    expect(exist?('app/graphql/types/query_type.rb')).to be(false)
+    expect(exist?('app/graphql/types/mutation_type.rb')).to be(false)
+    expect(exist?('app/graphql/types/node_type.rb')).to be(false)
+  end
+
+  it "builds a working schema on graphql-ruby's base classes" do
+    run_generator
+    sandbox = Module.new
+    %w[types/base_argument types/base_field types/base_object types/base_interface types/base_union types/base_scalar
+       types/base_enum types/base_input_object resolvers/base_resolver mutations/base_mutation subscriptions/base_subscription].each do |path|
+      file = File.join(root, "app/graphql/#{path}.rb")
+      sandbox.module_eval(File.read(file), file)
     end
+    bases = { resolver: 'Resolvers::BaseResolver', mutation: 'Mutations::BaseMutation', subscription: 'Subscriptions::BaseSubscription',
+              object: 'Types::BaseObject', interface: 'Types::BaseInterface', union: 'Types::BaseUnion', scalar: 'Types::BaseScalar',
+              enum: 'Types::BaseEnum', input_object: 'Types::BaseInputObject' }.transform_values { |name| sandbox.const_get(name) }
+    stub_const('InstallSpecBook', Struct.new(:title))
+    stub_const('InstallSpecBooks', ->(*) { [InstallSpecBook.new('Dune')] })
+
+    schema = build_schema(<<~GRAPHQL, base_types: bases)
+      type Query { books(kind: InstallSpecKind, filter: InstallSpecFilter): [InstallSpecShelf!]! @field(resolver: "InstallSpecBooks") }
+      union InstallSpecShelf = InstallSpecBook
+      interface InstallSpecTitled { title: String }
+      type InstallSpecBook implements InstallSpecTitled { title: String }
+      enum InstallSpecKind { NOVEL }
+      input InstallSpecFilter { title: String }
+    GRAPHQL
+
+    expect(schema.execute('{ books(kind: NOVEL, filter: { title: "x" }) { ... on InstallSpecTitled { title } } }').to_h)
+      .to eq('data' => { 'books' => [{ 'title' => 'Dune' }] })
   end
 
   it 'generates a controller that includes the concern and names the schema' do
@@ -138,13 +175,15 @@ RSpec.describe Lighthouse::Generators::InstallGenerator do
       expect(output).to include('have it call AppSchema.execute(...)')
     end
 
-    it 'keeps an existing schema class of the same name' do
+    it "keeps an existing schema class of the same name, and the root types graphql-ruby's install points it at" do
       FileUtils.mkdir_p(File.join(root, 'app/graphql'))
       File.write(File.join(root, 'app/graphql/app_schema.rb'), "class AppSchema < GraphQL::Schema\nend\n")
 
       run_generator
 
-      expect(read('app/graphql/app_schema.rb')).to eq("class AppSchema < GraphQL::Schema\nend\n")
+      expect(read('app/graphql/app_schema.rb')).to start_with('class AppSchema < GraphQL::Schema').and include('query(Types::QueryType)')
+      expect(read('app/graphql/app_schema.rb')).not_to include('RbLightHouse')
+      expect(exist?('app/graphql/types/query_type.rb')).to be(true)
     end
 
     it 'keeps the base mutation graphql-ruby wrote, even with --force' do

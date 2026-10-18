@@ -78,10 +78,13 @@ Then let the generator set the app up:
 bin/rails generate lighthouse:install
 ```
 
-It creates the initializer, a starter schema in `graphql/schema.graphql`, the
-`AppSchema` class, a `GraphqlController` with its `POST /graphql` route, and a
-`graphql.config.yml` for your IDE. Run `bin/rails generate lighthouse:install --help`
-for its options (`--schema`, `--sdl-folder`, `--skip-controller`, `--skip-ide`).
+It runs graphql-ruby's own `graphql:install` for the base classes every graphql-ruby
+app has, then writes Lighthouse's on top: the initializer, a starter schema in
+`graphql/schema.graphql`, the `AppSchema` class built from it, a `GraphqlController`
+with its `POST /graphql` route, and a `graphql.config.yml` for your IDE. Run
+`bin/rails generate lighthouse:install --help` for its options (`--schema`,
+`--sdl-folder`, `--skip-controller`, `--skip-ide`), and see
+[docs/generators.md](docs/generators.md) for every generator, graphql-ruby's included.
 
 ### IDE support
 
@@ -130,7 +133,7 @@ Prefer to wire it by hand? These are the steps the generator performs.
      options: {
        base_types: {
          resolver: Resolvers::BaseResolver,              # graphql-ruby's base classes, which
-         mutation: Mutations::BaseMutation,              # rails g lighthouse:install writes
+         mutation: Mutations::BaseMutation,              # rails g lighthouse:install has graphql-ruby write
          subscription: Subscriptions::BaseSubscription
          # object: Types::BaseObject, ...
        }

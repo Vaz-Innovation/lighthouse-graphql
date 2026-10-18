@@ -68,7 +68,8 @@ Most schemas need nothing else.
 ### A type class
 
 When the default is not enough, say when the values are Hashes from a search
-service rather than records, write the union's class as graphql-ruby does,
+service rather than records, write the union's class as graphql-ruby does
+(`rails g graphql:union SearchResult`),
 `Types::<Name>Type` including `Lighthouse::GraphQL::Type`, with `resolve_type`.
 It returns a type name, or a type class, which stands for the SDL type of its
 `graphql_name`:
@@ -153,7 +154,7 @@ type Query {
 }
 ```
 
-Write the scalar's class as graphql-ruby's `rails g graphql:scalar` does,
+Write the scalar's class with graphql-ruby's `rails g graphql:scalar DateTime`,
 `Types::<Name>Type` including `Lighthouse::GraphQL::Type`:
 
 ```ruby

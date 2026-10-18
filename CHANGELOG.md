@@ -23,9 +23,6 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   interfaces and `@node` resolve the model's records to the type; the schema does not build unless
   it is a model; and a type class's methods only run on its records (another parent is reported
   through `on_error`).
-- `rails g lighthouse:type Post` writes `Types::PostType` including the concern, and
-  `Types::BaseObject` when it is missing. `lighthouse:install` writes
-  `Types::BaseObject` too, and names it as the schema's `base_types[:object]`.
 - Unions and interfaces resolve each value to its object type as PHP Lighthouse does: a Hash's
   `__typename`, else the type named after the value's class or a superclass (STI), else the type
   whose `@model` names its model. A union's type class (`Types::SearchResultType` including the
@@ -87,6 +84,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Generators build on graphql-ruby's instead of copying them. `lighthouse:install` runs
+  `graphql:install --no-relay --skip-graphiql --skip-query-logs` for the base classes every
+  graphql-ruby app has (`Types::Base*`, `Resolvers::BaseResolver`, `Mutations::BaseMutation`), then
+  replaces what it wrote that an SDL-first app does differently: the schema class (built from the
+  SDL, naming every base in `base_types`), the controller, no `Types::QueryType` /
+  `MutationType`, and a `BaseMutation` that is a `GraphQL::Schema::Mutation`. It writes
+  `Subscriptions::BaseSubscription` itself, graphql-ruby having none. Files the app had are kept.
+- `docs/generators.md`: every generator, and which of graphql-ruby's fit a Lighthouse app
+  (`graphql:object`, `:scalar`, `:union`, `:interface` for type classes; `graphql:mutation` and
+  `graphql:detailed_trace` not as they are).
+
 - `@field(resolver:)` on a field of a type other than `Query` and `Mutation` looks the class up in
   the resolvers namespace first, nested names included: `@field(resolver: "Posts::TagsCount")`
   resolves to `Resolvers::Posts::TagsCount`. Then it tries `resolver_namespaces`, as before, so
@@ -123,6 +131,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (the example now loads ActiveStorage). `Mutation.schedulePublish` is `@async` on Solid Queue,
   `Query.searchPosts` is `@throttle`d, and `Query.posts` filters `metadata` with `@whereJsonContains`;
   the example's suite runs on PostgreSQL and MySQL too (`DATABASE_URL`, a new CI job), with Redis.
+
+### Removed
+
+- `rails g lighthouse:type`: it was graphql-ruby's `graphql:object` (and `:scalar`, `:union`,
+  `:interface`) with an `include`. Generate the class with graphql-ruby, then add
+  `include Lighthouse::GraphQL::Type`.
+- `lighthouse:query` and `lighthouse:mutation` no longer write `Resolvers::BaseResolver` /
+  `Mutations::BaseMutation` when they are missing: graphql-ruby's install writes them, which
+  `lighthouse:install` runs. They say so instead.
 
 ## [0.4.0] - 2026-10-17
 

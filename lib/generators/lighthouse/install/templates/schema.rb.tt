@@ -5,7 +5,8 @@
 # base_types names the base classes: every class a Query, Mutation or Subscription
 # field resolves to must inherit from its kind's, and a Subscription field with no
 # class of its own resolves with the subscription one. graphql-ruby builds the
-# SDL's object types from object:, and type classes (Types::PostType) inherit from it.
+# SDL's types from the others (written by `rails g graphql:install`), and type
+# classes (Types::PostType, Types::DateTimeType, ...) inherit from them.
 <%= schema_name %> = Lighthouse::GraphQL::RbLightHouse.get_schema(
   options: {
     using: { GraphQL::Dataloader => {} },
@@ -13,8 +14,12 @@
       resolver: <%= base_class_constant(:queries) %>,
       mutation: <%= base_class_constant(:mutations) %>,
       subscription: <%= base_class_constant(:subscriptions) %>,
-      object: <%= base_class_constant(:types) %>
-      # interface:, union:, enum:, input_object:, scalar: ... # graphql-ruby's base classes of the SDL's other kinds
+      object: Types::BaseObject,
+      interface: Types::BaseInterface,
+      union: Types::BaseUnion,
+      scalar: Types::BaseScalar,
+      enum: Types::BaseEnum,
+      input_object: Types::BaseInputObject
     }
   }
 )

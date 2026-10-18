@@ -73,9 +73,10 @@ a worker with `bin/jobs` next to `bin/rails server`.
 | Policies behind `@canFind`, `@canModel`, `@canRoot` | [`app/policies/`](app/policies) |
 | Trusted operations, served by hash | [`persisted-queries.json`](persisted-queries.json) |
 
-The classes under `app/graphql` were generated with `bin/rails g lighthouse:query`, `:type`,
-`:mutation`, `:subscription`, `:builder` and `:validator`, and the setup with
-`bin/rails g lighthouse:install`. As in a graphql-ruby app, resolvers, mutations and
+The classes under `app/graphql` were generated with `bin/rails g lighthouse:query`,
+`:mutation`, `:subscription`, `:builder` and `:validator`, the type classes with
+graphql-ruby's `graphql:object` and `graphql:scalar`, and the setup with
+`bin/rails g lighthouse:install` (which runs graphql-ruby's `graphql:install`). As in a graphql-ruby app, resolvers, mutations and
 subscriptions inherit from their namespace's base class (`Resolvers::BaseResolver`,
 `Mutations::BaseMutation`, `Subscriptions::BaseSubscription`), where what they all
 share goes: the subscriptions' concern is included there, once.

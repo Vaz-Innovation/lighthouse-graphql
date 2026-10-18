@@ -6,9 +6,8 @@ require 'generators/lighthouse/mutation_generator'
 require 'generators/lighthouse/builder_generator'
 require 'generators/lighthouse/validator_generator'
 require 'generators/lighthouse/subscription_generator'
-require 'generators/lighthouse/type_generator'
 
-RSpec.describe 'lighthouse:query, :mutation, :subscription, :type, :builder and :validator generators' do
+RSpec.describe 'lighthouse:query, :mutation, :subscription, :builder and :validator generators' do
   let(:root) { Dir.mktmpdir }
 
   after { FileUtils.remove_entry(root) }
@@ -41,8 +40,15 @@ RSpec.describe 'lighthouse:query, :mutation, :subscription, :type, :builder and 
     File.write(File.join(root, path), content)
   end
 
+  # What graphql-ruby's graphql:install writes, which lighthouse:install runs.
+  def write_graphql_ruby_bases
+    write('app/graphql/resolvers/base_resolver.rb', "module Resolvers\n  class BaseResolver < GraphQL::Schema::Resolver\n  end\nend\n")
+    write('app/graphql/mutations/base_mutation.rb', "module Mutations\n  class BaseMutation < GraphQL::Schema::Mutation\n  end\nend\n")
+  end
+
   describe 'lighthouse:query' do
-    it 'generates a resolver in app/graphql/resolvers that inherits from Resolvers::BaseResolver, written first' do
+    it 'generates a resolver in app/graphql/resolvers that inherits from Resolvers::BaseResolver' do
+      write_graphql_ruby_bases
       output = generate(Lighthouse::Generators::QueryGenerator, 'GeneratedLatestPosts')
 
       klass = load_generated('app/graphql/resolvers/base_resolver.rb', 'app/graphql/resolvers/generated_latest_posts.rb',
@@ -50,6 +56,14 @@ RSpec.describe 'lighthouse:query, :mutation, :subscription, :type, :builder and 
       expect(klass.superclass.name).to end_with('Resolvers::BaseResolver')
       expect(klass.superclass.superclass).to eq(GraphQL::Schema::Resolver)
       expect(output).to include('Query.generatedLatestPosts resolves to Resolvers::GeneratedLatestPosts')
+    end
+
+    it 'says how to get the base graphql-ruby writes when it is missing, and writes no copy of it' do
+      output = generate(Lighthouse::Generators::QueryGenerator, 'Orphan')
+
+      expect(output).to include('app/graphql/resolvers/base_resolver.rb: graphql-ruby writes it', 'lighthouse:install')
+      expect(File).not_to exist(File.join(root, 'app/graphql/resolvers/base_resolver.rb'))
+      expect(read('app/graphql/resolvers/orphan.rb')).to include('class Orphan < BaseResolver')
     end
 
     it 'keeps an existing base class, such as the one graphql-ruby\'s graphql:install wrote' do
@@ -64,6 +78,7 @@ RSpec.describe 'lighthouse:query, :mutation, :subscription, :type, :builder and 
   end
 
   it 'generates a mutation in app/graphql/mutations that inherits from Mutations::BaseMutation, nesting modules for a namespaced name' do
+    write_graphql_ruby_bases
     generate(Lighthouse::Generators::MutationGenerator, 'Blog::GeneratedPublish')
 
     klass = load_generated('app/graphql/mutations/base_mutation.rb', 'app/graphql/mutations/blog/generated_publish.rb',
@@ -100,24 +115,6 @@ RSpec.describe 'lighthouse:query, :mutation, :subscription, :type, :builder and 
     end
   end
 
-  describe 'lighthouse:type' do
-    it 'generates Types::<Name>Type in app/graphql/types under Types::BaseObject, written first' do
-      output = generate(Lighthouse::Generators::TypeGenerator, 'GeneratedPost')
-
-      klass = load_generated('app/graphql/types/base_object.rb', 'app/graphql/types/generated_post_type.rb', 'Types::GeneratedPostType')
-      expect(klass.superclass.name).to end_with('Types::BaseObject')
-      expect(klass.superclass.superclass).to eq(GraphQL::Schema::Object)
-      expect(klass).to include(Lighthouse::GraphQL::Type)
-      expect(output).to include('Fields of GeneratedPost without a resolving directive now resolve with Types::GeneratedPostType')
-    end
-
-    it 'does not append Type twice' do
-      generate(Lighthouse::Generators::TypeGenerator, 'ReadingTimeType')
-
-      expect(read('app/graphql/types/reading_time_type.rb')).to include('class ReadingTimeType < BaseObject')
-    end
-  end
-
   it 'generates a builder in app/graphql/builders that returns the relation it gets' do
     generate(Lighthouse::Generators::BuilderGenerator, 'GeneratedPublished')
 
@@ -134,14 +131,14 @@ RSpec.describe 'lighthouse:query, :mutation, :subscription, :type, :builder and 
     expect(klass.new.call({})).to be_success
   end
 
-  it 'follows Config.namespaces, or --namespace, with the base class in the same namespace' do
+  it 'follows Config.namespaces, or --namespace, expecting the base class in the same namespace' do
     Lighthouse.configure { |c| c.namespaces = { queries: ['Api::Queries'] } }
-    generate(Lighthouse::Generators::QueryGenerator, 'Feed')
+    output = generate(Lighthouse::Generators::QueryGenerator, 'Feed')
     generate(Lighthouse::Generators::BuilderGenerator, 'Scoped', '--namespace=Scopes')
 
     feed = read('app/graphql/api/queries/feed.rb').sub("# frozen_string_literal: true\n\n", '')
     expect(feed).to match(/\Amodule Api\n  module Queries\n.*    class Feed < BaseResolver/m)
-    expect(read('app/graphql/api/queries/base_resolver.rb')).to include("module Api\n  module Queries\n", 'class BaseResolver < GraphQL::Schema::Resolver')
+    expect(output).to include('app/graphql/api/queries/base_resolver.rb: graphql-ruby writes it', 'Api::Queries::BaseResolver yourself')
     expect(File).to exist(File.join(root, 'app/graphql/scopes/scoped.rb'))
     expect(Dir[File.join(root, 'app/graphql/scopes/base_*')]).to be_empty
   end
