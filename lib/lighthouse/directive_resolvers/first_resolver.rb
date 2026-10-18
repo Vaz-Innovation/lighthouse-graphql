@@ -14,7 +14,6 @@ class Lighthouse::GraphQL::DirectiveResolvers::FirstDirectiveResolver < Lighthou
     method_name = "resolve_field_#{@field_def.name}"
     model_name_static = directive_arg('model') || field_type_name
     resolver_instance = self
-    field_ast_node = @field_def.ast_node
 
     resolver = lambda do |_obj, arguments, ctx|
       model_class = resolver_instance.constantize_model(model_name_static)
@@ -22,7 +21,6 @@ class Lighthouse::GraphQL::DirectiveResolvers::FirstDirectiveResolver < Lighthou
 
       args_h = arguments.respond_to?(:to_h) ? arguments.to_h : {}
       relation = resolver_instance.apply_scopes(model_class.all)
-      relation = Lighthouse::GraphQL::DirectiveResolvers::BuilderApplier.apply(relation, field_ast_node, args_h, ctx, resolver_instance)
       relation = resolver_instance.apply_where_filters(relation, args_h, ctx)
       relation.first
     end

@@ -40,7 +40,7 @@ And it adds Lighthouse's own:
 | Option | Effect |
 | --- | --- |
 | `--schema=ApiSchema` | Which graphql-ruby schema class to adopt, and its name when `graphql:install` has to run |
-| `--sdl-folder=app/schema` | Where the `.graphql` files live (default `graphql`); sets `config.sdl_folder` |
+| `--schema-path=app/schema/schema.graphql` | The schema's entrypoint, which imports the other `.graphql` files (default `graphql/schema.graphql`); sets `config.schema_path` |
 | `--subscriptions` | Write `Subscriptions::BaseSubscription` and name it in `base_types` |
 | `--skip-controller` | Leave graphql-ruby's controller as it is, and add no route — for apps that serve GraphQL themselves |
 | `--skip-ide` | No `graphql.config.yml` or `.gitignore` entries |

@@ -282,11 +282,11 @@ What PHP Lighthouse hands a resolver as `$resolveInfo`. A `Resolvers::` or
 `enhance_builder` lets a class build the query no directive could, and still honour
 what the field declares: its `@builder` classes, and the argument directives the
 client used (`@eq`, `@where`, `@in`, `@like`, `@orderBy`, `@whereConditions`, ...),
-as `@all` and `@paginate` apply them. `scopes:` adds model scopes.
+then the field's own `@orderBy(column:)`, as `@all` and `@paginate` apply them. `scopes:` adds model scopes.
 
 ```graphql
 type Query {
-  myPosts(title: String @like, orderBy: [PostOrderByClause!] @orderBy): [Post!]! @guard
+  myPosts(title: String @like, orderBy: _ @orderBy(columns: ["title", "created_at"])): [Post!]! @guard
 }
 ```
 

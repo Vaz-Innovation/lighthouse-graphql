@@ -38,6 +38,32 @@ RSpec.describe "GraphQL on the app's real backends (#{ActiveRecord::Base.connect
     end
   end
 
+  describe 'JSON paths in @whereConditions and @orderBy' do
+    before do
+      create(:post, title: 'Ten', metadata: { series: 'graphql', rank: 10 })
+      create(:post, title: 'Nine', metadata: { series: 'rails', rank: 9 })
+      create(:post, title: 'Hundred', metadata: { rank: 100, series: nil })
+      create(:post, title: 'None', metadata: nil)
+    end
+
+    def titles(arguments) = graphql("{ posts(#{arguments}, first: 10) { data { title } } }").dig('data', 'posts', 'data').pluck('title')
+
+    it 'compares the value at the path, numbers as numbers' do
+      expect(titles('where: { column: METADATA__SERIES, value: "graphql" }')).to eq(['Ten'])
+      expect(titles('where: { column: METADATA__RANK, operator: GT, value: 9 }')).to contain_exactly('Ten', 'Hundred')
+      expect(titles('where: { column: METADATA__RANK, operator: IN, value: [9, 100] }')).to contain_exactly('Nine', 'Hundred')
+    end
+
+    it 'takes a missing path or a JSON null as null' do
+      expect(titles('where: { column: METADATA__SERIES, operator: IS_NULL }')).to contain_exactly('Hundred', 'None')
+    end
+
+    it 'orders by the value at the path, numbers numerically' do
+      expect(titles('where: { column: METADATA__RANK, operator: IS_NOT_NULL }, orderBy: [{ column: METADATA__RANK, order: DESC }]'))
+        .to eq(%w[Hundred Ten Nine])
+    end
+  end
+
   describe '@async through Solid Queue' do
     # The worker runs in its own thread, on its own connection: it sees only
     # committed rows, so this group commits, and empties the tables after.

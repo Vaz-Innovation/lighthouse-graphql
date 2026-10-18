@@ -30,7 +30,13 @@ const sidebar = [
   { text: 'Performance', children: ['/docs/performance.md', '/docs/caching.md'] },
   {
     text: 'Digging Deeper',
-    children: ['/docs/custom-directives.md', '/docs/events.md', '/docs/federation.md', '/docs/best-practices.md'],
+    children: [
+      '/docs/schema-organisation.md',
+      '/docs/custom-directives.md',
+      '/docs/events.md',
+      '/docs/federation.md',
+      '/docs/best-practices.md',
+    ],
   },
   { text: 'API Reference', children: ['/docs/directives.md'] },
 ]

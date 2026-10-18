@@ -29,7 +29,7 @@ class Types::BaseObject < GraphQL::Schema::Object
 end
 
 BaseAppSchema = Lighthouse::GraphQL::RbLightHouse.get_schema(
-  sdl_folder: Rails.root.join('graphql').to_s,
+  schema_path: Rails.root.join('graphql/schema.graphql').to_s,
   options: { federation: true, base_types: { object: Types::BaseObject, resolver: Resolvers::BaseResolver } }
 )
 

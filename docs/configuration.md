@@ -9,7 +9,7 @@ reusable and publishable.
 require 'lighthouse-graphql'
 
 Lighthouse.configure do |config|
-  config.sdl_folder = Rails.root.join('graphql').to_s
+  config.schema_path = Rails.root.join('graphql/schema.graphql').to_s
   config.namespaces = { queries: ['Resolvers'], mutations: ['Mutations'] }
   config.resolver_namespaces = ['App::Graphql']
   config.on_error = ->(error, _context) { Rails.error.report(error) }
@@ -18,11 +18,25 @@ end
 
 ## Options
 
-### `sdl_folder`
+### `schema_path`
 
-Where Lighthouse loads `*.graphql` files from. Defaults to `RAILS_ROOT/graphql`
-in a Rails app, `nil` otherwise (pass SDL explicitly via `SchemaFactory` when not
-on Rails).
+The schema's entrypoint, as PHP Lighthouse's `schema_path`. Lighthouse reads
+this file and the files it imports (`#import user.graphql`, `#import blog/*.graphql`).
+A type is defined once, and other files add to it with `extend type`. See
+[schema-organisation.md](schema-organisation.md). Defaults to
+`RAILS_ROOT/graphql/schema.graphql` in a Rails app, and `nil` otherwise. Outside
+Rails, pass the path, or the SDL itself (`SchemaFactory.build_base_schema(sdl:)`).
+
+`get_schema(schema_path: ...)` overrides it for one schema.
+
+### `ide_helper`
+
+Rewrite `schema-directives.graphql` and `programmatic-types.graphql` in the
+app's root on boot and on every reload, for the IDE
+([schema-organisation.md](schema-organisation.md#ide-support)). A file whose
+content is unchanged is left alone. `nil` (the default) turns it on in
+development when the app has a `graphql.config.yml`, which `lighthouse:install`
+writes. Set `true` or `false` to decide yourself.
 
 ### `namespaces`
 

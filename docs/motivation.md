@@ -98,8 +98,9 @@ generated from Ruby classes:
 - **It is designed before it is implemented.** You can agree on the types and fields
   first, as a team, and the server follows the design rather than leaking its internals.
 - **Tools understand it directly.** IDE plugins, code generators and schema registries
-  read SDL. Lighthouse's `lighthouse:ide_helper` task adds its directives and generated
-  types so editors validate and autocomplete the schema.
+  read SDL. Lighthouse writes out its directives and generated types (in development
+  on every reload, or with `lighthouse:ide_helper`), so editors validate and
+  autocomplete the schema.
 - **It says what each field does.** `posts: [Post!]! @paginate @guard @cacheControl(maxAge: 60)`
   tells a reader, without opening any Ruby, that the field is paginated, requires a
   signed-in user and can be cached for a minute.

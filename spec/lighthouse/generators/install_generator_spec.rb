@@ -169,15 +169,15 @@ RSpec.describe Lighthouse::Generators::InstallGenerator do
     expect(output).to include('include Lighthouse::GraphQL::Controller in it, or keep calling DemoSchema.execute(...)')
   end
 
-  it 'honours --sdl-folder, --skip-controller and --skip-ide, and keeps an SDL the app has' do
+  it 'honours --schema-path, --skip-controller and --skip-ide, and keeps an SDL the app has' do
     graphql_install
     FileUtils.mkdir_p(File.join(root, 'app/schema'))
-    File.write(File.join(root, 'app/schema/mine.graphql'), "type Query { a: String }\n")
+    File.write(File.join(root, 'app/schema/main.graphql'), "type Query { a: String }\n")
 
-    run_generator('--sdl-folder=app/schema', '--skip-controller', '--skip-ide')
+    run_generator('--schema-path=app/schema/main.graphql', '--skip-controller', '--skip-ide')
 
-    expect(read('config/initializers/lighthouse.rb')).to include("config.sdl_folder = Rails.root.join('app/schema').to_s")
-    expect(exist?('app/schema/schema.graphql')).to be(false)
+    expect(read('config/initializers/lighthouse.rb')).to include("config.schema_path = Rails.root.join('app/schema/main.graphql').to_s")
+    expect(read('app/schema/main.graphql')).to eq("type Query { a: String }\n")
     expect(read('app/controllers/graphql_controller.rb')).to include('DemoSchema.execute(').and exclude('Lighthouse')
     expect(exist?('graphql.config.yml')).to be(false)
   end
@@ -195,7 +195,7 @@ RSpec.describe Lighthouse::Generators::InstallGenerator do
       User.create!(name: 'Alan Turing', email: 'alan@example.com')
       graphql_install
       run_generator
-      Lighthouse.configure { |c| c.sdl_folder = File.join(root, 'graphql') }
+      Lighthouse.configure { |c| c.schema_path = File.join(root, 'graphql/schema.graphql') }
     end
 
     after { ActiveRecord::Base.connection.drop_table(:users) }
@@ -224,6 +224,7 @@ RSpec.describe Lighthouse::Generators::InstallGenerator do
 
     it "resolves an SDL Query field with Types::QueryType's method of its name, as graphql-ruby does" do
       File.write(File.join(root, 'graphql/greeting.graphql'), "extend type Query { greeting(name: String!): String! }\n")
+      File.write(File.join(root, 'graphql/schema.graphql'), "\n#import greeting.graphql\n", mode: 'a')
       query_type = File.join(root, 'app/graphql/types/query_type.rb')
       File.write(query_type, File.read(query_type).sub(/^  end\nend\n\z/, "\n    def greeting(name:) = \"Hello, \#{name}\"\n  end\nend\n"))
 

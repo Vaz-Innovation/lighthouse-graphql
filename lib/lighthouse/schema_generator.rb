@@ -122,10 +122,11 @@ module Lighthouse::GraphQL::SchemaGenerator
   end
 
   # The SDL as the schema is built from it: directive definitions injected
-  # (so apps don't hand-declare Lighthouse's directives), then every
-  # registered manipulator run (pagination types, whereConditions inputs, ...).
+  # (so apps don't hand-declare Lighthouse's directives), then the
+  # manipulation phase (ASTBuilder: type extensions merged, pagination types,
+  # whereConditions / orderBy inputs, ...).
   def manipulate(sdl)
-    augment_sdl_with_connections(inject_directive_definitions(sdl))
+    Lighthouse::GraphQL::ASTBuilder.build(inject_directive_definitions(sdl))
   end
 
   # `bases`: { root kind => the base class its fields' classes inherit from } (ResolverBases).
@@ -192,18 +193,6 @@ module Lighthouse::GraphQL::SchemaGenerator
     field_def.extension(::GraphQL::Schema::Field::ConnectionExtension, call_after_define: false)
   rescue StandardError
     # ignore failures during post-processing
-  end
-
-  # Scan SDL string for list-typed fields that carry relationship directives
-  # and produce Connection/Edge types where missing. This is a lightweight
-  # transformation that mirrors Lighthouse behavior: clients can declare
-  # `roles: [Role!]! @belongsToMany` and the builder will expose a
-  # `RoleConnection` type and swap the field to return that connection.
-  def augment_sdl_with_connections(sdl)
-    # Drive SDL manipulation through the registry so each directive owns its
-    # manipulation behavior and new manipulators can be added by registering
-    # a class (no edits here).
-    Lighthouse::DirectiveRegistry.default.manipulate_sdl(sdl)
   end
 
   # Prepend `directive @name(...) on ...` definitions for registered,

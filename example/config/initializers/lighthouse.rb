@@ -3,8 +3,10 @@
 # Lighthouse configuration. Every option is optional; the defaults are shown.
 # Reference: https://github.com/Vaz-Innovation/lighthouse-graphql/blob/main/docs/configuration.md
 Lighthouse.configure do |config|
-  # Folder the *.graphql schema files are loaded from.
-  # config.sdl_folder = Rails.root.join('graphql').to_s
+  # The schema's entrypoint. It imports the other .graphql files
+  # (#import user.graphql, #import blog/*.graphql), which add to a type
+  # defined elsewhere with `extend type`.
+  # config.schema_path = Rails.root.join('graphql/schema.graphql').to_s
 
   # Where classes named by the schema are looked up, by kind. A Query or Mutation
   # field without a resolving directive resolves by convention: Query.latestPosts

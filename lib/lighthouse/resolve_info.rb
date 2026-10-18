@@ -6,7 +6,7 @@
 # directives to a query the resolver builds.
 #
 #   type Query {
-#     posts(title: String @eq, orderBy: [PostOrderByClause!] @orderBy): [Post!]! @builder(class: "Published")
+#     posts(title: String @eq, orderBy: _ @orderBy(columns: ["title"])): [Post!]! @builder(class: "Published")
 #   }
 #
 #   class Resolvers::Posts < Resolvers::BaseResolver
@@ -51,14 +51,14 @@ class Lighthouse::GraphQL::ResolveInfo
     context.respond_to?(:[]) ? context[:current_path] : nil
   end
 
-  # `relation` with the field's model `scopes`, its @builder classes, and the
-  # argument directives the client used (@eq, @where, @in, @like, @orderBy,
-  # @whereConditions, @trashed, ...), as @all / @paginate apply them.
+  # `relation` with the field's model `scopes`, the argument directives the
+  # client used (@eq, @where, @in, @like, @orderBy, @whereConditions, @trashed,
+  # ...), then the field's @builder, @whereAuth and @orderBy(column:), as
+  # @all / @paginate apply them and as PHP Lighthouse's enhanceBuilder does.
   def enhance_builder(relation, scopes: [])
     resolver = Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver.new(field, parent_type, nil)
     args = arguments.respond_to?(:to_h) ? arguments.to_h : {}
     relation = Array(scopes).reduce(relation) { |acc, scope| acc.public_send(scope) }
-    relation = Lighthouse::GraphQL::DirectiveResolvers::BuilderApplier.apply(relation, field.ast_node, args, context, resolver)
     resolver.apply_where_filters(relation, args, context)
   end
 

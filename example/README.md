@@ -58,7 +58,7 @@ a worker with `bin/jobs` next to `bin/rails server`.
 
 | What | Where |
 | --- | --- |
-| The schema, split by domain | [`graphql/`](graphql) |
+| The schema, split by domain: [`schema.graphql`](graphql/schema.graphql) defines the root types and `#import`s the others, which add their fields with `extend type Query` / `extend type Mutation` | [`graphql/`](graphql) |
 | Lighthouse's configuration | [`config/initializers/lighthouse.rb`](config/initializers/lighthouse.rb) |
 | The schema class: graphql-ruby's, built by Lighthouse from the SDL on graphql-ruby's root types and base classes | [`app/graphql/app_schema.rb`](app/graphql/app_schema.rb) |
 | The endpoint (`current_user` in the context, `Cache-Control`) | [`app/controllers/graphql_controller.rb`](app/controllers/graphql_controller.rb) |
@@ -102,7 +102,7 @@ and `Query.node` / `nodes` are `Types::QueryType`'s.
 
 | Spec | Lighthouse features |
 | --- | --- |
-| [`requests/graphql/queries_spec.rb`](spec/requests/graphql/queries_spec.rb) | `@find`, `@paginate` (paginator and Relay connection), `@like`, `@orderBy`, `@whereConditions`, `@builder`, `scopes:`, `@count`, a `Resolvers::` class |
+| [`requests/graphql/queries_spec.rb`](spec/requests/graphql/queries_spec.rb) | `@find`, `@paginate` (paginator and Relay connection), `@like`, `@orderBy` (columns, a relation's COUNT, and on a field), `@whereConditions`, `@whereHasConditions`, `@builder`, `scopes:`, `@count`, a `Resolvers::` class |
 | [`requests/graphql/cursor_connection_spec.rb`](spec/requests/graphql/cursor_connection_spec.rb) | Relay cursor pagination on a relationship (`User.comments`, `@hasMany(type: CONNECTION)`): `pageInfo`, `after`, and a client loop that walks every page |
 | [`requests/graphql/field_resolvers_spec.rb`](spec/requests/graphql/field_resolvers_spec.rb) | `@field(resolver:)`: on `Post`, the class receives the post as `object`, in a paginated list, on a single post, under `me`; field arguments with an SDL default; `tagsCount` batched through the dataloader (no N+1); on `Query`, a nested name looked up in the resolvers namespace |
 | [`requests/graphql/real_backends_spec.rb`](spec/requests/graphql/real_backends_spec.rb) | What depends on the real backends: `@whereJsonContains` on the database's JSON (SQLite, PostgreSQL, MySQL), `@async` queued in Solid Queue and run by a real worker (and nothing queued when `@canFind` refuses), `@throttle` counting per IP and user in a file store and in Redis, across two clients of the same store |

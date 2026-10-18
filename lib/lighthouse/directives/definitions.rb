@@ -31,7 +31,6 @@ module Lighthouse::GraphQL::Directives::Definitions
       graphql::Directives::NodeDirective::DEFINITIONS,
       graphql::Directives::ModelDirective::DEFINITIONS,
       graphql::Directives::VisibilityDirective::DEFINITIONS,
-      graphql::Directives::WhereConditionsDirective::DEFINITIONS,
       graphql::Directives::SoftDeletesDirective::DEFINITIONS
     ].reduce(:merge)
   end

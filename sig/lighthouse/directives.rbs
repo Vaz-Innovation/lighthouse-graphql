@@ -36,7 +36,15 @@ module Lighthouse
       include Directive
     end
 
+    # Its instances, built with (arg_node, directive_node), answer
+    # `manipulate_arg_definition(document_ast, field_node, type_node)` with the argument node.
     module ArgManipulator
+      include Directive
+    end
+
+    # Its instances, built with (field_node, directive_node), answer
+    # `handle_field_builder(relation)` with the constrained relation.
+    module FieldBuilder
       include Directive
     end
   end
@@ -67,6 +75,9 @@ module Lighthouse
     def resolution_names: () -> Array[String]
     def arg_builder_class: (String | Symbol name) -> Class?
     def arg_builder_names: () -> Array[String]
+    def arg_manipulator_class: (String | Symbol name) -> Class?
+    def arg_manipulator_classes: () -> Array[Class]
+    def field_builder_class: (String | Symbol name) -> Class?
 
     # { "name" => "directive @name(...) on ..." }
     def directive_definitions: () -> Hash[String, String]
@@ -83,9 +94,11 @@ module Lighthouse
     PROGRAMMATIC_TYPES_FILE: String
 
     # Writes both files into `output_dir` and returns their paths.
-    def self?.write: (output_dir: path, ?sdl_folder: path?, ?registry: DirectiveRegistry) -> Array[String]
+    def self?.write: (output_dir: path, ?schema_path: path?, ?registry: DirectiveRegistry) -> Array[String]
+    # Config.ide_helper's rewrite, on boot and every reload.
+    def self?.refresh: (?output_dir: path) -> Array[String]
     def self?.directives_sdl: (?String sdl, ?registry: DirectiveRegistry) -> String
-    def self?.programmatic_types_sdl: (String sdl, ?registry: DirectiveRegistry) -> String
+    def self?.programmatic_types_sdl: (String sdl, ?registry: DirectiveRegistry, ?directives: String) -> String
   end
 
   module GraphQL
@@ -107,7 +120,7 @@ module Lighthouse
         # `ctx`: the query's context, which @builder on an argument receives.
         def apply_where_filters: (relation relation, untyped args, ?context? ctx) -> relation
         def apply_arg_builders: (relation relation, arguments args_h, ?context? ctx) -> relation
-        def extract_relation_name_from_directive: (untyped arg_node) -> String?
+        def apply_field_builders: (relation relation, ?arguments args_h, ?context? ctx) -> relation
         def constantize_model: (String? name) -> Class?
         def apply_scopes: (relation relation) -> relation
 

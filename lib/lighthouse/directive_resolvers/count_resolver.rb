@@ -43,7 +43,6 @@ class Lighthouse::GraphQL::DirectiveResolvers::CountDirectiveResolver < Lighthou
 
     args_h = arguments.respond_to?(:to_h) ? arguments.to_h : {}
     relation = apply_scopes(relation)
-    relation = Lighthouse::GraphQL::DirectiveResolvers::BuilderApplier.apply(relation, @field_def.ast_node, args_h, ctx, self)
     relation = apply_where_filters(relation, args_h, ctx)
     relation.count
   end

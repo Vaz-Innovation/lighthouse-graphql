@@ -92,8 +92,14 @@ module Lighthouse
     def self.[]: (Symbol | String key) -> untyped
     def self.reset!: () -> void
 
-    def self.sdl_folder: () -> path?
-    def self.sdl_folder=: (path? folder) -> path?
+    # The schema's entrypoint, which imports the other files (SchemaStitcher).
+    def self.schema_path: () -> path?
+    def self.schema_path=: (path? path) -> path?
+    def self.schema_directory: () -> String?
+
+    # Rewrite the IDE helper files on boot and every reload; nil: in development with a graphql.config.yml.
+    def self.ide_helper: () -> bool?
+    def self.ide_helper=: (bool? enabled) -> bool?
 
     # { queries:, mutations:, subscriptions:, builders:, validators:, events: } => [namespace, ...].
     # Assigning a partial hash overrides only the kinds it names.

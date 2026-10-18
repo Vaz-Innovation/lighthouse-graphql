@@ -1,3 +1,74 @@
+extend type Query {
+  """
+  Published posts, newest first unless the client orders them, with dynamic filters
+  (where: { AND: [{ column: TITLE, operator: LIKE, value: "%Rails%" }, { column: METADATA__RANK, operator: GT, value: 5 }] }).
+  A public, CDN-cacheable list.
+  """
+  posts(
+    where: _ @whereConditions(columns: ["title", "author_id", "metadata->series", "metadata->rank"])
+    "Order by a column, a JSON path into metadata, or how many comments a post has."
+    orderBy: _ @orderBy(columns: ["title", "created_at", "metadata->rank"], relations: [{ relation: "comments" }])
+    "Posts whose metadata.labels holds this label (@whereJsonContains, on SQLite, PostgreSQL and MySQL)."
+    label: String @whereJsonContains(key: "metadata->labels")
+    "Posts whose metadata.labels holds every one of these."
+    labels: [String!] @whereJsonContains(key: "metadata->labels")
+  ): [Post!]! @paginate(defaultCount: 10) @builder(class: "Published") @orderBy(column: "created_at", direction: DESC) @cacheControl(maxAge: 60)
+
+  "The same posts as a Relay-style connection, newest first."
+  feed: [Post!]! @paginate(type: CONNECTION, defaultCount: 5) @builder(class: "Published") @orderBy(column: "created_at", direction: DESC) @cacheControl(maxAge: 60)
+
+  "A single published post."
+  post(id: ID! @eq): Post @find(scopes: ["published"]) @cacheControl(maxAge: 30)
+
+  "How many posts are published."
+  publishedPostCount: Int! @count(model: "Post", scopes: ["published"])
+
+  "Full-text-ish search over published posts — resolved by Resolvers::SearchPosts. Ten a minute per IP (@throttle), a 429 past that."
+  searchPosts(term: String!): [Post!]! @throttle(maxAttempts: 10)
+
+  """
+  The signed-in user's posts, drafts included. Resolvers::MyPosts builds the query, and
+  resolve_info.enhance_builder applies this field's @like and @orderBy to it.
+  """
+  myPosts(title: String @like, orderBy: _ @orderBy(columns: ["title", "created_at"])): [Post!]! @guard
+}
+
+extend type Mutation {
+  "Write a post as the signed-in user, tagging it in the same request (a nested mutation)."
+  createPost(input: CreatePostInput! @spread): Post!
+    @guard
+    @canModel(ability: "create")
+    @create
+    @inject(context: "current_user.id", name: "author_id")
+    @broadcast(subscription: "postCreated")
+
+  "Edit a post. Only its author or an admin may (PostPolicy#update?)."
+  updatePost(input: UpdatePostInput! @spread): Post!
+    @guard
+    @canFind(ability: "update", find: "input.id")
+    @update
+    @clearCache(type: "Post", idSource: { argument: "input.id" })
+
+  "Delete a post (PostPolicy#destroy?)."
+  deletePost(id: ID! @whereKey): Post @guard @canFind(ability: "destroy", find: "id") @delete
+
+  "Publish a post — resolved by Mutations::PublishPost."
+  publishPost(id: ID!): Post! @guard @canFind(ability: "publish", find: "id") @broadcast(subscription: "postPublished")
+
+  """
+  Publish a post from the queue: @guard and @canFind decide now, and Mutations::PublishPost, which
+  @field names, runs in a Solid Queue job (@async). Answers true once the job is queued.
+  """
+  schedulePublish(id: ID!): Boolean! @guard @canFind(ability: "publish", find: "id", model: "Post") @async @field(resolver: "PublishPost")
+
+  "Comment on a post as the signed-in user."
+  addComment(postId: ID! @rename(attribute: "post_id"), body: String!): Comment!
+    @guard
+    @create
+    @inject(context: "current_user.id", name: "author_id")
+    @broadcast(subscription: "commentAdded")
+}
+
 # @cacheControl on a type sets the maxAge of every field that returns it.
 type Post implements Authored @cacheControl(maxAge: 60) {
   id: ID!
@@ -70,16 +141,6 @@ scalar DateTime
 
 "What Query.search finds: each value resolves to the type of its model's class."
 union SearchResult = Post | User
-
-enum PostOrderColumn {
-  TITLE
-  CREATED_AT
-}
-
-input PostOrderByClause {
-  column: PostOrderColumn!
-  order: SortOrder! = ASC
-}
 
 input CreatePostInput {
   title: String!

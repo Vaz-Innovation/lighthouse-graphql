@@ -78,7 +78,7 @@ type Query {
 ```
 
 - **The query.** It is the model's (`model:`, else the return type), narrowed by
-  `scopes:`, [`@builder`](#builder) and the field's argument filters. On a nested
+  `scopes:`, the field's argument filters and [`@builder`](#builder). On a nested
   field it pages the parent's association of the same name: `User.posts @paginate`
   pages the user's posts.
 - **`first`.** It defaults to `defaultCount`, else
@@ -456,7 +456,12 @@ Builders are looked up in their own namespace, `Builders::` (app/graphql/builder
 `class:` with `method:` (default `call`), or PHP Lighthouse's `method: "Class@method"`.
 
 On a field, the method gets `(relation, args, context)`, or the directive's
-`value:` in place of the arguments. On an argument or an input field, it gets
+`value:` in place of the arguments. As in PHP Lighthouse, a field's `@builder`
+(with `@whereAuth` and `@orderBy(column:)`) applies after the argument
+directives, in SDL order. An `order` it adds therefore breaks the ties of the
+client's `orderBy`. It applies on every field that queries records: `@all`,
+`@paginate`, `@find`, `@first`, `@count`, `@aggregate`, the relationship
+directives and `resolve_info.enhance_builder`. On an argument or an input field, it gets
 `(relation, value, context)` whenever the client sends that argument, an explicit
 `null` included, and not when it is left out:
 
@@ -518,7 +523,7 @@ Full guide: [filtering-and-ordering.md](filtering-and-ordering.md).
 | `@whereBetween` / `@whereNotBetween` | `column BETWEEN` / `NOT BETWEEN` the input's two fields, in order |
 | `@whereJsonContains` | a JSON column contains the value (every value of a list); `key: "meta->tags"` points into it |
 | `@scope(name:)` | calls the model scope with the value (`name:` defaults to the argument's) |
-| `@orderBy` | sort by one or more columns |
+| `@orderBy` | sort by the client's clauses (columns, relations' aggregates); on a field, a fixed order |
 
 ```graphql
 type Query {
@@ -526,7 +531,7 @@ type Query {
     status: String @eq
     nameSearch: String @like
     minAge: Int @where(operator: "GTE", key: "age")
-    orderBy: [OrderByClause!] @orderBy
+    orderBy: _ @orderBy(columns: ["name", "created_at"])
   ): [User!]! @all
 }
 ```
@@ -568,17 +573,70 @@ parents it would cut them all together, as PHP Lighthouse warns. PHP Lighthouse
 also allows `@limit` on the field itself, where it only marks the field the argument
 limits; it is accepted there and changes nothing.
 
+### `@orderBy`
+
+```graphql
+directive @orderBy(
+  columns: [String!]               # argument: the columns the client may order by
+  columnsEnum: String              # argument: an enum of them instead (one of the two)
+  relations: [OrderByRelation!]    # argument: { relation:, columns:, columnsEnum: } to order by an aggregate
+  column: String                   # field: the column to order by
+  direction: OrderByDirection = ASC
+) on ARGUMENT_DEFINITION | FIELD_DEFINITION
+```
+
+On an argument written as `_`, Lighthouse generates the clause input
+(`<Type><Field><Arg>OrderByClause`, or `…RelationOrderByClause` with
+`relations:`) and the column enum. Without `columns:`, `columnsEnum:` or
+`relations:`, the argument takes the shared `OrderByClause`, which allows any
+column. A column can be a JSON path, `meta->rank`, in `@orderBy` and in
+`@whereConditions` ([JSON columns](filtering-and-ordering.md#json-columns)). On a field, `@orderBy(column:, direction:)` orders the result after
+the client's clauses.
+
+```graphql
+type Query {
+  posts(orderBy: _ @orderBy(columns: ["posted_at", "title"])): [Post!]! @all
+  users(orderBy: _ @orderBy(relations: [{ relation: "posts" }])): [User!]! @all
+  latestPosts: [Post!]! @all @orderBy(column: "posted_at", direction: DESC)
+}
+
+# { posts(orderBy: [{ column: POSTED_AT, order: DESC }]) { title } }
+# { users(orderBy: [{ posts: { aggregate: COUNT }, order: DESC }]) { name } }
+```
+
+Guide: [filtering-and-ordering.md](filtering-and-ordering.md#ordering).
+
 ### `@whereConditions` / `@whereHasConditions`
 
-Give clients a structured, dynamic `WHERE` builder (AND/OR/operators, and HAS for
-related records). Lighthouse generates the input and enum types for you. See
-[filtering-and-ordering.md](filtering-and-ordering.md#complex-where-conditions).
+```graphql
+directive @whereConditions(columns: [String!], columnsEnum: String, handler: String) on ARGUMENT_DEFINITION
+directive @whereHasConditions(relation: String, columns: [String!], columnsEnum: String, handler: String) on ARGUMENT_DEFINITION
+```
+
+These give clients a dynamic `WHERE` builder, with conditions joined by `AND`
+and `OR`, PHP Lighthouse's `SQLOperator` operators, and `HAS` checks on
+relations. On an argument written as `_`, Lighthouse generates the input
+(`<Type><Field><Arg>WhereConditions` / `…WhereHasConditions`), its `…Relation`
+and `…HasCondition` inputs, and the column enum. Without `columns:` or
+`columnsEnum:`, the argument takes the shared `WhereConditions`, which allows
+any column.
+
+`@whereHasConditions` keeps the records with a related record matching the
+conditions. The relation is `relation:`, or the argument's name without `has`.
+`handler:` names a `Builders::` class whose `call(relation, conditions)` applies
+the conditions instead.
 
 ```graphql
 type Query {
   people(where: _ @whereConditions(columns: ["age", "type"])): [Person!]! @all
+  users(hasPosts: _ @whereHasConditions(columns: ["title"])): [User!]! @all
 }
+
+# { people(where: { AND: [{ column: AGE, operator: GT, value: 37 }, { column: TYPE, value: "Actor" }] }) { name } }
+# { users(hasPosts: { column: TITLE, operator: LIKE, value: "%Rails%" }) { name } }
 ```
+
+Guide: [filtering-and-ordering.md](filtering-and-ordering.md#complex-where-conditions).
 
 ### `@trim`, `@hash`, `@drop`, `@bind` and `@upload`
 

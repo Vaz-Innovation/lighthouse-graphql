@@ -1,3 +1,36 @@
+extend type Query {
+  "The signed-in user — resolved by Resolvers::Me. Requires `Authorization: Bearer <token>`."
+  me: User! @guard
+
+  "Find a user by id."
+  user(id: ID! @eq): User @find
+
+  """
+  Users, a page at a time. Filter by name, or by their posts (hasPosts: { column: PUBLISHED, value: true });
+  order by a column or by how many posts they wrote: orderBy: [{ posts: { aggregate: COUNT }, order: DESC }].
+  """
+  users(
+    name: String @like
+    hasPosts: _ @whereHasConditions(columns: ["title", "published"])
+    orderBy: _ @orderBy(columns: ["name", "created_at"], relations: [{ relation: "posts" }])
+  ): [User!]! @paginate(defaultCount: 10)
+}
+
+extend type Mutation {
+  "Create an account. Validators::Mutation::SignUpValidator checks the arguments first."
+  signUp(name: String!, email: String!): User! @create @validator
+
+  """
+  Set the signed-in user's avatar, sent as a multipart request (the GraphQL multipart request
+  specification). @upload stores the file with ActiveStorage, under avatars/, and passes its
+  blob's signed id, which @update attaches to User#avatar.
+  """
+  updateAvatar(avatar: Upload! @upload(path: "avatars")): User!
+    @guard
+    @update
+    @inject(context: "current_user.id", name: "id")
+}
+
 "Someone who writes posts and comments."
 type User @cacheControl(maxAge: 300) {
   id: ID!
@@ -18,19 +51,4 @@ type User @cacheControl(maxAge: 300) {
   Pass the last page's endCursor as `after` to get the next one.
   """
   comments: [Comment!]! @hasMany(type: CONNECTION, defaultCount: 10, scopes: ["chronological"])
-}
-
-enum UserOrderColumn {
-  NAME
-  CREATED_AT
-}
-
-input UserOrderByClause {
-  column: UserOrderColumn!
-  order: SortOrder! = ASC
-}
-
-enum SortOrder {
-  ASC
-  DESC
 }

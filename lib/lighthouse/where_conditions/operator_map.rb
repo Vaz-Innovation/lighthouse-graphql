@@ -1,9 +1,6 @@
 # frozen_string_literal: true
 
-# Maps the GraphQL SQLOperator enum values to Arel predicate methods.
-# Extracted from WhereConditionsApplier so that simple argument-filter
-# directives (@eq, @neq, @in, @notIn, @like, @where) can share the same
-# operator semantics.
+# Maps the operators @where(operator:) takes to Arel predicate methods.
 module Lighthouse::WhereConditions::OperatorMap
   OPERATORS = {
     'EQ' => :eq,

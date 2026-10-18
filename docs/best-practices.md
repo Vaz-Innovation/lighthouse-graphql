@@ -92,7 +92,9 @@ app's GraphQL setup easy to find.
 
 ## Split your SDL
 
-Lighthouse concatenates every `*.graphql` file under your `sdl_folder`. Organize
-by domain (`users.graphql`, `orders.graphql`, …) and keep a small
-`_directives.graphql` only for directives you declare yourself (built-ins are
-injected automatically).
+Lighthouse reads `graphql/schema.graphql` and the files it `#import`s
+([schema-organisation.md](schema-organisation.md)). Organize
+by domain (`users.graphql`, `orders.graphql`, …), each with its types and the
+fields it adds with `extend type Query` / `extend type Mutation`. Keep a small
+`directives.graphql`, imported too, only for directives you declare yourself
+(built-ins are injected automatically).

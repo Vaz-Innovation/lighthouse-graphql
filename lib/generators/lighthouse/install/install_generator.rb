@@ -44,8 +44,8 @@ class Lighthouse::Generators::InstallGenerator < Rails::Generators::Base
 
   class_option :schema, type: :string,
                         desc: "The schema class to adopt; for graphql:install, when it runs, its name (default: graphql-ruby's)"
-  class_option :sdl_folder, type: :string, default: 'graphql',
-                            desc: 'Folder, relative to the app root, holding the *.graphql files'
+  class_option :schema_path, type: :string, default: 'graphql/schema.graphql',
+                             desc: "The schema's entrypoint, relative to the app root; it #imports the other .graphql files"
   class_option :subscriptions, type: :boolean, default: false,
                                desc: 'Add Subscriptions::BaseSubscription, the base of the classes Subscription fields resolve to'
   class_option :skip_controller, type: :boolean, default: false,
@@ -71,12 +71,12 @@ class Lighthouse::Generators::InstallGenerator < Rails::Generators::Base
   end
 
   def create_starter_schema
-    if Dir[File.join(destination_root, sdl_folder, '**', '*.graphql')].any?
-      say_status :skip, "#{sdl_folder}/ already has .graphql files", :yellow
+    if File.exist?(File.join(destination_root, sdl_schema_path))
+      say_status :skip, "#{sdl_schema_path} exists", :yellow
       return
     end
 
-    template 'schema.graphql.tt', File.join(sdl_folder, 'schema.graphql')
+    template 'schema.graphql.tt', sdl_schema_path
   end
 
   # Subscriptions::BaseSubscription, which graphql-ruby has none of (see BaseClasses).
@@ -174,14 +174,14 @@ class Lighthouse::Generators::InstallGenerator < Rails::Generators::Base
     say <<~MSG
 
       Lighthouse is installed on graphql-ruby's install (#{schema_path}). Next steps:
-        1. Describe your API in #{sdl_folder}/*.graphql (the starter schema assumes a User model).
+        1. Describe your API in #{sdl_schema_path} (the starter assumes a User model); #import more files, which `extend type Query`.
         2. Resolve a field in Ruby when a directive is not enough, as in graphql-ruby: a method of
            Types::QueryType (Query.latestPosts -> #latest_posts), a `field` of its own there,
            `bin/rails g graphql:mutation`, or a Resolvers::BaseResolver subclass named after the field.
         3. Give a type Ruby methods, a union or interface its resolve_type, a scalar its coercion:
            bin/rails g graphql:object Post (or graphql:union, graphql:interface, graphql:scalar);
            the class is Lighthouse's through its base (Lighthouse::GraphQL::Type)
-        4. Generate the IDE helper files:  bin/rails lighthouse:ide_helper
+        4. The IDE helper files are rewritten in development; or:  bin/rails lighthouse:ide_helper
         5. #{serve}
     MSG
   end
@@ -196,7 +196,7 @@ class Lighthouse::Generators::InstallGenerator < Rails::Generators::Base
 
   def schema_comment(indent)
     <<~RUBY.gsub(/^/, indent).delete_prefix(indent)
-      # Lighthouse builds the schema from the SDL in #{sdl_folder}/, on the classes graphql-ruby's
+      # Lighthouse builds the schema from the SDL in #{sdl_schema_path}, on the classes graphql-ruby's
       # install wrote (base_types): the SDL's root types extend the code-first ones, whose
       # `field`s stay the schema's, and every type, resolver and mutation class inherits from
       # its kind's base. The rest of the class is graphql-ruby's.
@@ -210,12 +210,17 @@ class Lighthouse::Generators::InstallGenerator < Rails::Generators::Base
                                   "#{indent}use GraphQL::Dataloader\n", after: anchor
   end
 
-  def sdl_folder
-    options[:sdl_folder].delete_suffix('/')
+  # The SDL's entrypoint (Config.schema_path); `schema_path` is graphql-ruby's schema class.
+  def sdl_schema_path
+    options[:schema_path].delete_prefix('/')
   end
 
-  def default_sdl_folder?
-    sdl_folder == 'graphql'
+  def sdl_folder
+    File.dirname(sdl_schema_path)
+  end
+
+  def default_sdl_schema_path?
+    sdl_schema_path == 'graphql/schema.graphql'
   end
 
   def ide_helper_files

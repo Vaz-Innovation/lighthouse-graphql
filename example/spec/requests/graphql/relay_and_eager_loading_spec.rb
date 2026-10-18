@@ -75,7 +75,7 @@ RSpec.describe 'GraphQL Relay ids, eager loading and resolver classes', type: :r
       create(:post, author: user, title: 'Ruby')
       create(:post, title: 'GraphQL elsewhere')
 
-      body = graphql('{ myPosts(title: "GraphQL", orderBy: [{ column: TITLE }]) { title } }', as: user)
+      body = graphql('{ myPosts(title: "GraphQL", orderBy: [{ column: TITLE, order: ASC }]) { title } }', as: user)
 
       expect(body.dig('data', 'myPosts').pluck('title')).to eq(['GraphQL a', 'GraphQL b'])
     end

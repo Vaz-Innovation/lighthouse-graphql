@@ -68,6 +68,10 @@ module Lighthouse::GraphQL::SchemaCache
   def fingerprint
     registry = Lighthouse::DirectiveRegistry.default
     manipulators = registry.sdl_manipulators.map { |manipulator| [manipulator.to_s, source_digest(manipulator)] }
+    phase = { Lighthouse::GraphQL::ASTBuilder => :build, Lighthouse::GraphQL::Directives::GeneratedTypes => :columns_enum,
+              Lighthouse::WhereConditions::Types => :define }
+    phase.merge!(registry.arg_manipulator_classes.index_with(:manipulate_arg_definition))
+    manipulators += phase.map { |manipulator, method_name| [manipulator.to_s, source_digest(manipulator, method_name)] }
     [
       registry.directive_definitions.sort,
       registry.type_definitions.sort,
@@ -77,10 +81,10 @@ module Lighthouse::GraphQL::SchemaCache
     ].inspect
   end
 
-  # Build the schema document now (from Config.sdl_folder, unless given)
+  # Build the schema document now (from Config.schema_path, unless given)
   # and return the cache file's path.
   def warm!(sdl = nil)
-    sdl ||= Lighthouse::GraphQL::SDLLoader.load_from_folder(Lighthouse::Config.sdl_folder.to_s)
+    sdl ||= Lighthouse::GraphQL::SchemaFactory.load_sdl
     Lighthouse::GraphQL::SchemaGenerator.build_document(sdl, force: true)
     File.join(directory.to_s, "#{PREFIX}#{key(sdl)}.bin")
   end
@@ -119,8 +123,8 @@ module Lighthouse::GraphQL::SchemaCache
     Lighthouse::Config.handle_error(e)
   end
 
-  def source_digest(manipulator)
-    file, = manipulator.method(:manipulate).source_location
+  def source_digest(manipulator, method_name = :manipulate)
+    file, = (manipulator.respond_to?(method_name) ? manipulator.method(method_name) : manipulator.instance_method(method_name)).source_location
     file && File.exist?(file) ? Digest::SHA256.file(file).hexdigest : nil
   rescue NameError
     nil

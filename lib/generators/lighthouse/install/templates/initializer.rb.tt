@@ -3,11 +3,13 @@
 # Lighthouse configuration. Every option is optional; the defaults are shown.
 # Reference: https://github.com/Vaz-Innovation/lighthouse-graphql/blob/main/docs/configuration.md
 Lighthouse.configure do |config|
-  # Folder the *.graphql schema files are loaded from.
-<% if default_sdl_folder? -%>
-  # config.sdl_folder = Rails.root.join('graphql').to_s
+  # The schema's entrypoint. It imports the other .graphql files
+  # (#import user.graphql, #import blog/*.graphql), which add to a type
+  # defined elsewhere with `extend type`.
+<% if default_sdl_schema_path? -%>
+  # config.schema_path = Rails.root.join('graphql/schema.graphql').to_s
 <% else -%>
-  config.sdl_folder = Rails.root.join('<%= sdl_folder %>').to_s
+  config.schema_path = Rails.root.join('<%= sdl_schema_path %>').to_s
 <% end -%>
 
   # Where classes named by the schema are looked up, by kind. A Query or Mutation
@@ -57,6 +59,11 @@ Lighthouse.configure do |config|
 
   # Reload the app (and so the schema) when a .graphql file changes.
   # config.watch_sdl = Rails.env.development?
+
+  # Rewrite schema-directives.graphql and programmatic-types.graphql, which your
+  # IDE reads through graphql.config.yml, on boot and on every reload. nil: in
+  # development, when the app has a graphql.config.yml.
+  # config.ide_helper = nil
 
   # Automatic Persisted Queries (Apollo's protocol). Add a GET route too, so
   # hashed queries can be cached by CDNs: get "/graphql", to: "graphql#execute"

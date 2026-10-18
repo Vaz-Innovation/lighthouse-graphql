@@ -18,12 +18,7 @@ class Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
 
     args_h = args.respond_to?(:to_h) ? args.to_h : (args || {})
 
-    relation = apply_where_conditions(relation, args_h)
-    @field_def.ast_node.arguments.each do |arg_node|
-      relation = apply_where_has_conditions(relation, arg_node, args_h)
-    end
-
-    apply_arg_builders(relation, args_h, ctx)
+    apply_field_builders(apply_arg_builders(relation, args_h, ctx), args_h, ctx)
   rescue ::GraphQL::ExecutionError
     raise
   rescue StandardError => e
@@ -32,7 +27,7 @@ class Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
   end
 
   # Compose argument-builder directives (@eq, @neq, @in, @notIn, @like,
-  # @where, @orderBy) onto the relation, in SDL argument order, for each
+  # @where, @orderBy, @whereConditions, @whereHasConditions) onto the relation, in SDL argument order, for each
   # field argument that carries one and that the client supplied a value
   # for — and for the input fields of an argument carrying @nest.
   def apply_arg_builders(relation, args_h, ctx = nil)
@@ -49,18 +44,6 @@ class Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
   rescue StandardError => e
     Lighthouse::Config.handle_error(e)
     relation
-  end
-
-  def extract_relation_name_from_directive(arg_node)
-    directive = arg_node.directives.find { |dir| dir.name == 'whereHasConditions' }
-    return nil unless directive
-
-    relation_arg = directive.arguments.find { |arg| arg.name == 'relation' }
-    return nil unless relation_arg
-
-    relation_arg.value.respond_to?(:value) ? relation_arg.value.value : relation_arg.value
-  rescue StandardError
-    nil
   end
 
   def constantize_model(name)
@@ -113,24 +96,10 @@ class Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
     @field_def.type.unwrap.graphql_name.sub(/(SimplePaginator|Paginator|Connection)\z/, '')
   end
 
-  # The `where:` argument (@whereConditions), when the client supplied one.
-  def apply_where_conditions(relation, args_h)
-    where_condition = args_h[:where] || args_h['where']
-    return relation unless where_condition
-
-    Lighthouse::GraphQL::DirectiveResolvers::WhereConditionsApplier.apply(relation, where_condition)
-  end
-
-  # A `whereHasConditions` argument the client supplied filters the
-  # relation by the related records matching its condition.
-  def apply_where_has_conditions(relation, arg_node, args_h)
-    return relation unless arg_node.directives.any? { |dir| dir.name == 'whereHasConditions' }
-
-    arg_value = Lighthouse::Support::Naming.fetch_arg(args_h, arg_node.name)
-    return relation unless arg_value
-
-    relation_name = extract_relation_name_from_directive(arg_node) || Lighthouse::Support::Naming.derive_relation_name(arg_node.name)
-    Lighthouse::GraphQL::DirectiveResolvers::WhereConditionsApplier.apply_has_argument(relation, arg_node.name, arg_value, relation_name)
+  # The field's own query directives (@builder, @whereAuth, @orderBy(column:)),
+  # in SDL order, after the arguments', as PHP Lighthouse's enhanceBuilder applies them.
+  def apply_field_builders(relation, args_h = {}, ctx = nil)
+    Lighthouse::GraphQL::DirectiveResolvers::BuilderApplier.apply(relation, @field_def.ast_node, args_h, ctx, self)
   end
 
   # Every (argument, directive, builder class) on the field, in SDL order.

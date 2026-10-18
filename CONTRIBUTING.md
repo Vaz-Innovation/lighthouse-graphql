@@ -58,7 +58,8 @@ The registry exists so this is additive — the generator is not edited:
 
 1. Write a resolver under `lib/lighthouse/directive_resolvers/`, implementing whichever
    contract fits (`FieldResolver` for something that produces a value, `FieldMiddleware` to
-   wrap one, `FieldManipulator` / `ArgManipulator` to change the schema itself).
+   wrap one, `FieldManipulator` / `ArgManipulator` to change the schema itself, `ArgBuilder` /
+   `FieldBuilder` to constrain a field's query).
 2. Register it in `lib/lighthouse/directives/registry.rb`.
 3. Spec it in `spec/lighthouse/`, building a schema from SDL with the helpers in
    `spec/support/schema_builders.rb` — that is how every other directive is tested, and it

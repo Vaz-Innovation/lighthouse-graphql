@@ -13,7 +13,9 @@
 #
 # A registered class is classified as a field resolver when it includes
 # Contracts::FieldResolver OR responds to the legacy `#define_resolver`
-# instance method.
+# instance method. A class including Contracts::ArgManipulator also rewrites
+# its arguments while the schema is built (ASTBuilder), and one including
+# Contracts::FieldBuilder constrains its fields' queries.
 class Lighthouse::DirectiveRegistry
   class << self
     def default
@@ -29,6 +31,8 @@ class Lighthouse::DirectiveRegistry
   def initialize
     @resolution = {}
     @arg_builders = {}
+    @arg_manipulators = {}
+    @field_builders = {}
     @sdl_manipulators = []
     @definitions = {}
     @type_definitions = {}
@@ -42,11 +46,7 @@ class Lighthouse::DirectiveRegistry
       name = name_or_klass
     end
 
-    if arg_builder?(klass)
-      @arg_builders[name.to_s] = klass
-    elsif resolver?(klass)
-      @resolution[name.to_s] = klass
-    end
+    classify(name.to_s, klass)
     self
   end
 
@@ -95,6 +95,21 @@ class Lighthouse::DirectiveRegistry
 
   def arg_builder_names
     @arg_builders.keys
+  end
+
+  # Argument directives that rewrite their argument while the schema is built
+  # (@whereConditions, @whereHasConditions, @orderBy), as ASTBuilder applies them.
+  def arg_manipulator_class(name)
+    @arg_manipulators[name.to_s]
+  end
+
+  def arg_manipulator_classes
+    @arg_manipulators.values
+  end
+
+  # Field directives that constrain the field's query (@orderBy on a field).
+  def field_builder_class(name)
+    @field_builders[name.to_s]
   end
 
   # SDL `directive @name(...) on ...` definitions contributed by registered,
@@ -193,7 +208,7 @@ class Lighthouse::DirectiveRegistry
 
   # Argument-builder filter/sort directives.
   ARG_BUILDERS = %i[
-    Eq Neq In NotIn Like Where WhereKey OrderBy Trashed WithoutGlobalScopes
+    Eq Neq In NotIn Like Where WhereKey OrderBy WhereConditions WhereHasConditions Trashed WithoutGlobalScopes
     WhereNull WhereNotNull WhereBetween WhereNotBetween WhereJsonContains Scope Limit
   ].freeze
 
@@ -205,11 +220,11 @@ class Lighthouse::DirectiveRegistry
 
     # SDL manipulators run in registration order during the manipulation phase.
     # @hide / @show first, so a removed field generates nothing; then @model,
-    # which names the model of fields @paginate then rewrites.
+    # which names the model of fields @paginate then rewrites. The argument
+    # manipulators (@whereConditions, @orderBy, ...) run after all of them.
     register_manipulator(Lighthouse::GraphQL::Directives::VisibilityDirective)
     register_manipulator(Lighthouse::GraphQL::Directives::ModelDirective)
     register_manipulator(Lighthouse::GraphQL::Directives::PaginationManipulator)
-    register_manipulator(Lighthouse::GraphQL::Directives::WhereConditionsDirective)
     register_manipulator(Lighthouse::GraphQL::Directives::SoftDeletesDirective)
     register_manipulator(Lighthouse::GraphQL::Directives::NodeDirective)
 
@@ -232,8 +247,22 @@ class Lighthouse::DirectiveRegistry
     nil
   end
 
+  def classify(name, klass)
+    if arg_builder?(klass)
+      @arg_builders[name] = klass
+    elsif resolver?(klass)
+      @resolution[name] = klass
+    end
+    @arg_manipulators[name] = klass if includes?(klass, Lighthouse::Contracts::ArgManipulator)
+    @field_builders[name] = klass if includes?(klass, Lighthouse::Contracts::FieldBuilder)
+  end
+
   def arg_builder?(klass)
-    klass.respond_to?(:include?) && klass.include?(Lighthouse::Contracts::ArgBuilder)
+    includes?(klass, Lighthouse::Contracts::ArgBuilder)
+  end
+
+  def includes?(klass, contract)
+    klass.respond_to?(:include?) && klass.include?(contract)
   end
 
   def resolver?(klass)

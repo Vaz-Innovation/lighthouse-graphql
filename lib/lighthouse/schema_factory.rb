@@ -7,13 +7,13 @@
 module Lighthouse::GraphQL::SchemaFactory
   module_function
 
-  def build_base_schema(sdl_folder: nil, sdl: nil, base_types: {}, schema_options: {}, **extra_options)
+  def build_base_schema(schema_path: nil, sdl: nil, base_types: {}, schema_options: {}, **extra_options)
     # Absorb any extra keyword options (e.g. `federation: true`) into the
     # schema options bag so callers can pass schema-level flags directly
     # without the factory needing to enumerate every one.
     schema_options = extra_options.merge(schema_options)
 
-    sdl_string = sdl || load_sdl(sdl_folder)
+    sdl_string = sdl || load_sdl(schema_path)
     schema_class = schema_options.delete(:schema_class)
 
     Lighthouse::GraphQL::SchemaGenerator.build(
@@ -24,12 +24,9 @@ module Lighthouse::GraphQL::SchemaFactory
     )
   end
 
-  # The SDL in `sdl_folder` (default: Config.sdl_folder), or the bundled
-  # schema.graphql when there is no such folder.
-  def load_sdl(sdl_folder)
-    folder = sdl_folder || (Lighthouse::GraphQL::Config.sdl_folder if defined?(Lighthouse::GraphQL::Config))
-    return Lighthouse::GraphQL::SDLLoader.load_from_folder(folder) if folder && Dir.exist?(folder)
-
-    File.read(File.expand_path('../../schema.graphql', __dir__))
+  # The schema read from `schema_path` (default: Config.schema_path) and the
+  # files it imports.
+  def load_sdl(schema_path = nil)
+    Lighthouse::GraphQL::SchemaStitcher.new(schema_path || Lighthouse::Config.schema_path).schema_string
   end
 end

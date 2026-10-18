@@ -29,7 +29,8 @@ Include the marker module(s) your directive fulfils:
 | `Contracts::FieldResolver` | provide a field's resolver | `#define_resolver(type)` (or `#resolve_field`) |
 | `Contracts::FieldMiddleware` | wrap an existing resolver (e.g. `@auth`) | `#wrap_resolver(next)` |
 | `Contracts::FieldManipulator` | reshape the schema for a field | `manipulate_field_definition(...)` |
-| `Contracts::ArgManipulator` | reshape the schema for an argument | `manipulate_argument_definition(...)` |
+| `Contracts::ArgManipulator` | reshape the schema for an argument, as `@orderBy` and `@whereConditions` generate their types | `#manipulate_arg_definition(document_ast, field_node, type_node)` returning the argument node |
+| `Contracts::FieldBuilder` | constrain a field's query, whatever the client sends | `#handle_field_builder(relation)` |
 | `Contracts::ArgBuilder` | compose a query constraint from an argument | `#handle_builder(relation, value)` |
 
 A directive class also answers two class-level questions: its name and its SDL

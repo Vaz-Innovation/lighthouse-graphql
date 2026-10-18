@@ -9,16 +9,60 @@ module Lighthouse
     type schema = untyped
 
     module RbLightHouse
-      # The schema built from the SDL in `sdl_folder` (default: Config.sdl_folder).
+      # The schema built from the SDL `schema_path` (default: Config.schema_path) and its imports.
       # `options` takes :base_types, :base_schema and the schema's own options.
-      def self.get_schema: (?sdl_folder: path?, ?options: Hash[Symbol, untyped]) -> schema
+      def self.get_schema: (?schema_path: path?, ?options: Hash[Symbol, untyped]) -> schema
       def self.configure: () ?{ (singleton(Lighthouse::Config) config) -> void } -> void
     end
 
     module SchemaFactory
-      def self?.build_base_schema: (?sdl_folder: path?, ?sdl: String?, ?base_types: Hash[untyped, untyped],
+      def self?.build_base_schema: (?schema_path: path?, ?sdl: String?, ?base_types: Hash[untyped, untyped],
                                     ?schema_options: Hash[Symbol, untyped], **untyped extra_options) -> schema
-      def self?.load_sdl: (path? sdl_folder) -> String
+      def self?.load_sdl: (?path? schema_path) -> String
+    end
+
+    # Reads the schema from its entrypoint, pasting in what it #imports.
+    class SchemaStitcher
+      IMPORT: String
+
+      attr_reader root_schema_path: String
+
+      def initialize: (path root_schema_path) -> void
+      def schema_string: () -> String
+      # Every file the schema is read from, the entrypoint first.
+      def files: () -> Array[String]
+    end
+
+    # The schema document the manipulation phase works on: each type defined once.
+    class DocumentAST
+      KEYWORDS: Hash[Class, String]
+      EXTENSIONS: Array[Class]
+
+      attr_reader types: Hash[String, untyped]
+      attr_reader type_extensions: Hash[String, Array[untyped]]
+      attr_reader directives: Hash[String, untyped]
+      attr_reader schema_definitions: Array[untyped]
+
+      def self.from_source: (String sdl) -> DocumentAST
+      def self.from_document: (untyped document) -> DocumentAST
+
+      def initialize: () -> void
+      def add: (untyped definition) -> untyped
+      # Adds a type, or replaces the one of the same name.
+      def put_type: (untyped definition) -> self
+      # Adds the type parsed from the SDL (or the block's), unless one of the name exists.
+      def define_type: (String name, ?String? sdl) ?{ () -> String } -> untyped
+      def type?: (String name) -> bool
+      def type_names: () -> Array[String]
+      def to_document: () -> untyped
+      def to_sdl: () -> String
+    end
+
+    # The manipulation phase: extensions merged, then the type, field and argument manipulators.
+    module ASTBuilder
+      ROOT_TYPES: Array[String]
+
+      def self?.build: (String sdl, ?registry: DirectiveRegistry) -> String
     end
 
     # Apollo's Automatic Persisted Queries, and a manifest of trusted operations.

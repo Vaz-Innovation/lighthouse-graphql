@@ -87,23 +87,31 @@ and scalar include `Lighthouse::GraphQL::Type`; the controller serves the schema
 through `Lighthouse::GraphQL::Controller`. It adds the initializer, a starter schema
 in `graphql/schema.graphql` and a `graphql.config.yml` for your IDE. Run
 `bin/rails generate lighthouse:install --help` for its options (`--schema`,
-`--sdl-folder`, `--subscriptions`, `--skip-controller`, `--skip-ide`), and see
+`--schema-path`, `--subscriptions`, `--skip-controller`, `--skip-ide`), and see
 [docs/generators.md](docs/generators.md) for every generator, graphql-ruby's included.
+
+### Schema files
+
+As in PHP Lighthouse, the schema is read from one entrypoint,
+`graphql/schema.graphql`, which `#import`s the other files
+(`#import user.graphql`, `#import blog/*.graphql`). A type is defined once, and the
+other files add to it with `extend type Query`. See
+[docs/schema-organisation.md](docs/schema-organisation.md).
 
 ### IDE support
 
 Lighthouse's directives and the types it generates (Paginator/Connection types,
-`whereConditions` inputs, …) are defined in Ruby, so your IDE can't see them in
-your `.graphql` files. Write them out for it:
+`@whereConditions` and `@orderBy` inputs, the `_` placeholder, …) are defined in
+Ruby, so your IDE can't see them in your `.graphql` files. Lighthouse writes them
+to `schema-directives.graphql` and `programmatic-types.graphql` in the app root:
+in development on every boot and reload, or with:
 
 ```shell
 bin/rails lighthouse:ide_helper
 ```
 
-This writes `schema-directives.graphql` and `programmatic-types.graphql` to the app
-root; the generated `graphql.config.yml` already points the GraphQL plugins for
-JetBrains IDEs and VS Code at them. Rerun it after changing your schema or
-registering a directive. See [docs/getting-started.md](docs/getting-started.md#ide-support).
+The generated `graphql.config.yml` already points the GraphQL plugins for
+JetBrains IDEs and VS Code at them. See [docs/getting-started.md](docs/getting-started.md#ide-support).
 
 ## Quick start
 

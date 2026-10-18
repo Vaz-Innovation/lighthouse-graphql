@@ -6,14 +6,14 @@ require 'lighthouse/railtie'
 RSpec.describe Lighthouse::Railtie do
   let(:config) { Struct.new(:watchable_dirs).new({}) }
 
-  before { Lighthouse.configure { |c| c.sdl_folder = '/app/graphql' } }
+  before { Lighthouse.configure { |c| c.schema_path = '/app/graphql/schema.graphql' } }
 
   it 'watches nothing by default' do
     expect(described_class.watch_sdl(config)).to be(false)
     expect(config.watchable_dirs).to be_empty
   end
 
-  it 'adds the SDL folder to the watched dirs with watch_sdl' do
+  it "adds the schema's folder to the watched dirs with watch_sdl" do
     Lighthouse.configure { |c| c.watch_sdl = true }
 
     expect(described_class.watch_sdl(config)).to be(true)
@@ -25,5 +25,9 @@ RSpec.describe Lighthouse::Railtie do
 
     expect(initializer.after).to eq(:load_config_initializers)
     expect(initializer.before).to eq(:set_clear_dependencies_hook)
+  end
+
+  it 'refreshes the IDE helper files whenever the app is prepared' do
+    expect(described_class.initializers.map(&:name)).to include('lighthouse.ide_helper')
   end
 end

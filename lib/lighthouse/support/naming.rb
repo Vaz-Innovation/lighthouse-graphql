@@ -52,16 +52,4 @@ module Lighthouse::Support::Naming
     snake = raw.underscore
     [raw.to_sym, raw, snake.to_sym, snake].uniq
   end
-
-  # Derive an Eloquent-style relation name from a `has<Relation>` argument
-  # name, e.g. "hasContact" -> "contacts". Returns nil when the argument does
-  # not follow the `has` convention.
-  def derive_relation_name(arg_name)
-    return nil unless arg_name.to_s.match?(/^has/i)
-
-    trailing = arg_name.to_s.sub(/^has/i, '')
-    return nil if trailing.empty?
-
-    trailing.underscore.pluralize
-  end
 end

@@ -25,13 +25,12 @@ class Lighthouse::GraphQL::DirectiveResolvers::AggregateDirectiveResolver < Ligh
     column_name = extract_directive_arg('column')
     function_name = extract_directive_arg('function')
     resolver_instance = self
-    field_ast_node = @field_def.ast_node
 
     install(target_type_class, lambda do |obj, args, ctx|
       relation = resolver_instance.send(:aggregate_source, obj, model_name, relation_name)
       return nil unless relation
 
-      relation = Lighthouse::GraphQL::DirectiveResolvers::BuilderApplier.apply(relation, field_ast_node, args, ctx, resolver_instance)
+      relation = resolver_instance.apply_where_filters(relation, args, ctx)
       resolver_instance.send(:compute_aggregation, relation, column_name, function_name)
     end)
   end

@@ -36,7 +36,7 @@ module Lighthouse::GraphQL::DirectiveResolvers
       return nil unless obj.respond_to?(name)
 
       return paginate(obj, name, args, ctx) if pagination_type
-      return constrained(association_scope(obj, name), args) if constrained?(args)
+      return constrained(association_scope(obj, name), args, ctx) if constrained?(args)
 
       dataloader = Lighthouse::Support::Batching.dataloader(ctx)
       return obj.public_send(name) unless dataloader && obj.class.respond_to?(:reflect_on_association)
@@ -52,11 +52,14 @@ module Lighthouse::GraphQL::DirectiveResolvers
       self.class.collection? && directive_arg('type')&.to_s&.upcase
     end
 
-    # Scopes or a supplied argument with a filter directive need a query of
-    # their own instead of the batched load.
+    # Scopes, a query directive on the field (@builder, @orderBy(column:)) or a
+    # supplied argument with a filter directive need a query of their own
+    # instead of the batched load.
     def constrained?(args)
-      return true if directive_arg('scopes')
+      directive_arg('scopes') || Lighthouse::GraphQL::DirectiveResolvers::BuilderApplier.any?(@field_def.ast_node) || filtered?(args)
+    end
 
+    def filtered?(args)
       registry = Lighthouse::DirectiveRegistry.default
       (@field_def.ast_node&.arguments || []).any? do |argument|
         args.key?(argument.name.underscore.to_sym) && argument.directives.any? { |d| filter_directive?(registry, d) }
@@ -68,8 +71,8 @@ module Lighthouse::GraphQL::DirectiveResolvers
       registry.arg_builder_class(directive.name) || CONDITION_DIRECTIVES.include?(directive.name)
     end
 
-    def constrained(relation, args)
-      relation = apply_where_filters(scoped(relation), args)
+    def constrained(relation, args, ctx)
+      relation = apply_where_filters(scoped(relation), args, ctx)
       self.class.collection? ? relation : relation.first
     end
 

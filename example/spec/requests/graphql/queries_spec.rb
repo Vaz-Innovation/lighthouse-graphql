@@ -36,7 +36,34 @@ RSpec.describe 'GraphQL queries', type: :request do
     end
   end
 
-  describe '@builder' do
+  describe '@orderBy and @whereHasConditions on users' do
+    let!(:authors) { %w[Carol Alice Bob].index_with { |name| create(:user, name: name) } }
+
+    before do
+      create_list(:post, 2, author: authors['Bob'])
+      create(:post, :draft, author: authors['Carol'])
+    end
+
+    it 'orders by how many posts each user wrote, then by name' do
+      body = graphql('{ users(orderBy: [{ posts: { aggregate: COUNT }, order: DESC }, { column: NAME, order: ASC }]) { data { name } } }')
+
+      expect(body.dig('data', 'users', 'data').pluck('name')).to eq(%w[Bob Carol Alice])
+    end
+
+    it 'keeps the users with a post matching the condition' do
+      body = graphql('{ users(hasPosts: { column: PUBLISHED, value: false }) { data { name } } }')
+
+      expect(body.dig('data', 'users', 'data')).to eq([{ 'name' => 'Carol' }])
+    end
+
+    it 'keeps the users with any post for {}' do
+      body = graphql('{ users(hasPosts: {}, orderBy: [{ column: NAME, order: ASC }]) { data { name } } }')
+
+      expect(body.dig('data', 'users', 'data').pluck('name')).to eq(%w[Bob Carol])
+    end
+  end
+
+  describe '@builder and @orderBy on the field' do
     it 'lists only published posts, newest first' do
       older = create(:post, title: 'Older', created_at: 2.days.ago)
       newer = create(:post, title: 'Newer', created_at: 1.day.ago)
@@ -47,6 +74,27 @@ RSpec.describe 'GraphQL queries', type: :request do
       expect(body.dig('data', 'posts', 'data')).to eq([{ 'id' => newer.id.to_s, 'title' => 'Newer' },
                                                        { 'id' => older.id.to_s, 'title' => 'Older' }])
       expect(body.dig('data', 'posts', 'paginatorInfo', 'total')).to eq(2)
+    end
+
+    it "orders by the client's orderBy first, then newest first" do
+      b = create(:post, title: 'B', created_at: 3.days.ago)
+      older_a = create(:post, title: 'A', created_at: 2.days.ago)
+      newer_a = create(:post, title: 'A', created_at: 1.day.ago)
+
+      body = graphql('{ posts(orderBy: [{ column: TITLE, order: ASC }]) { data { id } } }')
+
+      expect(body.dig('data', 'posts', 'data').pluck('id')).to eq([newer_a, older_a, b].map { |post| post.id.to_s })
+    end
+
+    it "orders by the count of each post's comments" do
+      quiet = create(:post, title: 'Quiet')
+      busy = create(:post, title: 'Busy')
+      create_list(:comment, 2, post: busy)
+      create(:comment, post: quiet)
+
+      body = graphql('{ posts(orderBy: [{ comments: { aggregate: COUNT }, order: DESC }]) { data { title } } }')
+
+      expect(body.dig('data', 'posts', 'data').pluck('title')).to eq(%w[Busy Quiet])
     end
 
     it 'leaves drafts out of @find through its scopes' do
@@ -65,7 +113,7 @@ RSpec.describe 'GraphQL queries', type: :request do
 
       body = graphql(<<~GRAPHQL)
         {
-          posts(where: { AND: [{ column: TITLE, operator: STARTS_WITH, value: "GraphQL" }, { column: AUTHOR_ID, value: #{ada.id} }] }) {
+          posts(where: { AND: [{ column: TITLE, operator: LIKE, value: "GraphQL%" }, { column: AUTHOR_ID, value: #{ada.id} }] }) {
             data { title }
           }
         }

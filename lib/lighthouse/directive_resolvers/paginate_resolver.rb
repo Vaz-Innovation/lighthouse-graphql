@@ -72,10 +72,9 @@ class Lighthouse::GraphQL::DirectiveResolvers::PaginateDirectiveResolver < Light
 
   public
 
-  # `scopes:`, @builder and the argument filters, on one relation or a RelationBatch.
+  # `scopes:`, the argument filters and @builder, on one relation or a RelationBatch.
   def decorate_relation(relation, args, ctx)
-    relation = Lighthouse::GraphQL::DirectiveResolvers::BuilderApplier.apply(apply_scopes(relation), @field_def.ast_node, args, ctx, self)
-    apply_where_filters(relation, args, ctx)
+    apply_where_filters(apply_scopes(relation), args, ctx)
   end
 
   protected

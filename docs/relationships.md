@@ -174,7 +174,8 @@ queries:
 type User {
   publishedPosts(
     title: String @like
-    orderBy: [OrderByClause!] @orderBy
+    orderBy: _ @orderBy(columns: ["title", "created_at"])
+    where: _ @whereConditions(columns: ["title"])
   ): [Post!]! @hasMany(relation: "posts", scopes: ["published"])
 }
 ```

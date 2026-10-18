@@ -1,7 +1,9 @@
 # frozen_string_literal: true
 
 # Hooks Lighthouse into a Rails host: exposes the `lighthouse:*` rake tasks,
-# and — with `config.watch_sdl` — reloads the app when a .graphql file changes.
+# with `config.watch_sdl` reloads the app when a .graphql file changes, and
+# with `config.ide_helper` (on in development when the app has a
+# graphql.config.yml) rewrites the IDE helper files on boot and every reload.
 # Generators (`rails g lighthouse:install`) are found through lib/generators.
 class Lighthouse::Railtie < Rails::Railtie
   rake_tasks do
@@ -14,10 +16,15 @@ class Lighthouse::Railtie < Rails::Railtie
     Lighthouse::Railtie.watch_sdl(app.config)
   end
 
+  initializer 'lighthouse.ide_helper', after: :load_config_initializers do |app|
+    app.reloader.to_prepare { Lighthouse::IdeHelper.refresh(output_dir: app.root) }
+  end
+
   # Rails' reloader then treats a .graphql edit like a Ruby one: the app's
   # constants — the schema among them — are reloaded on the next request.
+  # Every .graphql under the entrypoint's folder is watched, imported or not.
   def self.watch_sdl(config)
-    folder = Lighthouse::Config.sdl_folder
+    folder = Lighthouse::Config.schema_directory
     return false unless Lighthouse::Config.watch_sdl && folder
 
     config.watchable_dirs[folder.to_s] = %w[graphql graphqls]

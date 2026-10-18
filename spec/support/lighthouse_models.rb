@@ -30,6 +30,7 @@ ActiveRecord::Schema.define do
     t.string :body
     t.integer :task_id
     t.integer :user_id
+    t.json :meta
   end
 
   create_table :lh_comments, force: true do |t|

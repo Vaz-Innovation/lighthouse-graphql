@@ -6,6 +6,97 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+The schema is written by PHP Lighthouse's rules now: one entrypoint that imports
+the other files, every type defined once, and `extend type` to add to it.
+`@orderBy`, `@whereConditions` and `@whereHasConditions` generate and apply what
+PHP Lighthouse's do. In development, the IDE helper files are rewritten
+automatically.
+
+**Upgrading from 0.6:**
+
+1. Replace `config.sdl_folder = ...` with `config.schema_path = Rails.root.join('graphql/schema.graphql').to_s`
+   (that is the default), and `get_schema(sdl_folder:)` with `get_schema(schema_path:)`.
+2. Import every other file from `graphql/schema.graphql`. `#import **/*.graphql` imports
+   every file below its folder, which matches what was loaded before.
+3. Turn a second `type Query { ... }` (or `type Mutation`, or any type defined in two files)
+   into `extend type Query { ... }`. A type defined twice now fails the build.
+4. Write `orderBy:` arguments as `orderBy: _ @orderBy(columns: [...])`, and drop the
+   `OrderByClause` inputs and the `SortOrder` enum you declared. `order` is required in a
+   clause, and `{ field:, direction: }` clauses are no longer accepted.
+5. `SQLOperator` has PHP Lighthouse's values. Replace `NIN` with `NOT_IN`, and
+   `CONTAINS` / `STARTS_WITH` / `ENDS_WITH` with `LIKE` and a `%` pattern
+   (`value: "%Rails%"`, `"Rails%"`, `"%Rails"`). `@where(operator:)` keeps its operators.
+6. A `HAS` condition is on the related records' columns (`…HasCondition`, a `String`
+   column), as in PHP Lighthouse, no longer on the parent's column enum.
+
+### Added
+
+- **`#import`.** The schema's entrypoint, `config.schema_path`, imports other files by a
+  path relative to the importing file. Globs (`#import blog/*.graphql`) work too. An
+  imported file can import more files, and each file is read once.
+- **Type extensions merged as PHP Lighthouse merges them.** `extend type`, `input`,
+  `interface`, `enum`, `union` and `scalar` add to their definition, and the
+  directives on their fields work as on the type's own. `extend type Query` alone
+  defines `Query`.
+- **`@orderBy` generates its types.** `orderBy: _ @orderBy(columns: [...])` gets
+  `[<Type><Field><Arg>OrderByClause!]`, a column enum (`@enum(value:)` per column)
+  and `SortOrder`. `columnsEnum:` reuses an enum, and without columns the shared
+  `OrderByClause` takes any column.
+- **`@orderBy(relations:)`.** Clients order by `COUNT` of a relation, or by
+  `AVG`/`MIN`/`MAX`/`SUM` of one of its columns
+  (`{ posts: { aggregate: COUNT }, order: DESC }`). Records without related ones
+  are ordered too, and this works on batched relationship pages.
+- **`@orderBy(column:, direction:)` on a field.** It always orders the result, after
+  the client's clauses.
+- **`@whereConditions` and `@whereHasConditions`, as in PHP Lighthouse.** They have
+  PHP Lighthouse's `SQLOperator` (`LIKE`, `NOT_LIKE`, `NOT_IN`, `BETWEEN`,
+  `NOT_BETWEEN`, ...), and `HAS` with `operator:` / `amount:`
+  (`{ relation: "posts", operator: LT, amount: 1 }`: the records with none). The
+  `…Relation` / `…HasCondition` inputs filter on the related table, and
+  `handler:` names a class that applies the conditions instead.
+- **JSON columns.** `@whereConditions`, `@whereHasConditions` and `@orderBy` take a path into a
+  JSON column, `meta->author->name` or `meta->tags->0`, on PostgreSQL, MySQL and SQLite.
+  Numbers compare and sort as numbers, booleans compare as booleans, and `IS_NULL` holds
+  for a JSON `null` too.
+- **`config.ide_helper`.** `schema-directives.graphql` and
+  `programmatic-types.graphql` are rewritten on boot and on every reload. By
+  default this happens in development when the app has a `graphql.config.yml`.
+- `Contracts::FieldBuilder`, and `Contracts::ArgManipulator` as `ASTBuilder` calls
+  it, for custom directives.
+- The guide [docs/schema-organisation.md](docs/schema-organisation.md).
+
+### Changed
+
+- **Breaking:** The schema is read from `config.schema_path` and its imports, not from every
+  file in `config.sdl_folder`, which is removed. `lighthouse:install` takes `--schema-path`
+  instead of `--sdl-folder`.
+- **Breaking:** A type defined twice fails the build: "Duplicate definition X found when parsing
+  the schema", pointing at `extend`. PHP Lighthouse keeps the last definition.
+- **Breaking:** An argument typed `_` that no directive replaces fails the build. It used to
+  become a scalar.
+- **Breaking:** `@orderBy` clauses need `order`, take only `{ column:, order: }`, and a
+  column outside an enum must be an identifier.
+- **Breaking:** `SQLOperator`'s values are PHP Lighthouse's (see above).
+- **Breaking:** `@builder` and `@whereAuth` on a field apply after the argument directives,
+  as PHP Lighthouse's field builder directives do. An `order` a builder adds now breaks the
+  ties of the client's `orderBy` instead of preceding it. They also apply on relationship
+  fields (`@hasMany`, ...), where they used to be ignored, and on `@aggregate`, which now
+  gets the argument directives too.
+
+### Fixed
+
+- A schema that stops building while you edit it keeps its `programmatic-types.graphql`.
+  If there is none yet, the file declares the `_` placeholder alone, so the IDE never
+  reports `Unknown type "_"`. When an import is missing, the IDE helper reads every
+  `.graphql` file in the folder, as the IDE does.
+- `programmatic-types.graphql` no longer repeats the types `schema-directives.graphql`
+  defines (`Mixed`, `CanAction`, `PaginateType`, ...). graphql-js, which the VS Code
+  and JetBrains GraphQL plugins use, rejected the schema.
+- `@whereConditions` applied only to an argument named `where`. It and `@whereHasConditions`
+  are argument directives like the others now: any name, in SDL order.
+- An error in a `@whereConditions` value (an unknown relation or operator) is the client's
+  error. It used to be swallowed and leave the query unfiltered.
+
 ## [0.6.0] - 2026-10-18
 
 Lighthouse now uses what the Rails app and graphql-ruby already have instead of settings and

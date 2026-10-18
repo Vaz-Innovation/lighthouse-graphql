@@ -59,9 +59,10 @@ Lighthouse.configure { |config| config.watch_sdl = Rails.env.development? }
 ```
 
 Rails' reloader watches Ruby files, not `.graphql` ones, so without this an SDL
-edit only shows up after restarting the server. With it, the SDL folder joins
-`config.watchable_dirs`, and an edit reloads the app, and with it the schema, on
-the next request, like a Ruby change. This relies on the schema class living
+edit only shows up after restarting the server. With it, the folder of
+`config.schema_path` joins `config.watchable_dirs`, and an edit to any `.graphql`
+file below it reloads the app, and with it the schema, on the next request, like
+a Ruby change. The reload also rewrites the IDE helper files (`config.ide_helper`). This relies on the schema class living
 in an autoloaded file, as `app/graphql/app_schema.rb` does.
 
 ## Persisted queries

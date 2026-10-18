@@ -25,8 +25,6 @@ class Lighthouse::GraphQL::DirectiveResolvers::AllDirectiveResolver < Lighthouse
     args = arguments.respond_to?(:to_h) ? arguments.to_h : {}
     relation = apply_scopes(model_class.all)
 
-    relation = Lighthouse::GraphQL::DirectiveResolvers::BuilderApplier.apply(relation, @field_def.ast_node, args, ctx, self)
-
     relation = apply_where_filters(relation, args, ctx)
     relation = relation.limit(args[:first]) if args[:first]
     relation = relation.offset(args[:offset]) if args[:offset]

@@ -38,7 +38,9 @@ require_relative 'namespaces'
   contracts/field_manipulator
   contracts/arg_manipulator
   contracts/arg_builder
-  sdl_loader
+  contracts/field_builder
+  schema_stitcher
+  document_ast
   generated_resolvers
   default_resolve_dispatcher
   federation_directives
@@ -49,6 +51,7 @@ require_relative 'namespaces'
   events/schema_build
   resolver_bases
   root_types
+  ast_builder
   schema_generator
   schema_cache
   persisted_queries
@@ -79,14 +82,18 @@ require_relative 'namespaces'
   relation_counts
   nested_mutations
   directives/pagination_manipulator
-  directives/where_conditions_directive
+  directives/generated_types
+  order_by/types
+  where_conditions/json_column
+  where_conditions/columns
+  where_conditions/types
+  where_conditions/handler
   directives/soft_deletes_directive
   directives/node_directive
   directives/model_directive
   directives/visibility_directive
   directive_resolvers/aggregate_resolver
   directive_resolvers/field_resolver
-  directive_resolvers/where_conditions_applier
   directive_resolvers/all_resolver
   directive_resolvers/find_resolver
   directive_resolvers/paginate_resolver
@@ -124,6 +131,9 @@ require_relative 'namespaces'
   directives/arguments/filters
   directives/arguments/more_filters
   directives/arguments/order_by
+  directives/arguments/where_conditions_base
+  directives/arguments/where_conditions
+  directives/arguments/where_has_conditions
   directives/arguments/soft_deletes
   directives/definitions
   directives/registry
@@ -148,12 +158,12 @@ require_relative 'railtie' if defined?(Rails::Railtie)
 
 module Lighthouse::GraphQL::RbLightHouse
   class << self
-    def get_schema(sdl_folder: nil, options: {})
+    def get_schema(schema_path: nil, options: {})
       base_types = options.delete(:base_types) || {}
       schema_class = options.delete(:base_schema)
 
       Lighthouse::GraphQL::SchemaFactory.build_base_schema(
-        sdl_folder: sdl_folder,
+        schema_path: schema_path,
         base_types: base_types,
         schema_options: options.merge(schema_class: schema_class)
       )

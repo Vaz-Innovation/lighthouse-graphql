@@ -8,6 +8,7 @@ module Lighthouse
   module Contracts; end
   module Events; end
   module Generators; end
+  module OrderBy; end
   module Support; end
   module WhereConditions; end
 

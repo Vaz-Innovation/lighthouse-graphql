@@ -24,7 +24,7 @@ module Lighthouse
 
     # Every setting reset! forgets, so the next read falls back to its default.
     SETTINGS = %i[
-      sdl_folder resolver_namespaces namespaces transactional_mutations pagination_default_count pagination_max_count
+      schema_path ide_helper resolver_namespaces namespaces transactional_mutations pagination_default_count pagination_max_count
       schema_cache schema_cache_path watch_sdl persisted_queries persisted_queries_store persisted_queries_ttl
       persisted_queries_manifest persisted_queries_only on_error directive_map authenticated_user policy_user authorizer
       feature_checker feature_actor
@@ -35,13 +35,32 @@ module Lighthouse
     ].freeze
 
     class << self
-      attr_writer :sdl_folder, :resolver_namespaces, :on_error, :authenticated_user, :policy_user, :authorizer,
+      attr_writer :schema_path, :ide_helper, :resolver_namespaces, :on_error, :authenticated_user, :policy_user, :authorizer,
                   :transactional_mutations, :schema_cache, :watch_sdl, :persisted_queries, :persisted_queries_store, :persisted_queries_only,
                   :queue_broadcasts,
                   :convert_empty_strings_to_null, :feature_checker, :feature_actor, :global_id
 
-      def sdl_folder
-        @sdl_folder ||= (defined?(Rails) && Rails.respond_to?(:root) ? Rails.root.join('graphql').to_s : nil)
+      # The schema's entrypoint, as PHP Lighthouse's `schema_path`: the one file
+      # the schema is read from, importing the others (`#import user.graphql`,
+      # `#import blog/*.graphql`; see SchemaStitcher). RAILS_ROOT/graphql/schema.graphql
+      # by default.
+      def schema_path
+        @schema_path ||= (::Rails.root.join('graphql/schema.graphql').to_s if defined?(::Rails) && ::Rails.respond_to?(:root) && ::Rails.root)
+      end
+
+      # The folder of the schema's entrypoint, which watch_sdl watches.
+      def schema_directory
+        schema_path && File.dirname(schema_path.to_s)
+      end
+
+      # Rewrite the IDE helper files (schema-directives.graphql,
+      # programmatic-types.graphql) on boot and on every reload. nil (the
+      # default): in development, when the app has a graphql.config.yml.
+      def ide_helper
+        return @ide_helper unless @ide_helper.nil?
+
+        defined?(::Rails) && ::Rails.respond_to?(:env) && ::Rails.env.development? && ::Rails.root &&
+          File.exist?(::Rails.root.join('graphql.config.yml'))
       end
 
       def directive_map = @directive_map ||= {}

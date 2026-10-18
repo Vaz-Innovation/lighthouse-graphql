@@ -2,8 +2,11 @@
 
 require_relative 'base'
 
-# The field-level query directives, in SDL order: @builder classes, and
-# @whereAuth, which keeps the records the signed-in user owns. @builder on an
+# The field-level query directives, in SDL order, as PHP Lighthouse's field
+# builder directives: @builder classes, @whereAuth, which keeps the records the
+# signed-in user owns, and the registry's FieldBuilder directives (@orderBy on a
+# field). They apply after the argument directives (apply_where_filters), so
+# a builder's order breaks the ties of the client's orderBy. @builder on an
 # argument is applied with the other argument directives (apply_argument).
 #
 # A builder is `class:` and `method:` (default `call`), or PHP Lighthouse's
@@ -52,15 +55,27 @@ class Lighthouse::GraphQL::DirectiveResolvers::BuilderApplier
   def self.apply(relation, field_def_ast_node, args, ctx, resolver_instance)
     return relation unless field_def_ast_node&.directives
 
-    field_def_ast_node.directives.each do |directive_node|
+    registry = Lighthouse::DirectiveRegistry.default
+    field_def_ast_node.directives.reduce(relation) do |acc, directive_node|
       case directive_node.name
-      when 'builder' then relation = apply_directive(relation, directive_node, args, ctx, resolver_instance)
-      when 'whereAuth' then relation = where_auth(relation, directive_node, ctx)
+      when 'builder' then apply_directive(acc, directive_node, args, ctx, resolver_instance)
+      when 'whereAuth' then where_auth(acc, directive_node, ctx)
+      else field_builder(registry, acc, field_def_ast_node, directive_node)
       end
     end
-
-    relation
   end
+
+  # Does the field carry a query directive of its own?
+  def self.any?(field_def_ast_node)
+    registry = Lighthouse::DirectiveRegistry.default
+    (field_def_ast_node&.directives || []).any? { |d| DEFINITIONS.key?(d.name) || registry.field_builder_class(d.name) }
+  end
+
+  def self.field_builder(registry, relation, field_def_ast_node, directive_node)
+    builder_class = registry.field_builder_class(directive_node.name)
+    builder_class ? builder_class.new(field_def_ast_node, directive_node).handle_field_builder(relation) : relation
+  end
+  private_class_method :field_builder
 
   # The records whose `relation:` links them to the signed-in user; none for a guest.
   def self.where_auth(relation, directive_node, ctx)

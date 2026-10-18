@@ -37,10 +37,10 @@ graphql-ruby wrote, and adds Lighthouse's own:
 | `app/graphql/types/base_*.rb`, `resolvers/base_resolver.rb`, `mutations/base_mutation.rb` | graphql-ruby's base classes. `BaseObject`, `BaseInterface`, `BaseUnion` and `BaseScalar` include `Lighthouse::GraphQL::Type` |
 | `app/controllers/graphql_controller.rb` | graphql-ruby's controller, replaced by one including `Lighthouse::GraphQL::Controller` |
 | `config/initializers/lighthouse.rb` | Every [configuration](configuration.md) option, commented out at its default |
-| `graphql/schema.graphql` | A starter schema (`user` via `@find`, `users` via `@paginate`) that assumes a `User` model — skipped when the folder already holds `.graphql` files |
+| `graphql/schema.graphql` | The schema's entrypoint: a starter schema (`user` via `@find`, `users` via `@paginate`) that assumes a `User` model. Skipped when the file exists |
 | `graphql.config.yml` | IDE configuration — see [IDE support](#ide-support) |
 
-`--schema=ApiSchema`, `--sdl-folder=app/schema`, `--subscriptions`,
+`--schema=ApiSchema`, `--schema-path=app/schema/schema.graphql`, `--subscriptions`,
 `--skip-controller` and `--skip-ide` change what it does. Rerunning it changes
 nothing, and a controller the app changed is kept.
 [generators.md](generators.md) has the details, every generator Lighthouse has, and
@@ -48,8 +48,8 @@ which of graphql-ruby's `graphql:*` generators fit a Lighthouse app.
 
 ## 1. Write your schema (SDL)
 
-By default Lighthouse loads every `*.graphql` file under `RAILS_ROOT/graphql`,
-sorted by path and concatenated. Split your schema however you like:
+Lighthouse reads the schema from one entrypoint, `RAILS_ROOT/graphql/schema.graphql`
+(`config.schema_path`), as PHP Lighthouse does:
 
 ```graphql
 # graphql/schema.graphql
@@ -69,6 +69,32 @@ type User {
 argument (the `@eq` makes `id` a filter). Lighthouse infers the model from the
 field's return type name (`User`), or you can be explicit with
 `@all(model: "User")`.
+
+To split the schema, the entrypoint imports the other files. A type is defined
+once, and the other files add to it with `extend type`:
+
+```graphql
+# graphql/schema.graphql
+type Query
+
+#import user.graphql
+#import blog/*.graphql
+```
+
+```graphql
+# graphql/user.graphql
+type User {
+  id: ID!
+  name: String
+}
+
+extend type Query {
+  users: [User!]! @all
+}
+```
+
+A file nothing imports is not part of the schema, and a type defined twice is an
+error. See [schema-organisation.md](schema-organisation.md).
 
 ## 2. Provide your base classes
 
@@ -158,8 +184,8 @@ class AppSchema < Lighthouse::GraphQL::RbLightHouse.get_schema(
 end
 ```
 
-The SDL is read from `config.sdl_folder` (`get_schema(sdl_folder: ...)` overrides
-it). The class body is graphql-ruby's, so plugins and settings go there as in any
+The SDL is read from `config.schema_path` and the files it imports
+(`get_schema(schema_path: ...)` overrides it). The class body is graphql-ruby's, so plugins and settings go there as in any
 graphql-ruby schema (`use ...`, `max_complexity(...)`), but for `query(...)` and
 `mutation(...)`, which the SDL's root types replace, and `resolve_type`, which
 Lighthouse answers (see [types.md](types.md)).
@@ -260,7 +286,9 @@ Your IDE validates and autocompletes `.graphql` files against the schema it can
 see. Lighthouse's directive definitions and the types its manipulation phase
 generates live in Ruby, so without help the IDE flags `@paginate` as unknown and
 can't resolve `UserPaginator`. PHP Lighthouse solves this with an IDE helper
-command; so does Lighthouse for Rails:
+command, and so does Lighthouse for Rails. In development, an app with a
+`graphql.config.yml` gets the files rewritten on boot and on every reload
+(`config.ide_helper`), so you never run it by hand there. Elsewhere:
 
 ```shell
 bin/rails lighthouse:ide_helper              # writes to Rails.root
@@ -274,8 +302,11 @@ It writes two files:
   declares (so the IDE never sees a duplicate).
 - **`programmatic-types.graphql`** — the types Lighthouse adds to the executable
   schema: `<Type>Paginator`, `<Type>SimplePaginator`, `<Type>Connection`/`Edge`,
-  `PaginatorInfo`, `SimplePaginatorInfo`, `PageInfo`, the `whereConditions`
-  inputs and enums, and the `_` placeholder scalar.
+  `PaginatorInfo`, `SimplePaginatorInfo`, `PageInfo`, the `@whereConditions` and
+  `@orderBy` inputs and enums, and the `_` placeholder scalar (without it, the
+  IDE reports `Unknown type "_"`). It leaves out every type the SDL or
+  `schema-directives.graphql` defines, because graphql-js, which the IDE plugins
+  use, rejects a type defined twice.
 
 Point your IDE's [graphql-config](https://the-guild.dev/graphql/config) at them
 next to your SDL — the install generator writes this `graphql.config.yml`:
@@ -289,7 +320,9 @@ schema:
 
 It works with the GraphQL plugin for JetBrains IDEs and the GraphQL extension for
 VS Code. The files are derived from your schema, so the generator adds them to
-`.gitignore`; rerun the task after changing the schema or registering a directive.
+`.gitignore`. Outside development, rerun the task after changing the schema or
+registering a directive. The IDE reads every `.graphql` file the glob matches, as
+one schema: it does not follow `#import`.
 
 > The IDE reads fields as you wrote them: `users: [User!]! @paginate` still looks
 > like a list to it, although clients query `users { data { … } }`. Field
