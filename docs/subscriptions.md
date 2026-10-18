@@ -38,18 +38,24 @@ end
 
 graphql-ruby delivers subscriptions through a *backend* that stores who subscribed
 and sends the updates: ActionCable (bundled), or a gem such as Pusher or Ably.
-Lighthouse needs none of its own; give the schema one. `get_schema` passes the
-`using:` option to graphql-ruby, as `use` does in a class-based schema:
+Lighthouse needs none of its own; give the schema one with `use`, in the schema
+class body, as in any graphql-ruby schema:
 
 ```ruby
 # app/graphql/app_schema.rb
-AppSchema = Lighthouse::GraphQL::RbLightHouse.get_schema(
-  options: { using: { GraphQL::Subscriptions::ActionCableSubscriptions => {} } }
+class AppSchema < Lighthouse::GraphQL::RbLightHouse.get_schema(
+  options: { base_types: { subscription: Subscriptions::BaseSubscription } }   # and the other bases
 )
+  use GraphQL::Dataloader
+  use GraphQL::Subscriptions::ActionCableSubscriptions
+end
 ```
 
-Options of the backend go in the hash (`{ ActionCableSubscriptions => { namespace: 'my-app' } }`).
-Assign the schema to a constant: a [queued](#queueing) broadcast finds it by name.
+Options of the backend go after it (`use GraphQL::Subscriptions::ActionCableSubscriptions, namespace: 'my-app'`).
+A schema assigned to a constant instead (`AppSchema = get_schema(...)`) takes the
+backend through the `using:` option, as `use` does:
+`options: { using: { GraphQL::Subscriptions::ActionCableSubscriptions => {} } }`.
+Either way the schema has a name, which a [queued](#queueing) broadcast finds it by.
 
 Then add the channel graphql-ruby documents, which runs the operation and keeps
 the client's subscription ids ([the full example](https://graphql-ruby.org/subscriptions/action_cable_implementation.html)):
@@ -182,7 +188,7 @@ the base every subscription inherits from, as graphql-ruby's convention puts wha
 all classes of a kind share in their base:
 
 ```ruby
-# app/graphql/subscriptions/base_subscription.rb  (rails generate lighthouse:install)
+# app/graphql/subscriptions/base_subscription.rb  (rails generate lighthouse:install --subscriptions)
 module Subscriptions
   class BaseSubscription < GraphQL::Schema::Subscription
     include Lighthouse::GraphQL::Subscription
@@ -411,8 +417,9 @@ end
 
 The job carries the schema's name, the subscription's name, the trigger arguments,
 the scope and the root; an Active Record model is serialized with GlobalID, any
-other root must be something ActiveJob can serialize. A schema built by
-`get_schema` and assigned to a constant (`AppSchema = ...`) has the name; an
+other root must be something ActiveJob can serialize. A schema class
+(`class AppSchema < ...get_schema(...)`), or a schema assigned to a constant
+(`AppSchema = ...`), has the name; an
 anonymous one raises `Lighthouse::DefinitionError` when a queued broadcast needs
 it. The `activejob` gem is optional: nothing loads it unless a broadcast is queued.
 

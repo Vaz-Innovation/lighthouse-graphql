@@ -19,8 +19,9 @@ Lighthouse.configure do |config|
   # @event(dispatch:) classes come from :events, and the graphql-ruby analyzers
   # @complexity(resolver:) names from :analyzers. Post.readingTime, with no
   # resolving directive, resolves with Types::PostType#reading_time (a
-  # Types::BaseObject including Lighthouse::GraphQL::Type), from :types. Generate them with
-  # `rails g lighthouse:query|mutation|subscription|type|builder|validator Name`.
+  # Types::BaseObject including Lighthouse::GraphQL::Type), from :types. Generate a
+  # subscription, builder or validator with `rails g lighthouse:subscription|builder|validator Name`,
+  # and a type class with graphql-ruby's `rails g graphql:object|union|interface|scalar Name`.
   # config.namespaces = {
   #   queries: ['Resolvers'], mutations: ['Mutations'], subscriptions: ['Subscriptions'],
   #   builders: ['Builders'], validators: ['Validators'], events: ['Events'], analyzers: ['Analyzers'],

@@ -154,8 +154,8 @@ class Lighthouse::GraphQL::DirectiveResolvers::ArgumentTransformsResolver < Ligh
     send(TRANSFORMS.fetch(directive.name), directive, argument, value, ctx)
   end
 
-  def decode_global_id(directive, _argument, value, _ctx)
-    decode(value, Lighthouse::Support::DirectiveArgs.literal(directive, 'decode') || 'ARRAY')
+  def decode_global_id(directive, _argument, value, ctx)
+    decode(value, Lighthouse::Support::DirectiveArgs.literal(directive, 'decode') || 'ARRAY', ctx)
   end
 
   def trim_value(_directive, _argument, value, _ctx) = trim(value)
@@ -169,10 +169,10 @@ class Lighthouse::GraphQL::DirectiveResolvers::ArgumentTransformsResolver < Ligh
     Lighthouse::GraphQL::UploadStore.call(value, argument: argument.graphql_name, **options)
   end
 
-  def decode(value, mode)
-    return value.map { |item| decode(item, mode) } if value.is_a?(Array)
+  def decode(value, mode, ctx = nil)
+    return value.map { |item| decode(item, mode, ctx) } if value.is_a?(Array)
 
-    type, id = Lighthouse::GraphQL::GlobalId.decode!(value)
+    type, id = Lighthouse::GraphQL::GlobalId.decode!(value, ctx)
     { 'TYPE' => type, 'ID' => id }.fetch(mode.to_s, [type, id])
   end
 

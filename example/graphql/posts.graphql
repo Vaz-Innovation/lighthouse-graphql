@@ -42,8 +42,9 @@ type Comment implements Authored @cacheControl(maxAge: 60) {
 }
 
 """
-@node makes Tag a Relay Node: Query.node(id:) finds a tag by the global id its
-`id` answers (base64 of "Tag:<id>"), through the Tag model.
+@node makes Tag a Relay Node: it implements graphql-ruby's Node (Types::NodeType), so
+Query.node(id:) and nodes(ids:), which Types::QueryType declares, find a tag by the
+global id its `id` answers: AppSchema.id_from_object, Rails' GlobalID.
 """
 type Tag @node @cacheControl(maxAge: 300) {
   id: ID! @globalId

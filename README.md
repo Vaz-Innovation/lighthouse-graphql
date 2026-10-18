@@ -72,18 +72,22 @@ It depends on `graphql ~> 2.5` and `activesupport`. For federation you also need
 On graphql 2.5, keep the `json` gem below 3: graphql 2.5 calls `JSON.generate`
 with an option json 3 removed (graphql 2.6 no longer does).
 
-Then let the generator set the app up:
+Then let the generators set the app up:
 
 ```shell
+bin/rails generate graphql:install      # graphql-ruby's, with the options you choose (optional)
 bin/rails generate lighthouse:install
 ```
 
-It runs graphql-ruby's own `graphql:install` for the base classes every graphql-ruby
-app has, then writes Lighthouse's on top: the initializer, a starter schema in
-`graphql/schema.graphql`, the `AppSchema` class built from it, a `GraphqlController`
-with its `POST /graphql` route, and a `graphql.config.yml` for your IDE. Run
+`lighthouse:install` builds on graphql-ruby's own install, and runs `graphql:install`
+with its defaults when the app has none. It adapts what graphql-ruby wrote: the
+schema class becomes Lighthouse's, built from the SDL on graphql-ruby's root types
+and base classes, and the rest of its body stays; the base object, interface, union
+and scalar include `Lighthouse::GraphQL::Type`; the controller serves the schema
+through `Lighthouse::GraphQL::Controller`. It adds the initializer, a starter schema
+in `graphql/schema.graphql` and a `graphql.config.yml` for your IDE. Run
 `bin/rails generate lighthouse:install --help` for its options (`--schema`,
-`--sdl-folder`, `--skip-controller`, `--skip-ide`), and see
+`--sdl-folder`, `--subscriptions`, `--skip-controller`, `--skip-ide`), and see
 [docs/generators.md](docs/generators.md) for every generator, graphql-ruby's included.
 
 ### IDE support
@@ -123,22 +127,26 @@ Prefer to wire it by hand? These are the steps the generator performs.
    }
    ```
 
-2. **Build the schema** (typically in `app/graphql/your_schema.rb`):
+2. **Build the schema**: graphql-ruby's schema class (`app/graphql/app_schema.rb`),
+   inheriting from the schema Lighthouse builds instead of `GraphQL::Schema`:
 
    ```ruby
-   require 'lighthouse-graphql'
-
-   AppSchema = Lighthouse::GraphQL::RbLightHouse.get_schema(
-     sdl_folder: Rails.root.join('graphql').to_s,
+   class AppSchema < Lighthouse::GraphQL::RbLightHouse.get_schema(
      options: {
-       base_types: {
-         resolver: Resolvers::BaseResolver,              # graphql-ruby's base classes, which
-         mutation: Mutations::BaseMutation,              # rails g lighthouse:install has graphql-ruby write
-         subscription: Subscriptions::BaseSubscription
-         # object: Types::BaseObject, ...
+       base_types: {                                     # the classes graphql-ruby's install writes
+         query_type: Types::QueryType,
+         mutation_type: Types::MutationType,
+         node: Types::NodeType,
+         resolver: Resolvers::BaseResolver,
+         mutation: Mutations::BaseMutation,
+         object: Types::BaseObject
+         # interface: Types::BaseInterface, union:, scalar:, enum:, input_object: ...
        }
      }
    )
+     use GraphQL::Dataloader   # Lighthouse batches relationships through it
+     max_depth(15)
+   end
    ```
 
 3. **Execute** it from your controller exactly like any graphql-ruby schema:

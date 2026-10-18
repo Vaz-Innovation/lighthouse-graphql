@@ -3,8 +3,6 @@
 # reader; `minutes` is computed here, with the field's argument as a snake_case
 # keyword (the SDL's default when the client leaves it out).
 class Types::ReadingTimeType < Types::BaseObject
-  include Lighthouse::GraphQL::Type
-
   def minutes(words_per_minute:)
     [(object[:words] / words_per_minute.to_f).ceil, 1].max
   end

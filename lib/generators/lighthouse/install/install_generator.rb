@@ -4,50 +4,66 @@ require 'rails/generators'
 require 'generators/graphql/install_generator'
 require 'lighthouse-graphql'
 require_relative '../base_classes'
+require_relative 'graphql_ruby_install'
 
-# `rails generate lighthouse:install` — sets a Rails app up for Lighthouse, on
-# top of graphql-ruby's own install, which it runs first (`graphql:install
-# --no-relay --skip-graphiql --skip-query-logs`, keeping the files the app has):
-# graphql-ruby writes the base classes every graphql-ruby app has (Types::Base*,
-# Resolvers::BaseResolver, Mutations::BaseMutation), its controller and route.
-# Lighthouse then puts its own over what graphql-ruby wrote in this run:
+# `rails generate lighthouse:install` — puts Lighthouse on top of graphql-ruby's
+# own install (`rails g graphql:install`, with whichever of its options the app
+# chose: --relay, --batch, --skip-mutation-root-type, --schema, --directory,
+# ...). When the app has none, it runs graphql:install first, with its
+# defaults. It then adapts what graphql-ruby wrote, instead of writing its own:
 #
-# - the schema class, built from the SDL (graphql-ruby's is code-first);
-# - the controller, with Lighthouse::GraphQL::Controller;
-# - no Types::QueryType / MutationType: the SDL declares the root types;
-# - Mutations::BaseMutation a GraphQL::Schema::Mutation, as the SDL declares a
-#   mutation's arguments (graphql-ruby's is a RelayClassicMutation, one `input:`);
+# - the schema class (`class AppSchema < GraphQL::Schema`) becomes Lighthouse's,
+#   built from the SDL on everything graphql-ruby wrote: its base types, base
+#   resolver and base mutation, and its code-first Types::QueryType /
+#   MutationType, which the SDL's root types extend, so their `field`s (Relay's
+#   `node` / `nodes`, what `graphql:mutation` adds) stay. Its Relay
+#   Types::NodeType is the SDL's Node. Everything else in the class is
+#   graphql-ruby's and stays, but the `resolve_type` stub (Lighthouse resolves
+#   types) and the root types it is built on;
+# - the example `test_field` goes from the root types;
+# - graphql-ruby's base object, interface, union and scalar include
+#   Lighthouse::GraphQL::Type, so every type class (Types::QueryType,
+#   Types::NodeType, what `graphql:object` writes) is Lighthouse's;
+# - with --batch, the schema uses GraphQL::Dataloader too, which Lighthouse's
+#   directives batch through;
+# - graphql-ruby's controller, as its install wrote it, becomes one with
+#   Lighthouse::GraphQL::Controller.
 #
-# and adds the initializer, a starter SDL file, Subscriptions::BaseSubscription
-# and the graphql-config file IDEs read. Rerunning it skips what is in place. A
-# schema class or controller the app had before is kept (pass --force to replace
-# it), so an app already serving a graphql-ruby schema keeps doing so until it
-# is pointed at ours.
+# It adds the initializer, a starter SDL file and the graphql-config file IDEs
+# read, and with --subscriptions, Subscriptions::BaseSubscription. Rerunning it
+# skips what is in place.
 class Lighthouse::Generators::InstallGenerator < Rails::Generators::Base
   include Lighthouse::Generators::BaseClasses
+  include Lighthouse::Generators::GraphqlRubyInstall
 
   CONTROLLER = 'app/controllers/graphql_controller.rb'
-  ROOT_TYPES = %w[app/graphql/types/query_type.rb app/graphql/types/mutation_type.rb].freeze
-  BASE_MUTATION = 'app/graphql/mutations/base_mutation.rb'
 
   source_root File.expand_path('templates', __dir__)
 
-  desc 'Install Lighthouse: initializer, starter schema, schema class, base classes, controller, route and IDE config.'
+  desc "Install Lighthouse on graphql-ruby's install: schema class, base classes, controller, initializer, starter SDL and IDE config."
 
-  class_option :schema, type: :string, default: 'AppSchema',
-                        desc: 'Name of the schema constant to generate'
+  class_option :schema, type: :string,
+                        desc: "The schema class to adopt; for graphql:install, when it runs, its name (default: graphql-ruby's)"
   class_option :sdl_folder, type: :string, default: 'graphql',
                             desc: 'Folder, relative to the app root, holding the *.graphql files'
+  class_option :subscriptions, type: :boolean, default: false,
+                               desc: 'Add Subscriptions::BaseSubscription, the base of the classes Subscription fields resolve to'
   class_option :skip_controller, type: :boolean, default: false,
-                                 desc: 'Skip the GraphqlController and its route'
+                                 desc: "Leave graphql-ruby's GraphqlController as it is"
   class_option :skip_ide, type: :boolean, default: false,
                           desc: 'Skip graphql.config.yml and the .gitignore entries for the IDE helper files'
 
-  # graphql-ruby's install, for the base classes. What it writes that Lighthouse
-  # replaces is noted, so a file the app had before is never touched.
+  # graphql-ruby's install: the app's, or one now, with graphql-ruby's defaults.
   def install_graphql_ruby
-    @before = ([schema_path, CONTROLLER, BASE_MUTATION] + ROOT_TYPES).select { |path| exist?(path) }
-    invoke 'graphql:install', [], schema: schema_name, relay: false, skip_graphiql: true, skip_query_logs: true, skip: true
+    return if schema_path
+
+    say_status :invoke, 'graphql:install (no graphql-ruby schema found)', :blue
+    invoke 'graphql:install', [], graphql_install_options
+    @schema_path = nil
+    return if schema_path
+
+    raise Thor::Error, "No graphql-ruby schema class (class #{options[:schema] || 'AppSchema'} < GraphQL::Schema) under app/: " \
+                       'run `bin/rails g graphql:install` first.'
   end
 
   def create_initializer
@@ -63,38 +79,60 @@ class Lighthouse::Generators::InstallGenerator < Rails::Generators::Base
     template 'schema.graphql.tt', File.join(sdl_folder, 'schema.graphql')
   end
 
-  def create_schema_class
-    return if keep_existing?(schema_path)
-
-    template 'schema.rb.tt', schema_path, force: true
-  end
-
-  # The SDL declares the root types: graphql-ruby's code-first ones go. Not when
-  # the app keeps a code-first schema of its own, which graphql-ruby's install
-  # pointed at them.
-  def remove_root_types
-    return unless exist?(schema_path) && File.read(File.join(destination_root, schema_path)).include?('RbLightHouse.get_schema')
-
-    ROOT_TYPES.each { |path| remove_file path unless before?(path) }
-  end
-
-  # The SDL declares a mutation's arguments, so its class is a plain
-  # GraphQL::Schema::Mutation, not graphql-ruby's RelayClassicMutation.
-  def adapt_base_mutation
-    return if before?(BASE_MUTATION) || !exist?(BASE_MUTATION)
-
-    gsub_file BASE_MUTATION, 'GraphQL::Schema::RelayClassicMutation', 'GraphQL::Schema::Mutation'
-    gsub_file BASE_MUTATION, /^\s*input_object_class .*\n/, ''
-  end
-
   # Subscriptions::BaseSubscription, which graphql-ruby has none of (see BaseClasses).
   def create_base_subscription
-    write_base_class(:subscriptions, Lighthouse::Config.namespaces[:subscriptions].first)
+    write_base_class(:subscriptions, Lighthouse::Config.namespaces[:subscriptions].first) if options[:subscriptions]
   end
 
-  def create_controller
-    return remove_graphql_ruby_controller if options[:skip_controller]
-    return if (@kept_controller = keep_existing?(CONTROLLER))
+  # graphql-ruby's schema class, built by Lighthouse from the SDL on its classes.
+  def adopt_schema_class
+    source = read(schema_path)
+    if lighthouse?(source)
+      say_status :skip, "#{schema_path} is Lighthouse's already", :yellow
+      return
+    end
+
+    declaration = /^([ \t]*)class (\S+) < GraphQL::Schema[ \t]*\n/
+    indent, name = source.match(declaration).captures
+    gsub_file schema_path, declaration, "#{indent}#{schema_comment(indent)}#{indent}class #{name} < #{schema_superclass(indent)}\n"
+    gsub_file schema_path, /^[ \t]*(query|mutation|subscription)\(Types::(Query|Mutation|Subscription)Type\)\n/, ''
+    gsub_file schema_path, /^(#{indent}\)\n)\n+/, '\\1'
+    gsub_file schema_path, RESOLVE_TYPE_STUB, "\n"
+    add_dataloader if source.include?('use GraphQL::Batch') && source.exclude?('use GraphQL::Dataloader')
+  end
+
+  # The example field goes; the root types' own fields stay.
+  def adapt_root_types
+    %w[query_type mutation_type subscription_type].each do |name|
+      path = types_path("#{name}.rb")
+      gsub_file path, TEST_FIELD, "\n" if exist?(path) && read(path).match?(TEST_FIELD)
+    end
+  end
+
+  # Every type class is Lighthouse's: graphql-ruby's base object, interface,
+  # union and scalar include Lighthouse::GraphQL::Type, so the classes that
+  # inherit from them (Types::QueryType, Types::NodeType, what `graphql:object`
+  # writes) lend their methods to the SDL's types of their name.
+  def adapt_type_bases
+    TYPE_CONCERN_ANCHORS.each do |name, anchor|
+      path = types_path("#{name}.rb")
+      next if !exist?(path) || read(path).include?('Lighthouse::GraphQL::Type')
+
+      indent = read(path)[anchor, 1]
+      next unless indent
+
+      indent += '  ' unless name == 'base_interface'
+      inject_into_file path, "#{indent}# Lighthouse's: the class of the SDL type of its name lends that type its methods.\n" \
+                             "#{indent}include Lighthouse::GraphQL::Type\n", after: anchor
+    end
+  end
+
+  # graphql-ruby's controller, as its install wrote it, serves the schema with
+  # Lighthouse's concern. One the app has changed is left alone.
+  def adapt_controller
+    return if options[:skip_controller] || !exist?(CONTROLLER)
+    return if read(CONTROLLER).include?('Lighthouse::GraphQL::Controller')
+    return @kept_controller = true unless graphql_ruby_controller?(read(CONTROLLER))
 
     template 'graphql_controller.rb.tt', CONTROLLER, force: true
   end
@@ -106,8 +144,7 @@ class Lighthouse::Generators::InstallGenerator < Rails::Generators::Base
     return unless File.exist?(routes)
     return if File.read(routes).include?('graphql#execute')
 
-    # Byte-identical to graphql-ruby's install route, so whichever generator
-    # runs second finds it in place and does not add it again.
+    # Byte-identical to graphql-ruby's install route.
     route 'post "/graphql", to: "graphql#execute"'
   end
 
@@ -128,21 +165,22 @@ class Lighthouse::Generators::InstallGenerator < Rails::Generators::Base
   def show_next_steps
     serve =
       if @kept_controller
-        "Serve it: #{CONTROLLER} was kept — have it call #{schema_name}.execute(...) to serve Lighthouse's schema."
+        "Serve it: #{CONTROLLER} was changed from graphql-ruby's, so it was kept — " \
+          "include Lighthouse::GraphQL::Controller in it, or keep calling #{schema_name}.execute(...)."
       else
         'Query it:  POST /graphql  {"query": "{ users { data { id name } paginatorInfo { total } } }"}'
       end
 
     say <<~MSG
 
-      Lighthouse is installed. Next steps:
+      Lighthouse is installed on graphql-ruby's install (#{schema_path}). Next steps:
         1. Describe your API in #{sdl_folder}/*.graphql (the starter schema assumes a User model).
-        2. Resolve a field in Ruby when a directive is not enough:  bin/rails g lighthouse:query LatestPosts
-           (it inherits from Resolvers::BaseResolver, which graphql-ruby's install wrote; lighthouse:mutation and
-           lighthouse:subscription write the others)
+        2. Resolve a field in Ruby when a directive is not enough, as in graphql-ruby: a method of
+           Types::QueryType (Query.latestPosts -> #latest_posts), a `field` of its own there,
+           `bin/rails g graphql:mutation`, or a Resolvers::BaseResolver subclass named after the field.
         3. Give a type Ruby methods, a union or interface its resolve_type, a scalar its coercion:
-           bin/rails g graphql:object Post (or graphql:union, graphql:interface, graphql:scalar),
-           then include Lighthouse::GraphQL::Type in the class
+           bin/rails g graphql:object Post (or graphql:union, graphql:interface, graphql:scalar);
+           the class is Lighthouse's through its base (Lighthouse::GraphQL::Type)
         4. Generate the IDE helper files:  bin/rails lighthouse:ide_helper
         5. #{serve}
     MSG
@@ -150,43 +188,26 @@ class Lighthouse::Generators::InstallGenerator < Rails::Generators::Base
 
   private
 
-  # A file the app had before this run is left alone unless --force is given;
-  # one graphql-ruby's install wrote in this run is Lighthouse's to replace.
-  def keep_existing?(path)
-    return false if options[:force] || !before?(path)
-
-    say_status :skip, "#{path} already exists (pass --force to replace it)", :yellow
-    true
+  def schema_superclass(indent)
+    lines = base_types.map { |key, name| "#{indent}      #{key}: #{name}" }
+    "Lighthouse::GraphQL::RbLightHouse.get_schema(\n#{indent}  options: {\n#{indent}    base_types: {\n" \
+      "#{lines.join(",\n")}\n#{indent}    }\n#{indent}  }\n#{indent})"
   end
 
-  def before?(path)
-    @before.include?(path)
+  def schema_comment(indent)
+    <<~RUBY.gsub(/^/, indent).delete_prefix(indent)
+      # Lighthouse builds the schema from the SDL in #{sdl_folder}/, on the classes graphql-ruby's
+      # install wrote (base_types): the SDL's root types extend the code-first ones, whose
+      # `field`s stay the schema's, and every type, resolver and mutation class inherits from
+      # its kind's base. The rest of the class is graphql-ruby's.
+    RUBY
   end
 
-  def exist?(path)
-    File.exist?(File.join(destination_root, path))
-  end
-
-  def schema_path
-    File.join('app/graphql', "#{schema_name.underscore}.rb")
-  end
-
-  # --skip-controller: the app serves the schema itself, so graphql-ruby's
-  # controller and route, if its install just wrote them, go.
-  def remove_graphql_ruby_controller
-    return if before?(CONTROLLER)
-
-    remove_file CONTROLLER
-    gsub_file 'config/routes.rb', %r{^\s*post "/graphql", to: "graphql#execute"\n}, '' if exist?('config/routes.rb')
-  end
-
-  def schema_name
-    options[:schema].camelize
-  end
-
-  # `Resolvers::BaseResolver`, for the schema class template.
-  def base_class_constant(kind)
-    "#{Lighthouse::Config.namespaces[kind].first}::#{base_class_name(kind)}"
+  def add_dataloader
+    anchor = /^([ \t]*)use GraphQL::Batch\n/
+    indent = read(schema_path)[anchor, 1]
+    inject_into_file schema_path, "#{indent}# Lighthouse's directives batch through GraphQL::Dataloader, beside GraphQL::Batch.\n" \
+                                  "#{indent}use GraphQL::Dataloader\n", after: anchor
   end
 
   def sdl_folder

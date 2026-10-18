@@ -18,6 +18,11 @@
 #   it is first used, so none misses what the base shares;
 # - for subscriptions, also resolves a Subscription field that has no class of
 #   its own, instead of Lighthouse::GraphQL::Subscription::Default.
+#
+# The code-first types graphql-ruby's install writes are bases too (RootTypes):
+# `query_type:` / `mutation_type:` / `subscription_type:` (Types::QueryType, ...)
+# are what the SDL's root types are built on, so their `field`s are the
+# schema's too, and `node:` (Types::NodeType) is the SDL's Node interface.
 module Lighthouse::GraphQL::ResolverBases
   # base_types key => the graphql-ruby class the base must inherit from.
   GRAPHQL_CLASSES = {
@@ -35,19 +40,28 @@ module Lighthouse::GraphQL::ResolverBases
   # (Types::PostType, Types::DateTimeType, ...) inherit from too.
   TYPE_KINDS = %i[object union interface scalar].freeze
 
-  # Take the three keys out of opts[:base_types] (the caller's Hash is not
+  # Take Lighthouse's keys out of opts[:base_types] (the caller's Hash is not
   # changed) and return { root kind => base class } for those given, plus
-  # :types => { kind => base } for graphql-ruby's own, which stay in opts.
+  # :types => { kind => base } for graphql-ruby's own, which stay in opts, and
+  # :roots => { query_type: ..., node: ... } for the code-first types (RootTypes).
   def extract!(opts)
     base_types = opts[:base_types]
     return {} unless base_types.is_a?(Hash)
 
     given = base_types.slice(*GRAPHQL_CLASSES.keys).compact
-    opts[:base_types] = base_types.except(*GRAPHQL_CLASSES.keys)
+    opts[:base_types] = base_types.except(*GRAPHQL_CLASSES.keys, *Lighthouse::GraphQL::RootTypes::KEYS)
     given.each { |key, klass| validate!(key, klass) }
     bases = KEYS.filter_map { |kind, key| [kind, given[key]] if given[key] }.to_h
     type_bases = base_types.slice(*TYPE_KINDS).compact
-    type_bases.empty? ? bases : bases.merge(types: type_bases)
+    bases = bases.merge(types: type_bases) unless type_bases.empty?
+    with_roots(bases, base_types)
+  end
+
+  # `bases` with the code-first root types given, validated, under :roots.
+  def with_roots(bases, base_types)
+    roots = base_types.slice(*Lighthouse::GraphQL::RootTypes::KEYS).compact
+    roots.each { |key, type| Lighthouse::GraphQL::RootTypes.validate!(key, type) }
+    roots.empty? ? bases : bases.merge(roots: roots)
   end
 
   def validate!(key, klass)

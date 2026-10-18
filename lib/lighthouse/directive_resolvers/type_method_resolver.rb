@@ -10,15 +10,18 @@ require_relative 'base'
 # `object` (the parent), `context`, the `dataload*` helpers, and the field's
 # arguments as snake_case keywords. A field with a resolving directive never
 # reaches it, and one whose name the class does not define is read off the
-# object as before. Not a directive: FieldResolverStack installs it on types
-# other than the root ones.
+# object as before. Not a directive: FieldResolverStack installs it, on the
+# root types too (Types::QueryType#latest_posts for Query.latestPosts, before
+# the conventional Resolvers::LatestPosts).
 class Lighthouse::GraphQL::DirectiveResolvers::TypeMethodResolver < Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
   # The class of the SDL type `type_name` (`Types::PostType` for `Post`) in
   # Config.namespaces[:types], when it includes Lighthouse::GraphQL::Type; nil
   # otherwise, so a type class that does not opt in is left alone. It must
   # inherit from the schema's base_types[:object] (in `bases`, ResolverBases)
-  # when one is given.
-  def self.type_class(type_name, bases = {})
+  # when one is given. A root type's class is the one it is built on (RootTypes).
+  def self.type_class(type_name, bases = {}, root_kind = nil)
+    return Lighthouse::GraphQL::RootTypes.type_class(root_kind, bases[:roots]) if root_kind
+
     klass = lookup(type_name)
     return unless klass
 
@@ -38,9 +41,12 @@ class Lighthouse::GraphQL::DirectiveResolvers::TypeMethodResolver < Lighthouse::
     name if klass.public_method_defined?(name) && !::GraphQL::Schema::Object.public_method_defined?(name)
   end
 
-  def initialize(field_def, type_def, method_name)
+  # `root_class`: the root type class the type is built on (RootTypes), used as
+  # it is; any other class is looked up by the type's name on each call.
+  def initialize(field_def, type_def, method_name, root_class = nil)
     super(field_def, type_def, nil)
     @method_name = method_name
+    @root_class = root_class
   end
 
   def define_resolver(target_type_class)
@@ -59,7 +65,7 @@ class Lighthouse::GraphQL::DirectiveResolvers::TypeMethodResolver < Lighthouse::
   # it no longer defines the method, the field is read as before. A parent that
   # is not a record of the type's @model is reported, and the field resolves to nil.
   def resolve_with_type(inner, obj, args, ctx)
-    klass = self.class.lookup(@type_def.graphql_name)
+    klass = @root_class || self.class.lookup(@type_def.graphql_name)
     return inner.call(obj, args, ctx) unless klass&.public_method_defined?(@method_name)
 
     model = Lighthouse::GraphQL::Directives::ModelDirective.declared_model(@type_def)

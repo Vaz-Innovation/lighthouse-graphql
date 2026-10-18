@@ -24,22 +24,25 @@ a hard dependency of Lighthouse so non-federated apps stay lean.
 bin/rails generate lighthouse:install
 ```
 
-does steps 1–5 below for you. It runs graphql-ruby's `graphql:install` first, for
-the base classes every graphql-ruby app has (`Types::Base*`, `Resolvers::BaseResolver`,
-`Mutations::BaseMutation`), then puts Lighthouse's own on top:
+does steps 1–5 below for you. It builds on graphql-ruby's own install,
+`rails g graphql:install`, with whichever of its options the app chose (`--relay`,
+`--batch`, `--api`, ...). When the app has no graphql-ruby schema class yet, it runs
+`graphql:install` first, with graphql-ruby's defaults. Then it adapts what
+graphql-ruby wrote, and adds Lighthouse's own:
 
 | File | What it is |
 | --- | --- |
+| `app/graphql/app_schema.rb` | graphql-ruby's schema class, now built by Lighthouse from the SDL on every class graphql-ruby wrote (`base_types`). The rest of the class is graphql-ruby's |
+| `app/graphql/types/query_type.rb`, `mutation_type.rb` | graphql-ruby's root types, which the SDL's `Query` and `Mutation` are built on. Their example `test_field` goes; Relay's `node` / `nodes` stay |
+| `app/graphql/types/base_*.rb`, `resolvers/base_resolver.rb`, `mutations/base_mutation.rb` | graphql-ruby's base classes. `BaseObject`, `BaseInterface`, `BaseUnion` and `BaseScalar` include `Lighthouse::GraphQL::Type` |
+| `app/controllers/graphql_controller.rb` | graphql-ruby's controller, replaced by one including `Lighthouse::GraphQL::Controller` |
 | `config/initializers/lighthouse.rb` | Every [configuration](configuration.md) option, commented out at its default |
 | `graphql/schema.graphql` | A starter schema (`user` via `@find`, `users` via `@paginate`) that assumes a `User` model — skipped when the folder already holds `.graphql` files |
-| `app/graphql/app_schema.rb` | The executable schema, built from the SDL, with `GraphQL::Dataloader` enabled and the base classes in `base_types` |
-| `app/graphql/{types,resolvers,mutations,subscriptions}/base_*.rb` | graphql-ruby's base classes, and Lighthouse's `Subscriptions::BaseSubscription` |
-| `app/controllers/graphql_controller.rb` | The endpoint, plus a `post '/graphql'` route |
 | `graphql.config.yml` | IDE configuration — see [IDE support](#ide-support) |
 
-`--schema=ApiSchema`, `--sdl-folder=app/schema`, `--skip-controller` and
-`--skip-ide` change what it writes. Rerunning it is safe, and a schema class or
-controller the app had before is kept (pass `--force` to replace it).
+`--schema=ApiSchema`, `--sdl-folder=app/schema`, `--subscriptions`,
+`--skip-controller` and `--skip-ide` change what it does. Rerunning it changes
+nothing, and a controller the app changed is kept.
 [generators.md](generators.md) has the details, every generator Lighthouse has, and
 which of graphql-ruby's `graphql:*` generators fit a Lighthouse app.
 
@@ -71,25 +74,34 @@ field's return type name (`User`), or you can be explicit with
 
 Lighthouse builds on graphql-ruby, and follows its convention: each kind of class
 inherits from a base class in its own namespace, where what they all share goes
-once. graphql-ruby's `graphql:install` writes them, and `lighthouse:install` runs it;
-by hand, run it yourself, then add the subscription base, which graphql-ruby has
-none of, and make the mutation base a `GraphQL::Schema::Mutation` (the SDL declares a
-mutation's arguments, where graphql-ruby's `RelayClassicMutation` takes one `input:`):
+once. graphql-ruby's `graphql:install` writes them, and `lighthouse:install` builds
+on them. By hand, run graphql-ruby's install with its defaults:
 
 ```shell
-bin/rails generate graphql:install --no-relay --skip-graphiql
+bin/rails generate graphql:install
 ```
 
+Then include `Lighthouse::GraphQL::Type` in the base object, interface, union and
+scalar, so every type class that inherits from them lends its methods to the SDL
+type of its name (see [type classes](resolvers.md#type-classes)):
+
 ```ruby
-# app/graphql/mutations/base_mutation.rb       — Mutation fields (Mutations::PublishPost)
-module Mutations
-  class BaseMutation < GraphQL::Schema::Mutation   # graphql-ruby writes RelayClassicMutation
-    argument_class Types::BaseArgument
+# app/graphql/types/base_object.rb
+module Types
+  class BaseObject < GraphQL::Schema::Object
+    include Lighthouse::GraphQL::Type
+    edge_type_class(Types::BaseEdge)
+    connection_type_class(Types::BaseConnection)
     field_class Types::BaseField
-    object_class Types::BaseObject
+    # include ApolloFederation::Object   # if you use federation
   end
 end
+```
 
+Add the subscription base, which graphql-ruby has none of, if the schema has a
+`Subscription` type (`lighthouse:install --subscriptions` writes it):
+
+```ruby
 # app/graphql/subscriptions/base_subscription.rb — Subscription fields
 module Subscriptions
   class BaseSubscription < GraphQL::Schema::Subscription
@@ -98,62 +110,85 @@ module Subscriptions
 end
 ```
 
-Delete the `Types::QueryType` and `Types::MutationType` it writes: the SDL declares
-the root types. The `Types::Base*` classes are the SDL's types' bases: the place to
-mix in Apollo Federation or custom field and argument behavior.
-
-```ruby
-# app/graphql/types/base_object.rb
-module Types
-  class BaseObject < GraphQL::Schema::Object
-    field_class Types::BaseField
-    # include ApolloFederation::Object   # if you use federation
-  end
-end
-```
+graphql-ruby's `Mutations::BaseMutation` stays a `RelayClassicMutation`. A
+`Mutation` field that declares its arguments one by one calls it as a plain
+mutation, with those arguments as keywords; one with a single `input:` argument
+goes through `RelayClassicMutation`'s own `input:` handling.
 
 ## 3. Build the schema
 
+graphql-ruby's schema class becomes Lighthouse's: it inherits from the schema
+`get_schema` builds from the SDL, instead of `GraphQL::Schema`.
+
 ```ruby
 # app/graphql/app_schema.rb
-require 'lighthouse-graphql'
-
-AppSchema = Lighthouse::GraphQL::RbLightHouse.get_schema(
-  sdl_folder: Rails.root.join('graphql').to_s,
+class AppSchema < Lighthouse::GraphQL::RbLightHouse.get_schema(
   options: {
     base_types: {
+      query_type: Types::QueryType,
+      mutation_type: Types::MutationType,
+      node: Types::NodeType,
       resolver: Resolvers::BaseResolver,
       mutation: Mutations::BaseMutation,
       subscription: Subscriptions::BaseSubscription,
       object: Types::BaseObject,
-      # interface:, union:, enum:, input_object:, scalar: ...
+      interface: Types::BaseInterface,
+      union: Types::BaseUnion,
+      scalar: Types::BaseScalar,
+      enum: Types::BaseEnum,
+      input_object: Types::BaseInputObject
     }
   }
 )
-```
-
-`object:` and the other SDL kinds go to graphql-ruby, which builds the SDL's types
-from them. `resolver:`, `mutation:` and `subscription:` are Lighthouse's: every
-class a `Query`, `Mutation` or `Subscription` field resolves to must inherit from
-its kind's base, and a `Subscription` field with no class of its own resolves with
-the subscription base. See [resolvers.md](resolvers.md#base-classes).
-
-`get_schema` returns a `GraphQL::Schema` subclass you can use directly, or
-subclass further (e.g. to add federation, tracing, a Dataloader):
-
-```ruby
-class AppSchema < AppSchema   # or build a Base*Schema and subclass it
+  # Lighthouse batches relationship loads through graphql-ruby's Dataloader.
   use GraphQL::Dataloader
+
+  max_depth(15)
+  max_query_string_tokens(5000)
+  validate_max_errors(100)
+
+  # Relay-style Object Identification, as graphql-ruby's install writes it:
+  def self.id_from_object(object, type_definition, query_ctx)
+    object.to_gid_param
+  end
+
+  def self.object_from_id(global_id, query_ctx)
+    GlobalID.find(global_id)
+  end
 end
 ```
 
-> Lighthouse uses graphql-ruby's `Dataloader` to batch relationship loads. Add
-> `use GraphQL::Dataloader` to your schema to get N+1-free relationships.
+The SDL is read from `config.sdl_folder` (`get_schema(sdl_folder: ...)` overrides
+it). The class body is graphql-ruby's, so plugins and settings go there as in any
+graphql-ruby schema (`use ...`, `max_complexity(...)`), but for `query(...)` and
+`mutation(...)`, which the SDL's root types replace, and `resolve_type`, which
+Lighthouse answers (see [types.md](types.md)).
+
+`object:` and the other SDL kinds go to graphql-ruby, which builds the SDL's types
+from them. `query_type:` and `mutation_type:` are the classes the SDL's `Query` and
+`Mutation` are built on, so their own `field`s (Relay's `node` / `nodes`) are the
+schema's too; `node:` is the SDL's `Node` interface (see [relay.md](relay.md)).
+`resolver:`, `mutation:` and `subscription:` are Lighthouse's: every class a
+`Query`, `Mutation` or `Subscription` field resolves to must inherit from its kind's
+base, and a `Subscription` field with no class of its own resolves with the
+subscription base. See [resolvers.md](resolvers.md#base-classes).
+
+A constant works as well, with the settings passed as options or set on it:
+
+```ruby
+AppSchema = Lighthouse::GraphQL::RbLightHouse.get_schema(
+  options: { base_types: { object: Types::BaseObject }, using: { GraphQL::Dataloader => {} } }
+)
+```
+
+> Lighthouse uses graphql-ruby's `Dataloader` to batch relationship loads. Keep
+> `use GraphQL::Dataloader` in your schema to get N+1-free relationships.
 
 ## 4. Serve it
 
-`rails g lighthouse:install` writes the controller. It includes
-`Lighthouse::GraphQL::Controller`, a concern that serves the schema:
+`rails g lighthouse:install` replaces graphql-ruby's controller (when the app has
+not changed it) with one including `Lighthouse::GraphQL::Controller`, a concern that
+serves the schema:
 
 ```ruby
 class GraphqlController < ApplicationController
@@ -286,7 +321,9 @@ When a field needs Ruby, write a graphql-ruby resolver or mutation class named
 after it — `Query.latestPosts` resolves to `Resolvers::LatestPosts`
 (`app/graphql/resolvers/latest_posts.rb`, a `Resolvers::BaseResolver`),
 `Mutation.publishPost` to `Mutations::PublishPost` (a `Mutations::BaseMutation`).
-`bin/rails generate lighthouse:query LatestPosts` scaffolds one. See
+A method of the root type class comes first, as in graphql-ruby: `Query.latestPosts`
+calls `Types::QueryType#latest_posts` when it defines one. `bin/rails generate
+graphql:mutation PublishPost` writes a code-first mutation. See
 [resolvers.md](resolvers.md).
 
 ## Next steps

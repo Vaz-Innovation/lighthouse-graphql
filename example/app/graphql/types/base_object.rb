@@ -1,9 +1,11 @@
 # frozen_string_literal: true
 
-# What every type class shares. The schema builds the SDL's object types from
-# it (base_types' object:, in app_schema.rb). A subclass that includes
-# Lighthouse::GraphQL::Type (Types::PostType) resolves fields of its type, such as
-# Post.readingTime with Types::PostType#reading_time. graphql-ruby's
-# `graphql:install` writes the same class.
-class Types::BaseObject < GraphQL::Schema::Object
+module Types
+  class BaseObject < GraphQL::Schema::Object
+    # Lighthouse's: the class of the SDL type of its name lends that type its methods.
+    include Lighthouse::GraphQL::Type
+    edge_type_class(Types::BaseEdge)
+    connection_type_class(Types::BaseConnection)
+    field_class Types::BaseField
+  end
 end

@@ -9,14 +9,19 @@ Lighthouse.configure do |config|
   # Where classes named by the schema are looked up, by kind. A Query or Mutation
   # field without a resolving directive resolves by convention: Query.latestPosts
   # to Resolvers::LatestPosts (a Resolvers::BaseResolver), Mutation.publishPost
-  # to Mutations::PublishPost (a GraphQL::Schema::Mutation). @builder classes
-  # come from :builders and @validator contracts from :validators. Post.readingTime,
-  # with no resolving directive, resolves with Types::PostType#reading_time (a
-  # Types::BaseObject including Lighthouse::GraphQL::Type), from :types. Generate them with
-  # `rails g lighthouse:query|mutation|type|builder|validator Name`.
+  # to Mutations::PublishPost (a Mutations::BaseMutation). @builder classes
+  # come from :builders and @validator contracts from :validators. A Subscription
+  # field resolves to Subscriptions::PostUpdated (a Subscriptions::BaseSubscription),
+  # @event(dispatch:) classes come from :events, and the graphql-ruby analyzers
+  # @complexity(resolver:) names from :analyzers. Post.readingTime, with no
+  # resolving directive, resolves with Types::PostType#reading_time (a
+  # Types::BaseObject including Lighthouse::GraphQL::Type), from :types. Generate a
+  # subscription, builder or validator with `rails g lighthouse:subscription|builder|validator Name`,
+  # and a type class with graphql-ruby's `rails g graphql:object|union|interface|scalar Name`.
   # config.namespaces = {
-  #   queries: ['Resolvers'], mutations: ['Mutations'], builders: ['Builders'], validators: ['Validators'],
-  #   analyzers: ['Analyzers'], types: ['Types']
+  #   queries: ['Resolvers'], mutations: ['Mutations'], subscriptions: ['Subscriptions'],
+  #   builders: ['Builders'], validators: ['Validators'], events: ['Events'], analyzers: ['Analyzers'],
+  #   types: ['Types']
   # }
 
   # Namespaces tried, in order, for models (@all(model: "User")) and for
@@ -27,6 +32,19 @@ Lighthouse.configure do |config|
 
   # Run @create/@update/@createMany/@updateMany in a database transaction.
   # config.transactional_mutations = true
+
+  # Treat "" as null on every field's inputs, as if each carried
+  # @convertEmptyStringsToNull. Read when the schema is built.
+  # config.convert_empty_strings_to_null = false
+
+  # What "trashed" means for @softDeletes, @trashed, @restore and @forceDelete.
+  # By default each model is inspected: paranoia, then discard, then a deleted_at column.
+  # config.soft_deletes = Lighthouse::Support::SoftDeletes::Column.new(:archived_at)
+
+  # Run @broadcast's subscription triggers in an ActiveJob (a directive's
+  # shouldQueue: overrides it), and the queue they go to (nil: the default one).
+  # config.queue_broadcasts = false
+  # config.broadcast_queue = nil
 
   # --- For large schemas and high traffic (all off by default) ---------------
   # This example app turns them on, each where it is meant to be used.
@@ -56,6 +74,11 @@ Lighthouse.configure do |config|
   # config.authenticated_user = ->(ctx) { ctx[:current_user] }
   # config.policy_user = ->(ctx) { ctx[:pundit_user] || ctx[:current_user] }
   # config.authorizer = ->(user, record, ability, args = []) { Pundit.policy!(user, record).public_send("#{ability}?", *args) }
+
+  # Feature flags read by @feature (Flipper by default): the actor a flag is
+  # checked for, and the check itself.
+  # config.feature_actor = ->(ctx) { ctx[:current_user] }
+  # config.feature_checker = ->(name, actor, _ctx) { Flipper.enabled?(name.to_sym, actor) }
 end
 
 # Register app-defined directives and federation reference resolvers inside
@@ -64,4 +87,11 @@ end
 # Rails.application.config.to_prepare do
 #   Lighthouse::DirectiveRegistry.register(Directives::Upcase)
 #   Lighthouse::ReferenceResolver.register('User') { |ref, _ctx| User.find_by(id: ref['id']) }
+# end
+
+# Listen to Lighthouse's request, schema-build and execution events. A listener
+# may return a value where the event says so, as BuildExtensionsResponse does.
+# See docs/events.md.
+# Lighthouse::Events.listen(Lighthouse::Events::EndExecution) do |event|
+#   Rails.logger.info("[GraphQL] #{event.result.to_h['errors']&.size.to_i} errors")
 # end

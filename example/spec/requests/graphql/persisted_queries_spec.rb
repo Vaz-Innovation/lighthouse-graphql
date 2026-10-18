@@ -30,7 +30,7 @@ RSpec.describe 'GraphQL persisted queries', type: :request do
 
     body = graphql(extensions: { persistedQuery: { version: 1, sha256Hash: tags['id'] } })
 
-    expect(body).to eq('data' => { 'tags' => [{ 'id' => Base64.strict_encode64("Tag:#{Tag.last.id}"), 'name' => 'ruby' }] })
+    expect(body).to eq('data' => { 'tags' => [{ 'id' => Tag.last.to_gid_param, 'name' => 'ruby' }] })
   end
 
   it 'refuses a query that does not match its hash' do

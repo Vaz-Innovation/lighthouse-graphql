@@ -55,20 +55,23 @@ module Lighthouse::GraphQL::FieldResolverStack
     [0, -> { resolver.define_resolver(type) }]
   end
 
-  # What resolves a field with no resolving directive: the conventional class
-  # of a root field, or the method of the type's class. nil: the default reader.
+  # What resolves a field with no resolving directive: the method of the
+  # type's class (Types::QueryType#latest_posts too, as in graphql-ruby), else
+  # for a Query or Mutation field the conventional class. nil: the default reader.
   def own_step(type, field_def, root_kind, bases, type_class)
-    return convention_step(type, field_def, root_kind, bases) if root_kind
+    return convention_step(type, field_def, root_kind, bases) if root_kind == :subscriptions
 
-    type_method_step(type, field_def, type_class) if type_class
+    step = type_method_step(type, field_def, type_class, root: !root_kind.nil?) if type_class
+    step || (convention_step(type, field_def, root_kind, bases) if root_kind)
   end
 
   # Nothing to install when the class does not define the field's method: the
   # field is read off the object.
-  def type_method_step(type, field_def, type_class)
+  # `root`: the class is the root type's, which the type is built on, not one found by name.
+  def type_method_step(type, field_def, type_class, root: false)
     resolver = Lighthouse::GraphQL::DirectiveResolvers::TypeMethodResolver
     method_name = resolver.method_for(type_class, field_def)
-    [0, -> { resolver.new(field_def, type, method_name).define_resolver(type) }] if method_name
+    [0, -> { resolver.new(field_def, type, method_name, root ? type_class : nil).define_resolver(type) }] if method_name
   end
 
   # An explicit @validator on the field already validates its arguments.

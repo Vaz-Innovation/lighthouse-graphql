@@ -6,6 +6,11 @@ does, with two directives: `@globalId` encodes and decodes the ids, and `@node`
 makes a type findable by them. For Relay's cursor pagination, see
 [`@paginate(type: CONNECTION)`](directives.md#paginate).
 
+An app whose schema has graphql-ruby's Relay, as `rails g graphql:install` writes it
+by default, uses the same directives on graphql-ruby's ids and `Node`: see
+[Relay through graphql-ruby](#relay-through-graphql-ruby). The sections before it
+describe a schema without it.
+
 ## Global ids
 
 `@globalId` on a field encodes its value with the type's name:
@@ -124,6 +129,64 @@ type Query {
     @guard
 }
 ```
+
+## Relay through graphql-ruby
+
+graphql-ruby's install (`--relay`, its default) writes Relay's side in Ruby:
+`Types::NodeType`, the `node` and `nodes` fields of `Types::QueryType`, and the
+schema's `id_from_object` / `object_from_id`, on Rails' GlobalID:
+
+```ruby
+class AppSchema < Lighthouse::GraphQL::RbLightHouse.get_schema(
+  options: { base_types: { query_type: Types::QueryType, node: Types::NodeType, object: Types::BaseObject } }
+)
+  def self.id_from_object(object, type_definition, query_ctx)
+    object.to_gid_param
+  end
+
+  def self.object_from_id(global_id, query_ctx)
+    GlobalID.find(global_id)
+  end
+end
+```
+
+`lighthouse:install` names those classes in `base_types`, and Lighthouse's
+directives then work on them. The schema has one kind of global id and one `Node`:
+
+- `@globalId` on a field that resolves an object's own id encodes it with
+  `id_from_object`: `Tag.id` answers `tag.to_gid_param`, as graphql-ruby's `Node.id`
+  does. Any other value is encoded as before.
+- `@globalId` on an argument decodes with `object_from_id`, which loads the object.
+  `ID` gives its id, and `ARRAY` / `TYPE` its class name (`["Tag", 1]`, `"Tag"`).
+- `node:` is the SDL's `Node` interface: `interface Node`, which `@node` adds, and
+  `implements Node` refer to `Types::NodeType`. A `@node` type implements it.
+- `Query.node` and `nodes` are graphql-ruby's code-first fields of
+  `Types::QueryType`, which find objects with `object_from_id`. The `node` field
+  `@node` would add to `Query` gives way to them.
+
+```graphql
+type Tag @node {
+  id: ID! @globalId
+  name: String!
+}
+
+type Query {
+  tag(id: ID! @globalId(decode: ID) @eq): Tag @find
+}
+```
+
+```graphql
+{
+  node(id: "Z2lkOi8vYXBwL1RhZy8x") { id ... on Tag { name } }
+  tag(id: "Z2lkOi8vYXBwL1RhZy8x") { name }
+}
+```
+
+`Tag.id` and both arguments carry `Tag` 1's GlobalID (`gid://app/Tag/1`, in base64).
+`Query.node` finds every object with `object_from_id`, so `@node(resolver:)` and
+`@node(model:)` play no part in it, and [`global_id`](configuration.md#global_id)
+encodes only what `id_from_object` does not. A schema without `id_from_object` /
+`object_from_id` works as the sections above describe.
 
 ## Your own encoding
 

@@ -1,21 +1,23 @@
 require 'rails_helper'
 
 RSpec.describe 'GraphQL Relay ids, eager loading and resolver classes', type: :request do
-  def global_id(record) = Base64.strict_encode64("#{record.class.name}:#{record.id}")
+  # graphql-ruby's global ids: AppSchema.id_from_object, which its install writes on Rails' GlobalID.
+  def global_id(record) = record.to_gid_param
 
-  describe '@node and @globalId' do
-    it "answers a tag's global id, and finds the tag through Query.node with it" do
+  describe "@node and @globalId, on graphql-ruby's Relay" do
+    it "answers a tag's global id, and finds the tag through graphql-ruby's Query.node and nodes with it" do
       tag = create(:tag, name: 'rails')
 
       expect(graphql('{ tags { id name } }').dig('data', 'tags')).to eq([{ 'id' => global_id(tag), 'name' => 'rails' }])
       expect(graphql(%({ node(id: "#{global_id(tag)}") { __typename id ... on Tag { name } } })).dig('data', 'node'))
         .to eq('__typename' => 'Tag', 'id' => global_id(tag), 'name' => 'rails')
+      expect(graphql(%({ nodes(ids: ["#{global_id(tag)}"]) { ... on Tag { name } } })).dig('data', 'nodes')).to eq([{ 'name' => 'rails' }])
     end
 
-    it 'refuses the global id of a type that is not a node' do
-      body = graphql(%({ node(id: "#{Base64.strict_encode64('Post:1')}") { id } }))
-
-      expect(error_messages(body)).to eq(['[Post] is not a type that can be resolved by node.'])
+    it "makes Tag implement graphql-ruby's Node interface, the only Node" do
+      expect(AppSchema.types['Node']).to equal(Types::NodeType)
+      expect(AppSchema.types['Tag'].interfaces).to include(Types::NodeType)
+      expect(AppSchema.query.fields['node'].owner).to equal(Types::QueryType)
     end
   end
 

@@ -47,7 +47,7 @@ module Lighthouse::GraphQL::SchemaGenerator
     impl = default_implementation
     # base_types' resolver / mutation / subscription are Lighthouse's, not graphql-ruby's.
     bases = Lighthouse::GraphQL::ResolverBases.extract!(opts)
-    schema = from_document(document, impl, opts)
+    schema = Lighthouse::GraphQL::RootTypes.build(document, bases[:roots]) { from_document(document, impl, opts) }
 
     delegate_to_federation_sdl(schema)
     Lighthouse::GraphQL::GeneratedResolvers.install_dispatcher(schema)
@@ -140,8 +140,9 @@ module Lighthouse::GraphQL::SchemaGenerator
       # Apollo Federation helper can detect entities and add _entities.
       Lighthouse::GraphQL::FederationDirectives.apply(type)
       root_kind = root_kinds[type.graphql_name]
-      type_class = root_kind ? nil : Lighthouse::GraphQL::DirectiveResolvers::TypeMethodResolver.type_class(type.graphql_name, bases)
-      type.fields.each_value { |field_def| process_field(type, field_def, root_kind, bases, type_class) }
+      type_class = Lighthouse::GraphQL::DirectiveResolvers::TypeMethodResolver.type_class(type.graphql_name, bases, root_kind)
+      # A field a code-first base declares (RootTypes) resolves as graphql-ruby resolves it.
+      type.fields.each_value { |field_def| process_field(type, field_def, root_kind, bases, type_class) if field_def.owner == type }
     end
 
     # @complexity, and paginated fields, give graphql-ruby's complexity analysis their cost.

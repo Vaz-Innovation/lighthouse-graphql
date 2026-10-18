@@ -69,17 +69,15 @@ Most schemas need nothing else.
 
 When the default is not enough, say when the values are Hashes from a search
 service rather than records, write the union's class as graphql-ruby does
-(`rails g graphql:union SearchResult`),
-`Types::<Name>Type` including `Lighthouse::GraphQL::Type`, with `resolve_type`.
-It returns a type name, or a type class, which stands for the SDL type of its
-`graphql_name`:
+(`rails g graphql:union SearchResult`): `Types::<Name>Type`, with `resolve_type`.
+Its base, `Types::BaseUnion`, includes `Lighthouse::GraphQL::Type` after
+`lighthouse:install` (see [opting in](#opting-in-and-base-classes)). It returns a
+type name, or a type class, which stands for the SDL type of its `graphql_name`:
 
 ```ruby
 # app/graphql/types/search_result_type.rb
 module Types
   class SearchResultType < BaseUnion
-    include Lighthouse::GraphQL::Type
-
     def self.resolve_type(object, context)
       return unless object.is_a?(Hash)
 
@@ -96,7 +94,6 @@ An interface's goes in graphql-ruby's `definition_methods`:
 module Types
   module AuthoredType
     include BaseInterface
-    include Lighthouse::GraphQL::Type
 
     definition_methods do
       def resolve_type(object, context)
@@ -154,15 +151,14 @@ type Query {
 }
 ```
 
-Write the scalar's class with graphql-ruby's `rails g graphql:scalar DateTime`,
-`Types::<Name>Type` including `Lighthouse::GraphQL::Type`:
+Write the scalar's class with graphql-ruby's `rails g graphql:scalar DateTime`:
+`Types::<Name>Type`, a `Types::BaseScalar`, which includes `Lighthouse::GraphQL::Type`
+after `lighthouse:install`:
 
 ```ruby
 # app/graphql/types/date_time_type.rb
 module Types
   class DateTimeType < BaseScalar
-    include Lighthouse::GraphQL::Type
-
     def self.coerce_input(value, context)
       Time.iso8601(value.to_s)
     rescue ArgumentError
@@ -194,10 +190,12 @@ class with `coerce_input` and `coerce_result` fails when the schema is built.
 ## Opting in, and base classes
 
 Only a class including `Lighthouse::GraphQL::Type` counts: any other
-`Types::SearchResultType` or `Types::DateTimeType`, such as the ones a graphql-ruby
-app already has, is left alone. The concern can be included in a subclass of
-`GraphQL::Schema::Object`, `Union` or `Scalar`, or in a module including
-`GraphQL::Schema::Interface`.
+`Types::SearchResultType` or `Types::DateTimeType` is left alone. `lighthouse:install`
+includes the concern in graphql-ruby's `Types::BaseObject`, `BaseInterface`,
+`BaseUnion` and `BaseScalar`, so every type class inheriting from them counts. In an
+app that did not run it, include the concern by hand, in those bases or in each
+class: a subclass of `GraphQL::Schema::Object`, `Union` or `Scalar`, or a module
+including `GraphQL::Schema::Interface`.
 
 The classes are looked up in [`namespaces[:types]`](configuration.md#namespaces)
 (default `['Types']`). When the schema's `base_types` name a base for a kind,
@@ -205,15 +203,16 @@ graphql-ruby builds the SDL's types of that kind from it, and a type class of th
 kind must inherit from it, or the schema does not build:
 
 ```ruby
-AppSchema = Lighthouse::GraphQL::RbLightHouse.get_schema(
+class AppSchema < Lighthouse::GraphQL::RbLightHouse.get_schema(
   options: {
     base_types: {
       object: Types::BaseObject,
       union: Types::BaseUnion,
       interface: Types::BaseInterface,
       scalar: Types::BaseScalar
-      # resolver:, mutation:, subscription: (resolvers.md#handing-the-bases-to-the-schema)
+      # query_type:, node:, resolver:, mutation:, ... (resolvers.md#handing-the-bases-to-the-schema)
     }
   }
 )
+end
 ```

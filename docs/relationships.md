@@ -39,12 +39,13 @@ aliases, so an SDL written for it builds unchanged.
 
 The relationship directives load through graphql-ruby's **Dataloader** and
 ActiveRecord's preloader, one query per association per batch. Enable the
-Dataloader on your schema (the install generator does):
+Dataloader on your schema (graphql-ruby's install does, and with `--batch`
+`lighthouse:install` adds it beside GraphQL::Batch):
 
 ```ruby
-AppSchema = Lighthouse::GraphQL::RbLightHouse.get_schema(
-  options: { using: { GraphQL::Dataloader => {} } }
-)
+class AppSchema < Lighthouse::GraphQL::RbLightHouse.get_schema(options: { base_types: { object: Types::BaseObject } })
+  use GraphQL::Dataloader
+end
 ```
 
 A query for 100 posts and their authors then issues two queries, not 101. A

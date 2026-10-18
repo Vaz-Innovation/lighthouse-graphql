@@ -32,7 +32,22 @@ module Lighthouse::GraphQL::ResolverDispatch
     kwargs = Lighthouse::Support::Arguments.prepare(info.field, info.arguments, info.context)
     instance = Lighthouse::GraphQL::ResolveInfo.attach(klass.new(object: info.object, context: info.context, field: info.field), info)
     instance.define_singleton_method(:resolve) { |**values| public_send(method, **values) } if method
-    instance.resolve_with_support(**kwargs)
+    single_input?(instance, kwargs) ? instance.resolve_with_support(**kwargs) : resolve_as_mutation(instance, kwargs)
+  end
+
+  # graphql-ruby's RelayClassicMutation (the base mutation its install writes)
+  # takes one `input:` argument. A field that declares its arguments one by one
+  # calls it as a plain GraphQL::Schema::Mutation, with them as keywords: past
+  # HasSingleInputArgument's unwrapping of `input:`, and its authorization of
+  # the arguments of `input:`.
+  def single_input?(instance, kwargs)
+    !instance.is_a?(::GraphQL::Schema::HasSingleInputArgument) || kwargs.key?(:input)
+  end
+
+  def resolve_as_mutation(instance, kwargs)
+    instance.define_singleton_method(:authorize_arguments, ::GraphQL::Schema::Resolver.instance_method(:authorize_arguments))
+    instance.singleton_class.send(:private, :authorize_arguments)
+    ::GraphQL::Schema::Mutation.instance_method(:resolve_with_support).bind_call(instance, **kwargs)
   end
 
   # The class itself when it answers `name` as a class method, else an instance.

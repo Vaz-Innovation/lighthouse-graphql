@@ -20,6 +20,12 @@ AllCops:
     # Copied as they are from Rails (bin/rails active_storage:install, solid_queue:install).
     - 'example/db/migrate/*.active_storage.rb'
     - 'example/db/migrate/*.solid_queue.rb'
+    # Written by graphql-ruby's graphql:install, then lighthouse:install, and kept as
+    # they write them: the example is regenerated with both to check them.
+    - 'example/app/graphql/app_schema.rb'
+    - 'example/app/graphql/types/base_*.rb'
+    - 'example/app/graphql/types/{node,query,mutation}_type.rb'
+    - 'example/app/graphql/{resolvers/base_resolver,mutations/base_mutation,subscriptions/base_subscription}.rb'
     - 'example/config/environments/**/*'
     - 'example/log/**/*'
     - 'example/public/**/*'

@@ -6,8 +6,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Lighthouse now uses what the Rails app already has instead of settings of its own: the app's
-cache, its controllers' rate limiting and its ActiveStorage. Several defaults change.
+Lighthouse now uses what the Rails app and graphql-ruby already have instead of settings and
+files of its own: the app's cache, its controllers' rate limiting, its ActiveStorage, and
+everything graphql-ruby's `graphql:install` writes, which `lighthouse:install` now builds on.
+Several defaults change.
 
 **Upgrading from 0.5:**
 
@@ -20,6 +22,10 @@ cache, its controllers' rate limiting and its ActiveStorage. Several defaults ch
    `GraphQL::ExecutionError`.
 4. `@upload` checks `public:` against the ActiveStorage service. On a public service, add
    `public: true`. Where `public: true` meets a private service, name a public one with `disk:`.
+5. `rails g lighthouse:query` and `lighthouse:mutation` are gone. Resolve a root field with a
+   method of `Types::QueryType` / `MutationType`, with `rails g graphql:mutation`, or with a
+   `Resolvers::` / `Mutations::` class written by hand, which convention still finds. An app
+   installed with 0.5 keeps working as it is: `AppSchema = get_schema(...)` is still supported.
 
 ### Added
 
@@ -31,6 +37,21 @@ cache, its controllers' rate limiting and its ActiveStorage. Several defaults ch
   fails only the field.
 - `@throttle` refusals are instrumented as `rate_limit.action_controller`, with `rate_limit`'s
   payload (`request`, `count`, `to`, `within`, `by`, `name`, `scope`, `cache_key`).
+- `base_types` takes graphql-ruby's code-first root types and Node interface. The SDL's root type
+  of a kind is built on `query_type:` / `mutation_type:` / `subscription_type:` (`Types::QueryType`),
+  so the `field`s the class declares (graphql-ruby's Relay `node` and `nodes`, what
+  `graphql:mutation` adds to `Types::MutationType`) are the schema's too, beside the SDL's, and
+  resolve as in graphql-ruby. With no such root type in the SDL, the class is the root. `node:`
+  (`Types::NodeType`) is the SDL's `Node` interface, which `@node` types implement, so
+  graphql-ruby's Relay and `@node` share one `Node`.
+- A root field with no resolving directive resolves with the method of its name on the root type
+  class, when the class includes `Lighthouse::GraphQL::Type` (`Query.latestPosts` →
+  `Types::QueryType#latest_posts`), before the conventional `Resolvers::` / `Mutations::` class.
+- A schema that implements graphql-ruby's `id_from_object` / `object_from_id` has one kind of
+  global id: `@globalId` encodes an object's own id with `id_from_object`, and decodes an
+  argument with `object_from_id`.
+- `lighthouse:install --subscriptions` writes `Subscriptions::BaseSubscription` and names it in
+  `base_types`; without it, the install writes no subscription base.
 
 ### Changed
 
@@ -49,6 +70,25 @@ cache, its controllers' rate limiting and its ActiveStorage. Several defaults ch
     `ActionController::TooManyRequests`, which Rails answers with a 429
     (`head :too_many_requests` on Rails 7.2). The field used to fail on its own, with the rest of
     the operation answered; that remains the behavior without Action Pack.
+- `lighthouse:install` builds on graphql-ruby's `graphql:install`, run with whichever of its
+  options the app chose (`--relay`, `--batch`, `--skip-mutation-root-type`, `--schema`,
+  `--directory`, `--api`), or run first with its defaults when the app has none. It writes no
+  schema class of its own: graphql-ruby's `class AppSchema < GraphQL::Schema` becomes
+  `class AppSchema < Lighthouse::GraphQL::RbLightHouse.get_schema(options: { base_types: ... })`,
+  naming every class graphql-ruby wrote, and keeps the rest of the class (`use
+  GraphQL::Dataloader`, `max_depth`, `id_from_object`, ...). It takes out what Lighthouse replaces:
+  the `query(...)` / `mutation(...)` root types the SDL's are built on, the `resolve_type` stub,
+  and the example `test_field`. Its base object, interface, union and scalar include
+  `Lighthouse::GraphQL::Type`, so every type class is Lighthouse's without an `include` of its
+  own. With `--batch`, the schema uses `GraphQL::Dataloader` too. Its `Mutations::BaseMutation`, a
+  `RelayClassicMutation`, is kept; graphql-ruby's controller, unchanged since its install, becomes
+  one with `Lighthouse::GraphQL::Controller`. `Types::QueryType` and `MutationType` are kept.
+- An SDL Mutation field that declares its arguments one by one resolves by convention to a
+  `GraphQL::Schema::RelayClassicMutation` subclass as to a plain mutation, its arguments as
+  keywords. It used to fail looking for `input:`.
+- A subscriptions backend the app's schema class `use`s in its body
+  (`use GraphQL::Subscriptions::ActionCableSubscriptions`) delivers the SDL's Subscription fields.
+  graphql-ruby adds its subscription extension only to a root type of the class's own.
 - `Lighthouse::GraphQL::Controller` puts the controller in the context (`:lighthouse_controller`)
   for `@throttle`. In development, an error Rails answers with a status of its own
   (`config.action_dispatch.rescue_responses`, such as a 429 or a 404) now gets that status, as in
@@ -70,6 +110,8 @@ cache, its controllers' rate limiting and its ActiveStorage. Several defaults ch
   `Config.persisted_queries_store` stays, defaulting to `Rails.cache`.
 - `Config.upload_store`: to store files elsewhere, declare an ActiveStorage service and name it
   with `@upload(disk:)`, as a Laravel app declares a disk.
+- `rails g lighthouse:query` and `lighthouse:mutation`: graphql-ruby has no resolver generator,
+  and `graphql:mutation` works in a Lighthouse app now. See Upgrading.
 
 ### Fixed
 

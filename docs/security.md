@@ -10,20 +10,24 @@ Lighthouse works the same way on top of webonyx's validation rules.
 
 ## Setting the limits
 
-The limits are graphql-ruby's own schema settings. Set them on the schema
-Lighthouse builds:
+The limits are graphql-ruby's own schema settings. Set them in the body of the
+schema class, as in any graphql-ruby schema (graphql-ruby's install writes
+`max_depth(15)` there):
 
 ```ruby
 # app/graphql/app_schema.rb
-AppSchema = Lighthouse::GraphQL::RbLightHouse.get_schema(options: { using: { GraphQL::Dataloader => {} } })
+class AppSchema < Lighthouse::GraphQL::RbLightHouse.get_schema(options: { base_types: { object: Types::BaseObject } })
+  use GraphQL::Dataloader
 
-AppSchema.max_complexity(300)   # refuse queries that score over 300
-AppSchema.max_depth(12)         # refuse queries nested deeper than 12 fields
-AppSchema.disable_introspection_entry_points if Rails.env.production?
+  max_complexity(300)   # refuse queries that score over 300
+  max_depth(12)         # refuse queries nested deeper than 12 fields
+  disable_introspection_entry_points if Rails.env.production?
+end
 ```
 
-You can also set them on a base schema class you hand to `get_schema` with
-`options: { base_schema: MyBaseSchema }`.
+A schema assigned to a constant (`AppSchema = get_schema(...)`) takes them as calls
+on it (`AppSchema.max_complexity(300)`). You can also set them on a base schema class
+you hand to `get_schema` with `options: { base_schema: MyBaseSchema }`.
 
 A query over the limit isn't executed. Its response holds only the error:
 

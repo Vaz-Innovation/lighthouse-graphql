@@ -48,6 +48,7 @@ require_relative 'namespaces'
   events/execution_trace
   events/schema_build
   resolver_bases
+  root_types
   schema_generator
   schema_cache
   persisted_queries

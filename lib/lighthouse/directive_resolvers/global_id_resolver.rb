@@ -51,7 +51,9 @@ class Lighthouse::GraphQL::DirectiveResolvers::GlobalIdDirectiveResolver < Light
 
     install(target_type_class, lambda do |obj, args, ctx|
       id = inner.call(obj, args, ctx)
-      id.nil? ? nil : Lighthouse::Config.global_id.encode(type_name, id)
+      next if id.nil?
+
+      Lighthouse::GraphQL::GlobalId.encode_field(target_type_class, obj, id, ctx) || Lighthouse::Config.global_id.encode(type_name, id)
     end)
   end
 end
