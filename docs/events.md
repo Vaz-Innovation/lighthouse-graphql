@@ -107,7 +107,9 @@ end
 # => { "data" => {...}, "extensions" => { "queries" => 3 } }
 ```
 
-`query_complexity` is `nil`: Lighthouse does not compute it for you.
+`query_complexity` is the query's complexity score, the number graphql-ruby
+checks against `max_complexity` (see [security.md](security.md#reading-the-score)).
+It is `nil` for a query that failed validation.
 
 **`ManipulateResult`**: change `event.result` (the Hash with `data`, `errors` and
 `extensions`) in place, or assign a new Hash to `event.result=`:

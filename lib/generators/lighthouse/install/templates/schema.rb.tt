@@ -2,9 +2,21 @@
 
 # Executable schema built by Lighthouse from the SDL in <%= sdl_folder %>/. The
 # Dataloader batches relationship loads (@hasMany, @belongsTo, ...) to avoid N+1.
+# base_types names the base classes: every class a Query, Mutation or Subscription
+# field resolves to must inherit from its kind's, and a Subscription field with no
+# class of its own resolves with the subscription one.
 <%= schema_name %> = Lighthouse::GraphQL::RbLightHouse.get_schema(
   options: {
-    using: { GraphQL::Dataloader => {} }
-    # base_types: { object: Types::BaseObject } # your graphql-ruby base classes
+    using: { GraphQL::Dataloader => {} },
+    base_types: {
+      resolver: <%= base_class_constant(:queries) %>,
+      mutation: <%= base_class_constant(:mutations) %>,
+      subscription: <%= base_class_constant(:subscriptions) %>
+      # object: Types::BaseObject, ... # graphql-ruby's base classes of the SDL's types
+    }
   }
 )
+
+# Refuse expensive queries before they run (see the gem's docs/security.md):
+# <%= schema_name %>.max_complexity(300)
+# <%= schema_name %>.max_depth(12)

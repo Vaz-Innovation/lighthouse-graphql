@@ -3,17 +3,18 @@
 # Install a field's resolvers innermost first (see
 # DirectiveRegistry#resolution_order), so each wrapper decorates the ones
 # before it. Besides its directives, a field gets the conventional
-# Queries::/Mutations:: resolver when it is a root field with no resolving
+# Resolvers::/Mutations:: resolver when it is a root field with no resolving
 # directive, and argument validation when an input type it takes carries
 # @validator. The registry replaces a hardcoded `case dnode.name`: adding a
 # directive is "register a class", not "edit the generator".
 module Lighthouse::GraphQL::FieldResolverStack
   module_function
 
-  def apply(type, field_def, directives, root_kind)
-    opts = { root_kind: root_kind }
+  # `bases`: { root kind => base class } from the schema's base_types (ResolverBases).
+  def apply(type, field_def, directives, root_kind, bases: {})
+    opts = { root_kind: root_kind, bases: bases }
     steps = directive_steps(type, field_def, directives, opts)
-    steps << convention_step(type, field_def, root_kind) if root_kind && !resolving_directive?(directives)
+    steps << convention_step(type, field_def, root_kind, bases) if root_kind && !resolving_directive?(directives)
     steps << validator_step(type, field_def, opts) if input_validation?(field_def, directives)
     steps << empty_strings_step(type, field_def, opts) if empty_string_conversion?(field_def, directives)
 
@@ -38,13 +39,13 @@ module Lighthouse::GraphQL::FieldResolverStack
     directives.any? { |d| registry.resolution_class(d.name) && !registry.wrapper?(d.name) }
   end
 
-  def convention_step(type, field_def, root_kind)
+  def convention_step(type, field_def, root_kind, bases = {})
     resolvers = Lighthouse::GraphQL::DirectiveResolvers
     resolver =
       if root_kind == :subscriptions
-        resolvers::SubscriptionDirectiveResolver.new(field_def, type, nil, root_kind: root_kind)
+        resolvers::SubscriptionDirectiveResolver.new(field_def, type, nil, root_kind: root_kind, bases: bases)
       else
-        resolvers::ConventionResolver.new(field_def, type, root_kind)
+        resolvers::ConventionResolver.new(field_def, type, root_kind, bases[root_kind])
       end
     [0, -> { resolver.define_resolver(type) }]
   end

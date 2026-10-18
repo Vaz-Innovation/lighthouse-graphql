@@ -2,15 +2,24 @@
 
 require 'rails/generators'
 require 'lighthouse-graphql'
+require_relative 'base_classes'
 
 # Base for the generators that scaffold the classes a schema refers to by
-# name — queries, mutations, builders and validators — each in its own
-# namespace (Config.namespaces) and with its own contract.
+# name — resolvers, mutations, subscriptions, builders and validators — each in
+# its own namespace (Config.namespaces) and with its own contract. A resolver,
+# mutation or subscription inherits from its namespace's base class
+# (Resolvers::BaseResolver, ...), written first when it is missing.
 class Lighthouse::Generators::ClassGenerator < Rails::Generators::NamedBase
+  include Lighthouse::Generators::BaseClasses
+
   hide!
 
   class_option :namespace, type: :string,
                            desc: 'Namespace to generate into (default: the first of Config.namespaces for this kind)'
+
+  def create_base_class
+    write_base_class(kind, namespace_name)
+  end
 
   def create_class
     create_file File.join('app/graphql', *modules.map(&:underscore), "#{class_basename.underscore}.rb"), source
@@ -22,7 +31,7 @@ class Lighthouse::Generators::ClassGenerator < Rails::Generators::NamedBase
 
   private
 
-  # :queries, :mutations, :builders or :validators.
+  # :queries, :mutations, :subscriptions, :builders or :validators.
   def kind
     raise NotImplementedError
   end
@@ -52,10 +61,12 @@ class Lighthouse::Generators::ClassGenerator < Rails::Generators::NamedBase
   end
 
   def source
-    lines = ['# frozen_string_literal: true', '']
-    modules.each_with_index { |mod, depth| lines << "#{'  ' * depth}module #{mod}" }
-    body.each_line { |line| lines << (line.strip.empty? ? '' : "#{'  ' * modules.size}#{line.chomp}") }
-    modules.size.times.reverse_each { |depth| lines << "#{'  ' * depth}end" }
-    "#{lines.join("\n")}\n"
+    ruby_source(modules, body)
+  end
+
+  # The class a generated class inherits from: the namespace's base class,
+  # which Ruby finds from inside the namespace's modules.
+  def superclass_name
+    base_class_name(kind)
   end
 end

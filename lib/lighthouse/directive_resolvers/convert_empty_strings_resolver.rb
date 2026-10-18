@@ -19,7 +19,7 @@ require_relative 'base'
 # carried the directive.
 #
 # The conversion is a wrapper around the field's resolver (outermost, order
-# 6), so every kind of resolver — directives, @field, Queries::/Mutations::
+# 6), so every kind of resolver — directives, @field, Resolvers::/Mutations::
 # classes, the default reader — and @validator see the converted arguments,
 # and other fields sharing an input type are unaffected. SchemaGenerator
 # installs it too, without the directive on the field, when an argument or

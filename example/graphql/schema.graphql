@@ -5,7 +5,7 @@
 # Directives reference: ../docs/directives.md
 
 type Query {
-  "The signed-in user — resolved by Queries::Me. Requires `Authorization: Bearer <token>`."
+  "The signed-in user — resolved by Resolvers::Me. Requires `Authorization: Bearer <token>`."
   me: User! @guard
 
   "Find a user by id."
@@ -32,7 +32,7 @@ type Query {
   "Every tag. Kept in Rails.cache for five minutes; createTag clears it."
   tags: [Tag!]! @all @cache(maxAge: 300) @cacheControl(maxAge: 300)
 
-  "Full-text-ish search over published posts — resolved by Queries::SearchPosts."
+  "Full-text-ish search over published posts — resolved by Resolvers::SearchPosts."
   searchPosts(term: String!): [Post!]!
 }
 

@@ -151,8 +151,9 @@ Schema-first doesn't mean schema-only. When a field does something no directive
 describes, write Ruby, using graphql-ruby's own classes:
 
 - A `Query` or `Mutation` field without a resolving directive resolves by convention to
-  `Queries::FieldName` (a `GraphQL::Schema::Resolver`) or `Mutations::FieldName` (a
-  `GraphQL::Schema::Mutation`). See [Queries, Mutations and Builders](resolvers.md).
+  `Resolvers::FieldName` (a `Resolvers::BaseResolver`) or `Mutations::FieldName` (a
+  `Mutations::BaseMutation`), under the base classes graphql-ruby's convention gives
+  each kind. See [Resolvers, Mutations and Builders](resolvers.md).
 - `@builder` classes adjust a query; `@validator` contracts check arguments.
 - Your own directives plug in through the registry, with the same contracts as the
   built-in ones. See [Custom Directives](custom-directives.md).

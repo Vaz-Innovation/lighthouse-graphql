@@ -13,7 +13,8 @@ Include the federation mixins in the base types you pass to Lighthouse, and make
 your schema a federation schema:
 
 ```ruby
-class BaseObject < GraphQL::Schema::Object
+# app/graphql/types/base_object.rb
+class Types::BaseObject < GraphQL::Schema::Object
   include ApolloFederation::Object
 
   # Default entity resolution: look the record up by id on the model that shares
@@ -29,7 +30,7 @@ end
 
 BaseAppSchema = Lighthouse::GraphQL::RbLightHouse.get_schema(
   sdl_folder: Rails.root.join('graphql').to_s,
-  options: { federation: true, base_types: { object: BaseObject } }
+  options: { federation: true, base_types: { object: Types::BaseObject, resolver: Resolvers::BaseResolver } }
 )
 
 class AppSchema < BaseAppSchema

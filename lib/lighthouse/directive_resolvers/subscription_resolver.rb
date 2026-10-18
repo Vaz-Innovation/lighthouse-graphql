@@ -8,8 +8,9 @@ require_relative 'base'
 # Config.namespaces[:subscriptions] at call time so code reloading keeps
 # working. The class is a GraphQL::Schema::Subscription, which may include
 # Lighthouse::GraphQL::Subscription for PHP Lighthouse's hooks. A field
-# with no class still works: it is a Lighthouse::GraphQL::Subscription::Default
-# whose update is the broadcast root, which is all `@broadcast` needs.
+# with no class still works: it resolves with the schema's base_types[:subscription]
+# when given, else with Lighthouse::GraphQL::Subscription::Default, whose update
+# is the broadcast root, which is all `@broadcast` needs.
 #
 # graphql-ruby registers a subscription through the class its field was
 # built from, which a field built from SDL has not. The field is therefore
@@ -38,19 +39,26 @@ class Lighthouse::GraphQL::DirectiveResolvers::SubscriptionDirectiveResolver < L
   attr_reader :field_def
 
   # The class this field stands for: the one @subscription names, else the
-  # conventional one, else the default.
+  # conventional one, else the schema's base subscription, else the default.
   def subscription_class
     klass = find_class
-    return Lighthouse::GraphQL::Subscription::Default unless klass
+    return base || Lighthouse::GraphQL::Subscription::Default unless klass
 
     unless klass.is_a?(Class) && klass < ::GraphQL::Schema::Subscription
       raise Lighthouse::DefinitionError, "#{klass} resolves #{location}, so it must inherit from GraphQL::Schema::Subscription."
     end
 
+    Lighthouse::GraphQL::ResolverBases.check!(klass, base, location)
+
     klass
   end
 
   private
+
+  # The schema's base_types[:subscription], or nil.
+  def base
+    (@opts[:bases] || {})[:subscriptions]
+  end
 
   def find_class
     namespaces = Lighthouse::Config.namespaces[:subscriptions]

@@ -21,7 +21,8 @@ type Comment @cacheControl(maxAge: 60) {
 type Tag @cacheControl(maxAge: 300) {
   id: ID!
   name: String!
-  posts: [Post!]! @belongsToMany
+  "Not paginated, so it costs what Analyzers::TagPostsComplexity estimates."
+  posts: [Post!]! @belongsToMany @complexity(resolver: "TagPostsComplexity")
 }
 
 enum PostOrderColumn {

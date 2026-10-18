@@ -25,7 +25,7 @@ module Lighthouse::Support::ModelResolver
 
   # `namespaces:` overrides the configured resolver_namespaces, e.g. with
   # Config.namespaces[:builders] to look a builder class up.
-  # `fallback: false` skips the bare name, so `Queries::User` is never
+  # `fallback: false` skips the bare name, so `Resolvers::User` is never
   # mistaken for the `User` model.
   def constantize(name, namespaces: self.namespaces, fallback: true)
     return nil unless name

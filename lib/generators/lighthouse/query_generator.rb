@@ -2,10 +2,11 @@
 
 require_relative 'class_generator'
 
-# `rails generate lighthouse:query LatestPosts` — a GraphQL::Schema::Resolver
-# that `Query.latestPosts` resolves to by convention.
+# `rails generate lighthouse:query LatestPosts` — the resolver (a
+# Resolvers::BaseResolver, so a GraphQL::Schema::Resolver) that `Query.latestPosts`
+# resolves to by convention.
 class Lighthouse::Generators::QueryGenerator < Lighthouse::Generators::ClassGenerator
-  desc 'Generate a query class (GraphQL::Schema::Resolver) in app/graphql/queries.'
+  desc 'Generate the resolver of a Query field (a Resolvers::BaseResolver) in app/graphql/resolvers.'
 
   private
 
@@ -15,7 +16,7 @@ class Lighthouse::Generators::QueryGenerator < Lighthouse::Generators::ClassGene
     <<~RUBY
       # Resolves Query.#{class_basename.camelize(:lower)}. Keyword arguments are the field's
       # arguments in snake_case; `object` and `context` are available.
-      class #{class_basename} < GraphQL::Schema::Resolver
+      class #{class_basename} < #{superclass_name}
         def resolve(**args)
           raise NotImplementedError
         end

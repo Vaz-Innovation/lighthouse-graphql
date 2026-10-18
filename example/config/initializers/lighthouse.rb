@@ -8,12 +8,13 @@ Lighthouse.configure do |config|
 
   # Where classes named by the schema are looked up, by kind. A Query or Mutation
   # field without a resolving directive resolves by convention: Query.latestPosts
-  # to Queries::LatestPosts (a GraphQL::Schema::Resolver), Mutation.publishPost
+  # to Resolvers::LatestPosts (a Resolvers::BaseResolver), Mutation.publishPost
   # to Mutations::PublishPost (a GraphQL::Schema::Mutation). @builder classes
   # come from :builders and @validator contracts from :validators. Generate them
   # with `rails g lighthouse:query|mutation|builder|validator Name`.
   # config.namespaces = {
-  #   queries: ['Queries'], mutations: ['Mutations'], builders: ['Builders'], validators: ['Validators']
+  #   queries: ['Resolvers'], mutations: ['Mutations'], builders: ['Builders'], validators: ['Validators'],
+  #   analyzers: ['Analyzers']
   # }
 
   # Namespaces tried, in order, for models (@all(model: "User")) and for

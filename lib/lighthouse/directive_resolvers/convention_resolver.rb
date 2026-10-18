@@ -4,14 +4,17 @@ require_relative 'base'
 
 # Resolves a Query or Mutation field that has no resolving directive by
 # convention, as PHP Lighthouse does: `Query.latestPosts` resolves to
-# `Queries::LatestPosts` (a GraphQL::Schema::Resolver), `Mutation.publishPost`
-# to `Mutations::PublishPost` (a GraphQL::Schema::Mutation), looked up in
+# `Resolvers::LatestPosts` (a GraphQL::Schema::Resolver, by graphql-ruby's
+# convention a Resolvers::BaseResolver), `Mutation.publishPost` to
+# `Mutations::PublishPost` (a GraphQL::Schema::Mutation), looked up in
 # Config.namespaces[:queries] / [:mutations] at call time so code reloading
 # keeps working. Not a directive: SchemaGenerator installs it.
 class Lighthouse::GraphQL::DirectiveResolvers::ConventionResolver < Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
-  def initialize(field_def, type_def, kind)
+  # `base`: the class the schema's base_types require the class to inherit from.
+  def initialize(field_def, type_def, kind, base = nil)
     super(field_def, type_def, nil)
     @kind = kind
+    @base = base
   end
 
   def define_resolver(target_type_class)
@@ -31,6 +34,12 @@ class Lighthouse::GraphQL::DirectiveResolvers::ConventionResolver < Lighthouse::
     ROOT_KINDS[type.respond_to?(:graphql_name) ? type.graphql_name : type.to_s]
   end
 
+  # The class a root field resolves to, without its namespace: `LatestPosts`
+  # for `latestPosts`.
+  def self.class_name_for(field_def)
+    field_def.name.to_s.camelize
+  end
+
   private
 
   def resolve_by_convention(inner, obj, args, ctx)
@@ -43,6 +52,7 @@ class Lighthouse::GraphQL::DirectiveResolvers::ConventionResolver < Lighthouse::
             "#{klass} resolves #{location}, so it must inherit from GraphQL::Schema::Resolver " \
             '(or GraphQL::Schema::Mutation).'
     end
+    Lighthouse::GraphQL::ResolverBases.check!(klass, @base, location)
 
     Lighthouse::GraphQL::ResolverDispatch.call(klass, @field_def, obj, args, ctx)
   end
@@ -61,7 +71,7 @@ class Lighthouse::GraphQL::DirectiveResolvers::ConventionResolver < Lighthouse::
   end
 
   def class_name
-    @class_name ||= @field_def.name.to_s.camelize
+    @class_name ||= self.class.class_name_for(@field_def)
   end
 
   def location

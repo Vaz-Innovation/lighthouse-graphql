@@ -44,6 +44,21 @@ RSpec.describe Lighthouse::Generators::InstallGenerator do
     ].each { |path| expect(exist?(path)).to be(true), "expected #{path}" }
   end
 
+  it "writes graphql-ruby's base classes of resolvers, mutations and subscriptions" do
+    run_generator
+
+    expect(read('app/graphql/resolvers/base_resolver.rb')).to include('module Resolvers', 'class BaseResolver < GraphQL::Schema::Resolver')
+    expect(read('app/graphql/mutations/base_mutation.rb')).to include('module Mutations', 'class BaseMutation < GraphQL::Schema::Mutation')
+    expect(read('app/graphql/subscriptions/base_subscription.rb'))
+      .to include("class BaseSubscription < GraphQL::Schema::Subscription\n    include Lighthouse::GraphQL::Subscription")
+    expect(read('app/graphql/app_schema.rb')).to include(
+      'resolver: Resolvers::BaseResolver', 'mutation: Mutations::BaseMutation', 'subscription: Subscriptions::BaseSubscription'
+    )
+    %w[resolvers/base_resolver mutations/base_mutation subscriptions/base_subscription].each do |path|
+      expect { RubyVM::InstructionSequence.compile(read("app/graphql/#{path}.rb")) }.not_to raise_error
+    end
+  end
+
   it 'generates a controller that includes the concern and names the schema' do
     run_generator('--schema=ApiSchema')
 
@@ -128,6 +143,17 @@ RSpec.describe Lighthouse::Generators::InstallGenerator do
       run_generator
 
       expect(read('app/graphql/app_schema.rb')).to eq("class AppSchema < GraphQL::Schema\nend\n")
+    end
+
+    it 'keeps the base mutation graphql-ruby wrote, even with --force' do
+      relay = "module Mutations\n  class BaseMutation < GraphQL::Schema::RelayClassicMutation\n  end\nend\n"
+      FileUtils.mkdir_p(File.join(root, 'app/graphql/mutations'))
+      File.write(File.join(root, 'app/graphql/mutations/base_mutation.rb'), relay)
+
+      run_generator('--force')
+
+      expect(read('app/graphql/mutations/base_mutation.rb')).to eq(relay)
+      expect(exist?('app/graphql/resolvers/base_resolver.rb')).to be(true)
     end
 
     it 'replaces them with --force' do

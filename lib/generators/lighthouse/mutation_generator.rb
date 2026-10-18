@@ -2,10 +2,11 @@
 
 require_relative 'class_generator'
 
-# `rails generate lighthouse:mutation PublishPost` — a GraphQL::Schema::Mutation
-# that `Mutation.publishPost` resolves to by convention.
+# `rails generate lighthouse:mutation PublishPost` — the class (a
+# Mutations::BaseMutation, so a GraphQL::Schema::Mutation) that `Mutation.publishPost`
+# resolves to by convention.
 class Lighthouse::Generators::MutationGenerator < Lighthouse::Generators::ClassGenerator
-  desc 'Generate a mutation class (GraphQL::Schema::Mutation) in app/graphql/mutations.'
+  desc 'Generate the class of a Mutation field (a Mutations::BaseMutation) in app/graphql/mutations.'
 
   private
 
@@ -16,7 +17,7 @@ class Lighthouse::Generators::MutationGenerator < Lighthouse::Generators::ClassG
       # Resolves Mutation.#{class_basename.camelize(:lower)}. Keyword arguments are the field's
       # arguments in snake_case; `object` and `context` are available. Raise
       # GraphQL::ExecutionError for failures the client should see.
-      class #{class_basename} < GraphQL::Schema::Mutation
+      class #{class_basename} < #{superclass_name}
         def resolve(**args)
           raise NotImplementedError
         end

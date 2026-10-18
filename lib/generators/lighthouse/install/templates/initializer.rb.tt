@@ -12,15 +12,16 @@ Lighthouse.configure do |config|
 
   # Where classes named by the schema are looked up, by kind. A Query or Mutation
   # field without a resolving directive resolves by convention: Query.latestPosts
-  # to Queries::LatestPosts (a GraphQL::Schema::Resolver), Mutation.publishPost
-  # to Mutations::PublishPost (a GraphQL::Schema::Mutation). @builder classes
+  # to Resolvers::LatestPosts (a Resolvers::BaseResolver), Mutation.publishPost
+  # to Mutations::PublishPost (a Mutations::BaseMutation). @builder classes
   # come from :builders and @validator contracts from :validators. A Subscription
-  # field resolves to Subscriptions::PostUpdated (a GraphQL::Schema::Subscription),
-  # and @event(dispatch:) classes come from :events. Generate them with
+  # field resolves to Subscriptions::PostUpdated (a Subscriptions::BaseSubscription),
+  # @event(dispatch:) classes come from :events, and the graphql-ruby analyzers
+  # @complexity(resolver:) names from :analyzers. Generate them with
   # `rails g lighthouse:query|mutation|subscription|builder|validator Name`.
   # config.namespaces = {
-  #   queries: ['Queries'], mutations: ['Mutations'], subscriptions: ['Subscriptions'],
-  #   builders: ['Builders'], validators: ['Validators'], events: ['Events']
+  #   queries: ['Resolvers'], mutations: ['Mutations'], subscriptions: ['Subscriptions'],
+  #   builders: ['Builders'], validators: ['Validators'], events: ['Events'], analyzers: ['Analyzers']
   # }
 
   # Namespaces tried, in order, for models (@all(model: "User")) and for

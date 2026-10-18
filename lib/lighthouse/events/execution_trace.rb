@@ -33,7 +33,8 @@ module Lighthouse::Events::ExecutionTrace
       result = query.result_values
       return unless result.is_a?(Hash)
 
-      merge_extensions(result, Lighthouse::Events.dispatch(Lighthouse::Events::BuildExtensionsResponse.new(result, nil)))
+      complexity = Lighthouse::GraphQL::Complexity.query_complexity(query)
+      merge_extensions(result, Lighthouse::Events.dispatch(Lighthouse::Events::BuildExtensionsResponse.new(result, complexity)))
       manipulate = Lighthouse::Events::ManipulateResult.new(result)
       Lighthouse::Events.dispatch(manipulate)
       result.replace(manipulate.result) unless manipulate.result.equal?(result)

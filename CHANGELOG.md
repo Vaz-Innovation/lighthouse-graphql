@@ -6,6 +6,46 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `@complexity` sets what a field costs in graphql-ruby's query complexity analysis, so
+  `AppSchema.max_complexity(n)` refuses expensive queries before they run. A bare `@complexity`
+  costs `1 + child complexity × first`. `@complexity(resolver: "Name")` names a
+  `GraphQL::Analysis::Analyzer` subclass in the new `analyzers` namespace (`Analyzers::Name`),
+  which Lighthouse installs on the schema. Including `Lighthouse::GraphQL::ComplexityAnalyzer`
+  gives the analyzer a `complexity` (a number, or a proc of `context, args, child_complexity`,
+  as graphql-ruby's) that is the cost of the fields naming it.
+- A root field resolved by a `GraphQL::Schema::Resolver` class, by convention or through `@field`,
+  takes the `complexity` that class declares, as graphql-ruby's `field ..., resolver:` does.
+- `BuildExtensionsResponse#query_complexity` holds the query's complexity score while something
+  listens to the event. It used to be `nil`.
+- `docs/security.md`: query complexity, depth and introspection limits.
+- graphql-ruby's base classes: `rails g lighthouse:install` writes `Resolvers::BaseResolver`,
+  `Mutations::BaseMutation` and `Subscriptions::BaseSubscription` (which includes
+  `Lighthouse::GraphQL::Subscription`), and `lighthouse:query`, `:mutation` and `:subscription`
+  write the one they need when it is missing. Generated classes inherit from them. An existing
+  base, such as the ones graphql-ruby's `graphql:install` writes, is never replaced.
+- `get_schema`'s `base_types` takes `resolver:`, `mutation:` and `subscription:` beside
+  graphql-ruby's own keys. Every class a `Query`, `Mutation` or `Subscription` field resolves to
+  must then inherit from its kind's base (`Lighthouse::DefinitionError` otherwise), and a
+  `Subscription` field with no class of its own resolves with the subscription base. The
+  generated schema class names the three.
+
+### Changed
+
+- The classes of `Query` fields are looked up in `Resolvers` (`app/graphql/resolvers`), graphql-ruby's
+  convention, instead of `Queries`: `Query.latestPosts` resolves to `Resolvers::LatestPosts`, and
+  `lighthouse:query` writes there. To keep `app/graphql/queries`, set
+  `config.namespaces = { queries: ['Queries'] }`.
+- `lighthouse:subscription` no longer takes `--lighthouse`. The class inherits from
+  `Subscriptions::BaseSubscription`, which includes the concern, and gets its hooks; under a base
+  without the concern, it gets graphql-ruby's `authorized?` and `update`.
+
+- Paginated fields (`@paginate`, and relationship directives given `type:`) cost
+  `1 + child complexity × first` in the complexity score. A page of 1,000 items now scores
+  1,000 times one item's cost; before, a paginator scored the same whatever `first` was.
+  A schema that already sets `max_complexity` may need a higher limit.
+
 ## [0.3.0] - 2026-10-17
 
 ### Added

@@ -127,7 +127,14 @@ Prefer to wire it by hand? These are the steps the generator performs.
 
    AppSchema = Lighthouse::GraphQL::RbLightHouse.get_schema(
      sdl_folder: Rails.root.join('graphql').to_s,
-     options: { base_types: { object: BaseObject } } # your graphql-ruby base classes
+     options: {
+       base_types: {
+         resolver: Resolvers::BaseResolver,              # graphql-ruby's base classes, which
+         mutation: Mutations::BaseMutation,              # rails g lighthouse:install writes
+         subscription: Subscriptions::BaseSubscription
+         # object: Types::BaseObject, ...
+       }
+     }
    )
    ```
 
@@ -143,7 +150,8 @@ including base types and configuration.
 ### Example app
 
 [`example/`](example) is a small blog API built with Lighthouse on Rails 8.1. It shows
-the schema, the generated `Queries::`/`Mutations::`/`Builders::`/`Validators::` classes,
+the schema, the generated `Resolvers::`/`Mutations::`/`Subscriptions::`/`Builders::`/`Validators::` classes
+under graphql-ruby's base classes,
 Pundit policies and the opt-in performance features working together, and its specs
 are the library's end-to-end suite. See [example/README.md](example/README.md).
 
@@ -161,7 +169,7 @@ or as Markdown in [`docs/`](docs):
 | [Directives reference](docs/directives.md) | Every built-in directive, grouped by purpose |
 | [Relationships](docs/relationships.md) | `@hasMany`, `@belongsTo`, `@belongsToMany`, `@hasOne`, the `@morph*` variants, batching and `type:` pagination |
 | [Filtering & ordering](docs/filtering-and-ordering.md) | `@eq`/`@where`/`@in`/`@like`, `@whereConditions`, `@orderBy` |
-| [Queries, mutations & builders](docs/resolvers.md) | `Queries::` / `Mutations::` classes (graphql-ruby's contract), builders, generators |
+| [Resolvers, mutations & builders](docs/resolvers.md) | `Resolvers::` / `Mutations::` classes and their base classes (graphql-ruby's contract), builders, generators |
 | [Mutations](docs/mutations.md) | `@create`, `@update`, `@upsert`, `@delete` (and `*Many`), nested mutations on every kind of association, `@spread`, `@inject` |
 | [Validation](docs/validation.md) | Model validations, `@validator` with Dry::Validation contracts |
 | [Authentication & authorization](docs/authorization.md) | `@guard`, `@canFind` / `@canModel` / `@canQuery` / `@canResolved` / `@canRoot` (Pundit by default) |

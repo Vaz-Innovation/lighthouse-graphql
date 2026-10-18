@@ -75,16 +75,44 @@ argument (the `@eq` makes `id` a filter). Lighthouse infers the model from the
 field's return type name (`User`), or you can be explicit with
 `@all(model: "User")`.
 
-## 2. Provide your base types
+## 2. Provide your base classes
 
-Lighthouse builds on graphql-ruby, so you supply the base classes it should use
-for objects, interfaces, etc. — exactly the place to mix in Apollo Federation or
-any custom field/argument behavior.
+Lighthouse builds on graphql-ruby, and follows its convention: each kind of class
+inherits from a base class in its own namespace, where what they all share goes
+once. `rails g lighthouse:install` writes the bases of the classes that resolve
+root fields:
 
 ```ruby
-# app/graphql/base_object.rb
-class BaseObject < GraphQL::Schema::Object
-  # include ApolloFederation::Object   # if you use federation
+# app/graphql/resolvers/base_resolver.rb       — Query fields (Resolvers::LatestPosts)
+module Resolvers
+  class BaseResolver < GraphQL::Schema::Resolver
+  end
+end
+
+# app/graphql/mutations/base_mutation.rb       — Mutation fields (Mutations::PublishPost)
+module Mutations
+  class BaseMutation < GraphQL::Schema::Mutation
+  end
+end
+
+# app/graphql/subscriptions/base_subscription.rb — Subscription fields
+module Subscriptions
+  class BaseSubscription < GraphQL::Schema::Subscription
+    include Lighthouse::GraphQL::Subscription
+  end
+end
+```
+
+The SDL's types can have graphql-ruby base classes too, as `graphql:install`
+writes them: the place to mix in Apollo Federation or custom field and argument
+behavior.
+
+```ruby
+# app/graphql/types/base_object.rb
+module Types
+  class BaseObject < GraphQL::Schema::Object
+    # include ApolloFederation::Object   # if you use federation
+  end
 end
 ```
 
@@ -98,12 +126,21 @@ AppSchema = Lighthouse::GraphQL::RbLightHouse.get_schema(
   sdl_folder: Rails.root.join('graphql').to_s,
   options: {
     base_types: {
-      object: BaseObject,
+      resolver: Resolvers::BaseResolver,
+      mutation: Mutations::BaseMutation,
+      subscription: Subscriptions::BaseSubscription,
+      object: Types::BaseObject,
       # interface:, union:, enum:, input_object:, scalar: ...
     }
   }
 )
 ```
+
+`object:` and the other SDL kinds go to graphql-ruby, which builds the SDL's types
+from them. `resolver:`, `mutation:` and `subscription:` are Lighthouse's: every
+class a `Query`, `Mutation` or `Subscription` field resolves to must inherit from
+its kind's base, and a `Subscription` field with no class of its own resolves with
+the subscription base. See [resolvers.md](resolvers.md#base-classes).
 
 `get_schema` returns a `GraphQL::Schema` subclass you can use directly, or
 subclass further (e.g. to add federation, tracing, a Dataloader):
@@ -247,18 +284,19 @@ type User {
 }
 ```
 
-## Custom queries and mutations
+## Custom resolvers and mutations
 
 When a field needs Ruby, write a graphql-ruby resolver or mutation class named
-after it — `Query.latestPosts` resolves to `Queries::LatestPosts`
-(`app/graphql/queries/latest_posts.rb`), `Mutation.publishPost` to
-`Mutations::PublishPost`. `bin/rails generate lighthouse:query LatestPosts`
-scaffolds one. See [resolvers.md](resolvers.md).
+after it — `Query.latestPosts` resolves to `Resolvers::LatestPosts`
+(`app/graphql/resolvers/latest_posts.rb`, a `Resolvers::BaseResolver`),
+`Mutation.publishPost` to `Mutations::PublishPost` (a `Mutations::BaseMutation`).
+`bin/rails generate lighthouse:query LatestPosts` scaffolds one. See
+[resolvers.md](resolvers.md).
 
 ## Next steps
 
 - [Directives reference](directives.md) — the full vocabulary.
-- [Queries, mutations & builders](resolvers.md), [Mutations](mutations.md),
+- [Resolvers, mutations & builders](resolvers.md), [Mutations](mutations.md),
   [Validation](validation.md), [Caching](caching.md).
 - [Relationships](relationships.md) — wiring associations.
 - [Filtering & ordering](filtering-and-ordering.md) — query constraints.

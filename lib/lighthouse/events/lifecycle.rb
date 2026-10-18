@@ -71,7 +71,9 @@ module Lighthouse::Events
 
   # A query ran. A listener may return an Events::ExtensionsResponse (or an
   # Array of them), which is merged into the result's "extensions".
-  # `query_complexity` is nil unless it was computed.
+  # `query_complexity` is the query's complexity score, as graphql-ruby checks it
+  # against max_complexity (see GraphQL::Complexity); nil for a query that
+  # failed validation, which is never scored.
   class BuildExtensionsResponse < Event
     attr_reader :result, :query_complexity
 

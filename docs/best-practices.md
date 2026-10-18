@@ -44,12 +44,22 @@ Use `@guard` and the `@can*` directives on fields that require them. They wrap t
 resolver, so the check runs before any data is loaded (only `@canResolved`, which
 needs the result, runs after — keep it to fields that don't write).
 
-## Keep queries, mutations and builders apart
+## Keep resolvers, mutations and builders apart
 
-A custom `Query` field is a `GraphQL::Schema::Resolver` in `app/graphql/queries`,
-a `Mutation` field a `GraphQL::Schema::Mutation` in `app/graphql/mutations`, and a
-query refinement a builder in `app/graphql/builders`. They have different jobs and
-contracts; don't fold them into one "resolvers" folder. See [resolvers.md](resolvers.md).
+A custom `Query` field is a `Resolvers::BaseResolver` in `app/graphql/resolvers`, a
+`Mutation` field a `Mutations::BaseMutation` in `app/graphql/mutations`, and a query
+refinement a builder in `app/graphql/builders`. They have different jobs and
+contracts; keep each kind in its own folder. See [resolvers.md](resolvers.md).
+
+## Share through the base classes
+
+What every resolver, mutation or subscription needs (a concern, a helper,
+graphql-ruby's `argument_class`) goes in `Resolvers::BaseResolver`,
+`Mutations::BaseMutation` or `Subscriptions::BaseSubscription`, once, as in any
+graphql-ruby app. Name them in the schema's `base_types` (`resolver:`, `mutation:`,
+`subscription:`), and a class that forgets to inherit from its base is refused
+instead of quietly missing what it shares. See
+[resolvers.md](resolvers.md#base-classes).
 
 ## Validate in the model first
 

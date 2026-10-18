@@ -2,22 +2,27 @@
 
 require_relative 'class_generator'
 
-# `rails generate lighthouse:subscription PostUpdated` — a
-# GraphQL::Schema::Subscription that `Subscription.postUpdated` resolves to by
-# convention. With `--lighthouse`, the class also includes
-# Lighthouse::GraphQL::Subscription (PHP Lighthouse's authorize?/filter?/resolve_payload hooks).
+# `rails generate lighthouse:subscription PostUpdated` — the class (a
+# Subscriptions::BaseSubscription, so a GraphQL::Schema::Subscription) that
+# `Subscription.postUpdated` resolves to by convention. The base Lighthouse writes
+# includes Lighthouse::GraphQL::Subscription, so the class gets PHP Lighthouse's
+# authorize?/filter?/resolve_payload hooks; under a base without the concern, it
+# gets graphql-ruby's authorized?/update instead.
 class Lighthouse::Generators::SubscriptionGenerator < Lighthouse::Generators::ClassGenerator
-  desc 'Generate a subscription class (GraphQL::Schema::Subscription) in app/graphql/subscriptions.'
-
-  class_option :lighthouse, type: :boolean, default: false,
-                            desc: "Include Lighthouse::GraphQL::Subscription: PHP Lighthouse's authorize?/filter?/resolve_payload hooks"
+  desc 'Generate the class of a Subscription field (a Subscriptions::BaseSubscription) in app/graphql/subscriptions.'
 
   private
 
   def kind = :subscriptions
 
   def body
-    options[:lighthouse] ? lighthouse_body : plain_body
+    lighthouse_base? ? lighthouse_body : plain_body
+  end
+
+  # Does the namespace's base class include Lighthouse's concern?
+  def lighthouse_base?
+    path = File.join(destination_root, base_class_path(kind, namespace_name))
+    File.exist?(path) && File.read(path).include?('Lighthouse::GraphQL::Subscription')
   end
 
   def plain_body
@@ -25,7 +30,7 @@ class Lighthouse::Generators::SubscriptionGenerator < Lighthouse::Generators::Cl
       # Resolves Subscription.#{field_name}. Keyword arguments are the field's arguments in
       # snake_case; `object` and `context` are available. `context` is the subscriber's:
       # graphql-ruby stores it with the subscription and replays it for every update.
-      class #{class_basename} < GraphQL::Schema::Subscription
+      class #{class_basename} < #{superclass_name}
         # Runs for the subscription request and again for every update. Raise a
         # GraphQL::ExecutionError to refuse with a message (false refuses silently).
         def authorized?(**args)
@@ -62,12 +67,12 @@ class Lighthouse::Generators::SubscriptionGenerator < Lighthouse::Generators::Cl
 
   def lighthouse_body
     <<~RUBY
-      # Resolves Subscription.#{field_name}. A graphql-ruby subscription with PHP Lighthouse's
-      # hooks: every subscriber of the field gets every broadcast, and `filter?` decides.
-      # All hooks are optional; `object` and `context` (the subscriber's) are available.
-      class #{class_basename} < GraphQL::Schema::Subscription
-        include Lighthouse::GraphQL::Subscription
-
+      # Resolves Subscription.#{field_name}. #{superclass_name} includes Lighthouse::GraphQL::Subscription,
+      # PHP Lighthouse's hooks: every subscriber of the field gets every broadcast, and
+      # `filter?` decides. All hooks are optional; `object` and `context` (the
+      # subscriber's) are available. graphql-ruby's own `authorized?` or `update`,
+      # defined here, win over them.
+      class #{class_basename} < #{superclass_name}
         # May this client subscribe? Keyword arguments are the field's arguments.
         def authorize?(**args)
           true

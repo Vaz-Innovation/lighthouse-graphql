@@ -22,7 +22,7 @@ const sidebar = [
       '/docs/subscriptions.md',
     ],
   },
-  { text: 'Security', children: ['/docs/authorization.md'] },
+  { text: 'Security', children: ['/docs/authorization.md', '/docs/security.md'] },
   { text: 'Performance', children: ['/docs/performance.md', '/docs/caching.md'] },
   {
     text: 'Digging Deeper',

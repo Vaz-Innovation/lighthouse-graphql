@@ -150,8 +150,9 @@ The relation name defaults to the field name (snake_cased). Override with
 
 Delegate a field to a class — your escape hatch for anything the built-in
 directives don't cover. On `Query` and `Mutation` you usually don't need it:
-a field without a resolving directive resolves to `Queries::<FieldName>` /
-`Mutations::<FieldName>`, graphql-ruby resolver and mutation classes. See
+a field without a resolving directive resolves to `Resolvers::<FieldName>` /
+`Mutations::<FieldName>`, graphql-ruby resolver and mutation classes under
+`Resolvers::BaseResolver` / `Mutations::BaseMutation`. See
 [resolvers.md](resolvers.md).
 
 ```graphql
@@ -321,7 +322,7 @@ type Query {
 ### `@convertEmptyStringsToNull`
 
 Replaces incoming empty strings `""` with `null`, before any resolver sees them —
-directive resolvers (`@create`, `@all` filters, …), `@field`, `Queries::` /
+directive resolvers (`@create`, `@all` filters, …), `@field`, `Resolvers::` /
 `Mutations::` classes and `@validator` alike. On an argument or an input field it
 converts that one input; on a field it converts every input of the field, nested
 input objects and lists included. Non-null inputs (`String!`) pass unchanged when
@@ -520,9 +521,9 @@ directive @subscription(class: String!) on FIELD_DEFINITION
 
 Names the class a `Subscription` field resolves to, when it does not follow the
 convention (`postUpdated` → `Subscriptions::PostUpdated`). The class inherits from
-`GraphQL::Schema::Subscription` (which may `include Lighthouse::GraphQL::Subscription`,
-the optional concern with PHP Lighthouse's `filter?` hooks) and is looked up in
-`Config.namespaces[:subscriptions]`; a name with `::` is used as it is.
+`Subscriptions::BaseSubscription`, a `GraphQL::Schema::Subscription` that includes
+`Lighthouse::GraphQL::Subscription` (PHP Lighthouse's `filter?` hooks), and is looked
+up in `Config.namespaces[:subscriptions]`; a name with `::` is used as it is.
 
 ```graphql
 type Subscription {
@@ -631,6 +632,30 @@ Flipper.enable_actor(:new_checkout, User.find(1))
 
 # schema.execute(query, context: { current_user: user })
 ```
+
+---
+
+## Query complexity
+
+### `@complexity`
+
+Customize what a field costs in the query's complexity score, which graphql-ruby
+checks against the schema's `max_complexity` before it runs the query.
+
+```graphql
+type Query {
+  search(first: Int, term: String!): [Post!]! @complexity
+  posts(includeFullText: Boolean): [Post!]! @all @complexity(resolver: "PostsComplexity")
+}
+```
+
+| Argument | Meaning |
+| --- | --- |
+| `resolver: String` | A `GraphQL::Analysis::Analyzer` subclass in `namespaces[:analyzers]` (`Analyzers::PostsComplexity`), installed on the schema. With `Lighthouse::GraphQL::ComplexityAnalyzer` included, its `complexity` (a number, or a proc of `context, args, child_complexity`) is the field's cost. Without it, or without `resolver:`: `1 + child complexity × first`. |
+
+Paginated fields cost `1 + child complexity × first` without the directive, and a
+field resolved by a `GraphQL::Schema::Resolver` class costs what that class
+declares. See [security.md](security.md).
 
 ---
 

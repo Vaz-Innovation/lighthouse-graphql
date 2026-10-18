@@ -168,8 +168,8 @@ RSpec.describe '@convertEmptyStringsToNull' do
 
     before do
       stub_const('ConvertEmptyStringsSpec::Contract', Class.new { def call(values) = values[:title].nil? ? {} : { title: ['not blank'] } })
-      stub_const('Queries::Echo', ConvertEmptyStringsSpec::Echo)
-      stub_const('Queries::Greet', Class.new(GraphQL::Schema::Resolver) do
+      stub_const('Resolvers::Echo', ConvertEmptyStringsSpec::Echo)
+      stub_const('Resolvers::Greet', Class.new(GraphQL::Schema::Resolver) do
         type String, null: true
         argument :name, String, required: false
         def resolve(name: nil) = name.nil? ? 'nil' : "name:#{name}"
@@ -224,7 +224,7 @@ RSpec.describe '@convertEmptyStringsToNull' do
       expect(run('{ posts(title: "") { title } }', schema: plain)['data']['posts']).to eq([])
     end
 
-    it 'reaches a convention Queries:: resolver, given a field-level directive' do
+    it 'reaches a convention Resolvers:: resolver, given a field-level directive' do
       expect(run('{ echo(text: "") }')['data']).to eq('echo' => 'nil')
       expect(run('{ echo(text: "hi") }')['data']).to eq('echo' => 'text:hi')
     end

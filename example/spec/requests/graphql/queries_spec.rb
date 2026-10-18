@@ -98,7 +98,7 @@ RSpec.describe 'GraphQL queries', type: :request do
     end
   end
 
-  describe 'a Queries:: class' do
+  describe 'a Resolvers:: class' do
     it 'resolves Query.searchPosts by convention' do
       create(:post, title: 'Caching GraphQL responses')
       create(:post, body: 'All about caching.', title: 'Other')

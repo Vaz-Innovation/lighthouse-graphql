@@ -1,7 +1,10 @@
 # Resolves Subscription.postCreated. Keyword arguments are the field's arguments in
 # snake_case; `object` and `context` are available. `context` is the subscriber's:
 # graphql-ruby stores it with the subscription and replays it for every update.
-class Subscriptions::PostCreated < GraphQL::Schema::Subscription
+#
+# Written with graphql-ruby's own hooks, `authorized?` and `update`: defined here,
+# they win over the ones of the concern Subscriptions::BaseSubscription includes.
+class Subscriptions::PostCreated < Subscriptions::BaseSubscription
   # Runs for the subscription request and again for every update.
   def authorized?(**)
     raise GraphQL::ExecutionError, 'Sign in to subscribe to new posts.' unless context[:current_user]

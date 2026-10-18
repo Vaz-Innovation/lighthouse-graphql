@@ -2,8 +2,12 @@
 
 # Root fields resolve to graphql-ruby Resolver / Mutation classes in their own
 # namespaces; builders live apart from them, in theirs.
-module Queries
-  class Greeting < GraphQL::Schema::Resolver
+module Resolvers
+  # graphql-ruby's convention: every resolver inherits from the namespace's base.
+  class BaseResolver < GraphQL::Schema::Resolver
+  end
+
+  class Greeting < BaseResolver
     def resolve(name:, shout: false)
       text = "Hello, #{name} (from #{context[:origin]})"
       shout ? text.upcase : text
@@ -16,11 +20,11 @@ module Queries
     end
   end
 
-  class GuardedGreeting < GraphQL::Schema::Resolver
+  class GuardedGreeting < BaseResolver
     def resolve(name:) = "Hi #{name}"
   end
 
-  class Explicit < GraphQL::Schema::Resolver
+  class Explicit < BaseResolver
     def resolve = 'explicit'
   end
 
@@ -30,7 +34,10 @@ module Queries
 end
 
 module Mutations
-  class PublishPost < GraphQL::Schema::Mutation
+  class BaseMutation < GraphQL::Schema::Mutation
+  end
+
+  class PublishPost < BaseMutation
     def resolve(id:, title:)
       Post.find(id).tap { |post| post.update!(title: title, published: true) }
     end
@@ -43,7 +50,7 @@ module Mutations
     end
   end
 
-  class CreateDraft < GraphQL::Schema::Mutation
+  class CreateDraft < BaseMutation
     def resolve(title:, author_id:)
       Post.create!(title: title, author_id: author_id)
     end
@@ -95,7 +102,7 @@ RSpec.describe 'Query and Mutation resolver classes' do
   end
 
   describe 'Query fields' do
-    it 'resolve to Queries::<FieldName> by convention, with graphql-ruby keyword arguments and context' do
+    it 'resolve to Resolvers::<FieldName> by convention, with graphql-ruby keyword arguments and context' do
       result = run('{ greeting(name: "Ada", shout: true) }', origin: 'spec')
 
       expect(result).to eq('data' => { 'greeting' => 'HELLO, ADA (FROM SPEC)' })
@@ -113,7 +120,7 @@ RSpec.describe 'Query and Mutation resolver classes' do
       expect(result['errors'].pluck('message')).to eq(['Strangers are not greeted.'])
     end
 
-    it 'resolve @field(resolver:) in the queries namespace' do
+    it 'resolve @field(resolver:) in the Query resolvers namespace' do
       expect(run('{ explicitly }')).to eq('data' => { 'explicitly' => 'explicit' })
     end
 
@@ -122,7 +129,7 @@ RSpec.describe 'Query and Mutation resolver classes' do
       Lighthouse.configure { |c| c.on_error = ->(error, _ctx) { errors << error } }
 
       expect(run('{ missing }')).to eq('data' => { 'missing' => nil })
-      expect(errors.map(&:message)).to eq(['Query.missing has no resolver: define Queries::Missing, or add a resolving directive.'])
+      expect(errors.map(&:message)).to eq(['Query.missing has no resolver: define Resolvers::Missing, or add a resolving directive.'])
     end
 
     it 'require the conventional class to be a GraphQL::Schema::Resolver' do

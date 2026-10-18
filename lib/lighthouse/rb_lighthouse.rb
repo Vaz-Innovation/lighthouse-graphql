@@ -44,6 +44,7 @@ require_relative 'namespaces'
   events/lifecycle
   events/execution_trace
   events/schema_build
+  resolver_bases
   schema_generator
   schema_cache
   persisted_queries
@@ -55,6 +56,8 @@ require_relative 'namespaces'
   caching
   cache_control
   feature_directive
+  complexity
+  complexity_analyzer
   broadcasting
   subscription
   pagination

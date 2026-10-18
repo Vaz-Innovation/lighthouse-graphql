@@ -2,22 +2,26 @@
 
 require 'rails/generators'
 require 'lighthouse-graphql'
+require_relative '../base_classes'
 
 # `rails generate lighthouse:install` — sets a Rails app up for Lighthouse:
-# the initializer, a starter SDL file, the schema class, a controller and
-# its route, plus the graphql-config file IDEs read. Rerunning it skips the
-# route, SDL and .gitignore entries that are already in place.
+# the initializer, a starter SDL file, the schema class, the base classes of
+# resolvers, mutations and subscriptions, a controller and its route, plus the
+# graphql-config file IDEs read. Rerunning it skips the route, SDL, base classes
+# and .gitignore entries that are already in place.
 #
 # It coexists with graphql-ruby's `graphql:install`, which writes the same
 # controller path and route: an existing schema class or controller is kept
 # (pass --force to replace it) instead of overwritten, so an app already
 # serving a graphql-ruby schema keeps doing so until it is pointed at ours.
 class Lighthouse::Generators::InstallGenerator < Rails::Generators::Base
+  include Lighthouse::Generators::BaseClasses
+
   CONTROLLER = 'app/controllers/graphql_controller.rb'
 
   source_root File.expand_path('templates', __dir__)
 
-  desc 'Install Lighthouse: initializer, starter schema, schema class, controller, route and IDE config.'
+  desc 'Install Lighthouse: initializer, starter schema, schema class, base classes, controller, route and IDE config.'
 
   class_option :schema, type: :string, default: 'AppSchema',
                         desc: 'Name of the schema constant to generate'
@@ -46,6 +50,12 @@ class Lighthouse::Generators::InstallGenerator < Rails::Generators::Base
     return if keep_existing?(path)
 
     template 'schema.rb.tt', path
+  end
+
+  # Resolvers::BaseResolver, Mutations::BaseMutation and Subscriptions::BaseSubscription,
+  # in the namespaces Config.namespaces names first (see BaseClasses).
+  def create_base_classes
+    BASES.each_key { |kind| write_base_class(kind, Lighthouse::Config.namespaces[kind].first) }
   end
 
   def create_controller
@@ -93,8 +103,10 @@ class Lighthouse::Generators::InstallGenerator < Rails::Generators::Base
 
       Lighthouse is installed. Next steps:
         1. Describe your API in #{sdl_folder}/*.graphql (the starter schema assumes a User model).
-        2. Generate the IDE helper files:  bin/rails lighthouse:ide_helper
-        3. #{serve}
+        2. Resolve a field in Ruby when a directive is not enough:  bin/rails g lighthouse:query LatestPosts
+           (its class inherits from Resolvers::BaseResolver; mutations and subscriptions have a base too)
+        3. Generate the IDE helper files:  bin/rails lighthouse:ide_helper
+        4. #{serve}
     MSG
   end
 
@@ -111,6 +123,11 @@ class Lighthouse::Generators::InstallGenerator < Rails::Generators::Base
 
   def schema_name
     options[:schema].camelize
+  end
+
+  # `Resolvers::BaseResolver`, for the schema class template.
+  def base_class_constant(kind)
+    "#{Lighthouse::Config.namespaces[kind].first}::#{base_class_name(kind)}"
   end
 
   def sdl_folder

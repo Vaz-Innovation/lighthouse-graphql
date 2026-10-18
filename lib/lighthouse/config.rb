@@ -12,14 +12,15 @@ module Lighthouse
     # Where each kind of class a schema refers to by name is looked up. Query and
     # mutation fields resolve to GraphQL::Schema::Resolver / Mutation classes,
     # builders compose onto a relation, validators check arguments: distinct
-    # contracts, so distinct namespaces (app/graphql/queries, .../mutations, ...).
+    # contracts, so distinct namespaces (app/graphql/resolvers, .../mutations, ...).
     DEFAULT_NAMESPACES = {
-      queries: ['Queries'],
+      queries: ['Resolvers'],
       mutations: ['Mutations'],
       builders: ['Builders'],
       validators: ['Validators'],
       events: ['Events'],
-      subscriptions: ['Subscriptions']
+      subscriptions: ['Subscriptions'],
+      analyzers: ['Analyzers']
     }.freeze
 
     # Every setting reset! forgets, so the next read falls back to its default.

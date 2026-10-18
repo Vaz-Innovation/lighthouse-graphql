@@ -45,17 +45,21 @@ module Lighthouse::GraphQL::SchemaGenerator
     # and fresh (see SchemaCache), else built now.
     document = build_document(sdl_string)
     impl = default_implementation
+    # base_types' resolver / mutation / subscription are Lighthouse's, not graphql-ruby's.
+    bases = Lighthouse::GraphQL::ResolverBases.extract!(opts)
     schema = from_document(document, impl, opts)
 
     delegate_to_federation_sdl(schema)
     Lighthouse::GraphQL::GeneratedResolvers.install_dispatcher(schema)
     attach_schema(impl, schema)
-    post_process(schema, impl, **opts)
+    post_process(schema, impl, bases: bases, **opts)
     schema.trace_with(Lighthouse::Events::ExecutionTrace)
 
     # @cacheControl hints become the response's Cache-Control header,
     # computed per query from the fields it selects.
     schema.query_analyzer(Lighthouse::GraphQL::CacheControl::Analyzer) if uses_cache_control
+    # The score graphql-ruby checks against max_complexity, for BuildExtensionsResponse.
+    schema.query_analyzer(Lighthouse::GraphQL::Complexity::Analyzer)
 
     schema
   end
@@ -124,7 +128,8 @@ module Lighthouse::GraphQL::SchemaGenerator
     augment_sdl_with_connections(inject_directive_definitions(sdl))
   end
 
-  def post_process(schema, _impl, **_opts)
+  # `bases`: { root kind => the base class its fields' classes inherit from } (ResolverBases).
+  def post_process(schema, _impl, bases: {}, **_opts)
     root_kinds = root_kinds(schema)
 
     # Inspect types and fields for directives and attach generated resolvers
@@ -134,8 +139,11 @@ module Lighthouse::GraphQL::SchemaGenerator
       # Apply object-level federation directives to generated types so the
       # Apollo Federation helper can detect entities and add _entities.
       Lighthouse::GraphQL::FederationDirectives.apply(type)
-      type.fields.each_value { |field_def| process_field(type, field_def, root_kinds[type.graphql_name]) }
+      type.fields.each_value { |field_def| process_field(type, field_def, root_kinds[type.graphql_name], bases) }
     end
+
+    # @complexity, and paginated fields, give graphql-ruby's complexity analysis their cost.
+    Lighthouse::GraphQL::Complexity.apply(schema, root_kinds)
 
     # @feature hides a field or type per query, through graphql-ruby's visibility.
     Lighthouse::GraphQL::FeatureDirective.apply(schema)
@@ -155,10 +163,10 @@ module Lighthouse::GraphQL::SchemaGenerator
 
   # A field's generated resolvers, then the runtime hooks that make
   # graphql-ruby reach them.
-  def process_field(type, field_def, root_kind)
+  def process_field(type, field_def, root_kind, bases = {})
     return unless field_def.ast_node
 
-    apply_field_resolvers(type, field_def, field_def.ast_node.directives || [], root_kind)
+    apply_field_resolvers(type, field_def, field_def.ast_node.directives || [], root_kind, bases)
     Lighthouse::GraphQL::GeneratedResolvers.route_runtime_resolver(type, field_def)
     ensure_connection_extension(field_def)
   end
@@ -180,8 +188,8 @@ module Lighthouse::GraphQL::SchemaGenerator
   end
 
   # A field's resolvers, installed in resolution order (see FieldResolverStack).
-  def apply_field_resolvers(type, field_def, directives, root_kind)
-    Lighthouse::GraphQL::FieldResolverStack.apply(type, field_def, directives, root_kind)
+  def apply_field_resolvers(type, field_def, directives, root_kind, bases = {})
+    Lighthouse::GraphQL::FieldResolverStack.apply(type, field_def, directives, root_kind, bases: bases)
   end
 
   # Scan SDL string for list-typed fields that carry relationship directives

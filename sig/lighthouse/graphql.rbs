@@ -97,6 +97,35 @@ module Lighthouse
       def self?.apply: (untyped response, untyped result) -> String?
     end
 
+    # What fields cost in graphql-ruby's complexity analysis (@complexity, and
+    # paginated fields scaled by `first`).
+    module Complexity
+      DEFINITION: String
+      CONTEXT_KEY: Symbol
+
+      # Give the schema's fields their cost; `root_kinds` maps root type names to
+      # :queries / :mutations / :subscriptions.
+      def self?.apply: (untyped schema, ?Hash[String, Symbol] root_kinds) -> untyped
+      # A query's score, once scored for BuildExtensionsResponse; nil otherwise.
+      def self?.query_complexity: (untyped query) -> Integer?
+    end
+
+    # A concern for a GraphQL::Analysis::Analyzer that @complexity(resolver:)
+    # names (graphql-ruby ships no RBS, so the class it is included in is not
+    # declared): its `complexity` is the cost of the fields naming the class.
+    module ComplexityAnalyzer
+      # Only when the class has a `result` of its own.
+      def analyze?: () -> bool
+      def result: () -> nil
+
+      # The class methods the concern adds to its includer.
+      module ClassMethods
+        # A number (added to the selection's cost) or a proc of
+        # (context, args, child_complexity); nil when never set.
+        def complexity: (?(Numeric | ^(context, arguments, Integer) -> Integer)? new_complexity) -> (Numeric | ^(context, arguments, Integer) -> Integer)?
+      end
+    end
+
     # The opt-in cache of the manipulated schema document, in tmp/cache.
     module SchemaCache
       PREFIX: String

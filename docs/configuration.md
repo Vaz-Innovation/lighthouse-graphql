@@ -10,8 +10,8 @@ require 'lighthouse-graphql'
 
 Lighthouse.configure do |config|
   config.sdl_folder = Rails.root.join('graphql').to_s
-  config.namespaces = { queries: ['Queries'], mutations: ['Mutations'] }
-  config.resolver_namespaces = ['App::Graphql', 'Resolvers']
+  config.namespaces = { queries: ['Resolvers'], mutations: ['Mutations'] }
+  config.resolver_namespaces = ['App::Graphql']
   config.on_error = ->(error, _context) { Rails.error.report(error) }
 end
 ```
@@ -31,15 +31,16 @@ different contracts, so they live apart ([resolvers.md](resolvers.md)):
 
 | Kind | Default | Holds |
 | --- | --- | --- |
-| `queries` | `['Queries']` | `GraphQL::Schema::Resolver` classes for `Query` fields |
-| `mutations` | `['Mutations']` | `GraphQL::Schema::Mutation` classes for `Mutation` fields |
+| `queries` | `['Resolvers']` | `Resolvers::BaseResolver` classes (a `GraphQL::Schema::Resolver`) for `Query` fields. `['Queries']` before 0.4.0 |
+| `mutations` | `['Mutations']` | `Mutations::BaseMutation` classes (a `GraphQL::Schema::Mutation`) for `Mutation` fields |
 | `builders` | `['Builders']` | `@builder` classes |
 | `validators` | `['Validators']` | `@validator` contracts |
 | `events` | `['Events']` | Classes `@event(dispatch:)` names ([events.md](events.md)) |
-| `subscriptions` | `['Subscriptions']` | `GraphQL::Schema::Subscription` classes (optionally including `Lighthouse::GraphQL::Subscription`) for `Subscription` fields, and `@subscription(class:)` ([subscriptions.md](subscriptions.md)) |
+| `subscriptions` | `['Subscriptions']` | `Subscriptions::BaseSubscription` classes (a `GraphQL::Schema::Subscription`; the base includes `Lighthouse::GraphQL::Subscription`) for `Subscription` fields, and `@subscription(class:)` ([subscriptions.md](subscriptions.md)) |
+| `analyzers` | `['Analyzers']` | `GraphQL::Analysis::Analyzer` classes (optionally including `Lighthouse::GraphQL::ComplexityAnalyzer`) that `@complexity(resolver:)` names ([security.md](security.md)) |
 
 ```ruby
-config.namespaces = { queries: ['Api::Queries'] }   # the other kinds keep their defaults
+config.namespaces = { queries: ['Api::Resolvers'] }   # the other kinds keep their defaults
 ```
 
 ### `resolver_namespaces`

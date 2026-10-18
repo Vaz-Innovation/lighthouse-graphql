@@ -218,6 +218,7 @@ class Lighthouse::DirectiveRegistry
     register_definition('cacheControl', Lighthouse::GraphQL::CacheControl::DEFINITION)
     Lighthouse::GraphQL::CacheControl::TYPE_DEFINITIONS.each { |name, sdl| register_type_definition(name, sdl) }
     register_definition('feature', Lighthouse::GraphQL::FeatureDirective::DEFINITION)
+    register_definition('complexity', Lighthouse::GraphQL::Complexity::DEFINITION)
     Lighthouse::GraphQL::FeatureDirective::TYPE_DEFINITIONS.each { |name, sdl| register_type_definition(name, sdl) }
     Lighthouse::GraphQL::Directives::WhereConditionsDirective::DEFINITIONS.each do |name, definition|
       register_definition(name, definition)

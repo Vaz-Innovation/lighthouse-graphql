@@ -44,9 +44,9 @@ checks `persisted-queries.json` against the schema.
 | Lighthouse's configuration | [`config/initializers/lighthouse.rb`](config/initializers/lighthouse.rb) |
 | The endpoint (`current_user` in the context, `Cache-Control`) | [`app/controllers/graphql_controller.rb`](app/controllers/graphql_controller.rb) |
 | GraphiQL, routed in development only | [`app/controllers/graphiql_controller.rb`](app/controllers/graphiql_controller.rb), [`app/views/graphiql/show.html.erb`](app/views/graphiql/show.html.erb) |
-| Queries resolved by convention (`Query.searchPosts` → `Queries::SearchPosts`) | [`app/graphql/queries/`](app/graphql/queries) |
-| Mutations resolved by convention (`Mutation.publishPost` → `Mutations::PublishPost`) | [`app/graphql/mutations/`](app/graphql/mutations) |
-| Subscriptions resolved by convention (`Subscription.postCreated` → `Subscriptions::PostCreated`), `GraphQL::Schema::Subscription`s, plain and with the Lighthouse concern | [`app/graphql/subscriptions/`](app/graphql/subscriptions) |
+| Query fields resolved by convention (`Query.searchPosts` → `Resolvers::SearchPosts`, a `Resolvers::BaseResolver`) | [`app/graphql/resolvers/`](app/graphql/resolvers) |
+| Mutations resolved by convention (`Mutation.publishPost` → `Mutations::PublishPost`, a `Mutations::BaseMutation`) | [`app/graphql/mutations/`](app/graphql/mutations) |
+| Subscriptions resolved by convention (`Subscription.postCreated` → `Subscriptions::PostCreated`), each a `Subscriptions::BaseSubscription`, which includes the Lighthouse concern: `filter?` hooks, or graphql-ruby's own `authorized?`/`update` | [`app/graphql/subscriptions/`](app/graphql/subscriptions) |
 | The ActionCable socket: `GraphqlChannel` runs the operations, `Connection` identifies `current_user` by the API token | [`app/channels/`](app/channels), [`config/cable.yml`](config/cable.yml) |
 | `@builder` classes | [`app/graphql/builders/`](app/graphql/builders) |
 | `@validator` contracts (Dry::Validation) | [`app/graphql/validators/`](app/graphql/validators) |
@@ -54,19 +54,23 @@ checks `persisted-queries.json` against the schema.
 | Trusted operations, served by hash | [`persisted-queries.json`](persisted-queries.json) |
 
 The classes under `app/graphql` were generated with `bin/rails g lighthouse:query`,
-`:mutation`, `:builder` and `:validator`, and the setup with
-`bin/rails g lighthouse:install`.
+`:mutation`, `:subscription`, `:builder` and `:validator`, and the setup with
+`bin/rails g lighthouse:install`. As in a graphql-ruby app, resolvers, mutations and
+subscriptions inherit from their namespace's base class (`Resolvers::BaseResolver`,
+`Mutations::BaseMutation`, `Subscriptions::BaseSubscription`), where what they all
+share goes: the subscriptions' concern is included there, once.
 
 ## What the specs cover
 
 | Spec | Lighthouse features |
 | --- | --- |
-| [`requests/graphql/queries_spec.rb`](spec/requests/graphql/queries_spec.rb) | `@find`, `@paginate` (paginator and Relay connection), `@like`, `@orderBy`, `@whereConditions`, `@builder`, `scopes:`, `@count`, a `Queries::` class |
+| [`requests/graphql/queries_spec.rb`](spec/requests/graphql/queries_spec.rb) | `@find`, `@paginate` (paginator and Relay connection), `@like`, `@orderBy`, `@whereConditions`, `@builder`, `scopes:`, `@count`, a `Resolvers::` class |
 | [`requests/graphql/cursor_connection_spec.rb`](spec/requests/graphql/cursor_connection_spec.rb) | Relay cursor pagination on a relationship (`User.comments`, `@hasMany(type: CONNECTION)`): `pageInfo`, `after`, and a client loop that walks every page |
 | [`requests/graphql/relationships_spec.rb`](spec/requests/graphql/relationships_spec.rb) | `@belongsTo`, `@hasMany` (paginated too), `@belongsToMany`, `@count(relation:)`, and no N+1: the number of SQL queries does not grow with the number of records |
 | [`requests/graphql/authorization_spec.rb`](spec/requests/graphql/authorization_spec.rb) | `@guard`, `@canRoot`, `@canFind` with Pundit |
 | [`requests/graphql/mutations_spec.rb`](spec/requests/graphql/mutations_spec.rb) | `@create`, `@update`, `@delete`, `@validator`, model validation errors, nested mutations (`connect`, `create`, `sync`) with rollback, `@inject`, `@rename`, a `Mutations::` class |
 | [`requests/graphql/caching_spec.rb`](spec/requests/graphql/caching_spec.rb) | `@cacheControl` headers, `@cache` and `@clearCache` |
+| [`requests/graphql/complexity_spec.rb`](spec/requests/graphql/complexity_spec.rb) | `AppSchema.max_complexity`: an expensive query is refused before it runs; paginated fields scale by `first`, `@complexity(resolver:)` naming `Analyzers::TagPostsComplexity` (an `Analyzers::BaseComplexity`) on `Tag.posts`, the `complexity` `Resolvers::SearchPosts` declares, `BuildExtensionsResponse#query_complexity` |
 | [`requests/graphql/persisted_queries_spec.rb`](spec/requests/graphql/persisted_queries_spec.rb) | Automatic persisted queries over POST and GET (with `Cache-Control` and `ETag`), the trusted-operations manifest |
 | [`channels/graphql_channel_spec.rb`](spec/channels/graphql_channel_spec.rb), [`channels/application_cable/connection_spec.rb`](spec/channels/application_cable/connection_spec.rb) | `GraphqlChannel` with ActionCable's test helpers: a subscription is registered and streamed, a guest is refused by `authorized?`, unsubscribing deletes it; the connection's token |
 | [`subscriptions/delivery_spec.rb`](spec/subscriptions/delivery_spec.rb) | `@broadcast` end to end over ActionCable's pub/sub: `createPost` reaches the `postCreated` subscribers (drafts only their author and admins, `NO_UPDATE`), `publishPost` the `postPublished` ones for that author, `addComment` the `commentAdded` ones with no `postId` or that post's (a draft's only to its author and admins), a failed or refused mutation nothing, a closed socket stops receiving |
@@ -86,11 +90,12 @@ The classes under `app/graphql` were generated with `bin/rails g lighthouse:quer
   carries every new comment, with it only that post's; comments on a draft reach
   only its author and admins.
 
-All are `GraphQL::Schema::Subscription` classes, in the two styles: `PostCreated`
-is plain graphql-ruby (`authorized?`, `update` returning `NO_UPDATE`), and
-`PostPublished` and `CommentAdded` include the `Lighthouse::GraphQL::Subscription`
-concern for PHP Lighthouse's field-wide topic and `filter?`, which is what lets an
-optional argument narrow one trigger per subscriber. To try them, sign in with a
+All inherit from `Subscriptions::BaseSubscription`, a `GraphQL::Schema::Subscription`
+that includes the `Lighthouse::GraphQL::Subscription` concern, and show its two
+styles: `PostPublished` and `CommentAdded` use the concern's field-wide topic and
+`filter?`, which is what lets an optional argument narrow one trigger per
+subscriber, and `PostCreated` defines graphql-ruby's own `authorized?` and `update`
+(returning `NO_UPDATE`), which win over the concern's. To try them, sign in with a
 token from `db:seed` (`?token=` or an `Authorization` header, as on `/graphql`), and
 open a socket with [`wscat`](https://github.com/websockets/wscat):
 

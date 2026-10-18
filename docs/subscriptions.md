@@ -6,9 +6,12 @@ happens. Lighthouse builds on [graphql-ruby's subscriptions](https://graphql-rub
 and keeps the shape of [PHP Lighthouse's](https://lighthouse-php.com/master/subscriptions/getting-started.html):
 
 - a `Subscription` field is declared in the SDL, and **resolves by convention** to a class;
-- that class is a plain graphql-ruby [`GraphQL::Schema::Subscription`](https://graphql-ruby.org/subscriptions/subscription_classes.html),
-  as a query is a `GraphQL::Schema::Resolver` and a mutation a `GraphQL::Schema::Mutation`
-  (see [resolvers.md](resolvers.md));
+- that class inherits from `Subscriptions::BaseSubscription`, a graphql-ruby
+  [`GraphQL::Schema::Subscription`](https://graphql-ruby.org/subscriptions/subscription_classes.html),
+  as a `Query` field's class is a `Resolvers::BaseResolver` and a mutation's a
+  `Mutations::BaseMutation` (see [resolvers.md](resolvers.md#base-classes)). The base
+  includes [Lighthouse's concern](#the-subscription-concern): PHP
+  Lighthouse's model, one topic per field and a `filter?`;
 - a mutation announces what it did with [`@broadcast`](#broadcast-from-a-mutation).
 
 ```graphql
@@ -23,10 +26,10 @@ type Mutation {
 
 ```ruby
 # app/graphql/subscriptions/post_updated.rb  (rails generate lighthouse:subscription PostUpdated)
-class Subscriptions::PostUpdated < GraphQL::Schema::Subscription
-  # Runs for each update: skip the subscribers who may not see this post.
-  def update(**)
-    object.published? || object.author == context[:current_user] ? object : NO_UPDATE
+class Subscriptions::PostUpdated < Subscriptions::BaseSubscription
+  # For each broadcast: skip the subscribers who may not see this post.
+  def filter?(post, **)
+    post.published? || post.author == context[:current_user]
   end
 end
 ```
@@ -94,12 +97,14 @@ type Subscription {
 }
 ```
 
-For anything more, write the class (a field with no class of its own behaves like
-the concern's field-wide topic with no `filter?`). `Subscription.postUpdated` resolves to
+For anything more, write the class. (A field with no class of its own resolves with
+the schema's `base_types[:subscription]`, else with a built-in class that includes
+the concern: one topic for the field, no `filter?`.) `Subscription.postUpdated` resolves to
 `Subscriptions::PostUpdated`, looked up in `Config.namespaces[:subscriptions]`
 (default `['Subscriptions']`) each time it is needed, so code reloading works.
 `rails generate lighthouse:subscription PostUpdated` writes it. It inherits from
-`GraphQL::Schema::Subscription`: anything you know from graphql-ruby applies.
+`Subscriptions::BaseSubscription`, a `GraphQL::Schema::Subscription`: anything you
+know from graphql-ruby applies.
 
 Like a query or a mutation class, it declares neither the arguments nor the return
 type: the SDL does. The field's arguments arrive as `snake_case` keywords.
@@ -109,7 +114,10 @@ type: the SDL does. The field's arguments arrive as `snake_case` keywords.
 graphql-ruby calls the class twice in a subscription's life: once for the
 **subscription request** (the client's `subscription { ... }`), and then once for
 **each update** (`@broadcast`, or `schema.subscriptions.trigger`). All hooks are
-optional.
+optional. These are graphql-ruby's own; the concern `BaseSubscription` includes
+implements `authorized?` and `update` with PHP Lighthouse's hooks
+([below](#the-subscription-concern)), and a class that defines them itself
+keeps graphql-ruby's behavior.
 
 | Hook | Called | Default |
 | --- | --- | --- |
@@ -135,7 +143,7 @@ optional.
   field comes back `null`, with no error.
 
 ```ruby
-class Subscriptions::OrderShipped < GraphQL::Schema::Subscription
+class Subscriptions::OrderShipped < Subscriptions::BaseSubscription
   def authorized?(**)
     raise GraphQL::ExecutionError, 'Sign in to follow your orders.' unless context[:current_user]
 
@@ -145,8 +153,6 @@ class Subscriptions::OrderShipped < GraphQL::Schema::Subscription
   def update(**)
     object.user_id == context[:current_user].id ? object : NO_UPDATE
   end
-
-  def self.trigger_arguments(_order, _context) = {}
 end
 ```
 
@@ -164,22 +170,32 @@ If you know PHP Lighthouse's `GraphQLSubscription`, this is where its methods we
 One real difference is the **topic**. PHP Lighthouse puts every subscriber of a
 field on one topic and `filter` decides who is updated. graphql-ruby's default
 topic includes the arguments, so a trigger reaches only the subscribers whose
-arguments *equal* its own. That is why `@broadcast` asks a plain class for its
-`trigger_arguments`; see [below](#topics-trigger-arguments-and-filtering).
+arguments *equal* its own. The concern in `BaseSubscription` takes PHP Lighthouse's
+topic; a class that keeps graphql-ruby's gives `@broadcast` its `trigger_arguments`.
+See [below](#topics-trigger-arguments-and-filtering).
 
-## Lighthouse's subscription concern
+## The subscription concern
 
-If you prefer PHP Lighthouse's model, with one topic per field, `filter?` to narrow
-it and `resolve_payload` for the result, include `Lighthouse::GraphQL::Subscription`
-in the class, as `include Lighthouse::GraphQL::Controller` gives a controller its
-`execute`. The class is still a plain `GraphQL::Schema::Subscription`, and declares
-its arguments as one would in graphql-ruby (or leaves them to the SDL).
-`rails generate lighthouse:subscription PostUpdated --lighthouse` writes it:
+`Lighthouse::GraphQL::Subscription` is PHP Lighthouse's model: one topic per field,
+`filter?` to narrow it and `resolve_payload` for the result. It is included once, in
+the base every subscription inherits from, as graphql-ruby's convention puts what
+all classes of a kind share in their base:
 
 ```ruby
-class Subscriptions::PostUpdated < GraphQL::Schema::Subscription
-  include Lighthouse::GraphQL::Subscription
+# app/graphql/subscriptions/base_subscription.rb  (rails generate lighthouse:install)
+module Subscriptions
+  class BaseSubscription < GraphQL::Schema::Subscription
+    include Lighthouse::GraphQL::Subscription
+  end
+end
+```
 
+A subscription is still a plain `GraphQL::Schema::Subscription`, and declares its
+arguments as one would in graphql-ruby (or leaves them to the SDL).
+`rails generate lighthouse:subscription PostUpdated` writes one with the hooks:
+
+```ruby
+class Subscriptions::PostUpdated < Subscriptions::BaseSubscription
   def filter?(post, author: nil)
     author.nil? || post.author_id.to_s == author.to_s
   end
@@ -205,17 +221,19 @@ optional.
   [broadcast section](#topics-trigger-arguments-and-filtering) explain.
 - Including it in a class that is not a `GraphQL::Schema::Subscription` raises a
   `Lighthouse::DefinitionError`.
+- To keep graphql-ruby's model for every subscription, leave the `include` out of
+  `BaseSubscription`; the generator then writes classes with `authorized?` and
+  `update` instead.
 - **Precedence.** The concern sits between your class and
-  `GraphQL::Schema::Subscription`, so what the class defines itself wins. A class
+  `GraphQL::Schema::Subscription` (it is in the base), so what the class defines
+  itself wins. A class
   with its own `update` (or `authorized?`) is called instead of the concern's, and
   its `filter?`, `resolve_payload` (or `authorize?`) are not, unless it calls
   `super`. `subscribe`, `unsubscribe`, `subscription_scope` and `ready?` are
   untouched, and combine freely with the hooks.
 
 ```ruby
-class Subscriptions::OrderShipped < GraphQL::Schema::Subscription
-  include Lighthouse::GraphQL::Subscription
-
+class Subscriptions::OrderShipped < Subscriptions::BaseSubscription
   def authorize?(**)
     context[:current_user].present?
   end
@@ -251,8 +269,9 @@ type Subscription {
 
 The name is looked up in `Config.namespaces[:subscriptions]` like the conventional
 one, so `class: "PostUpdated"` finds `Subscriptions::PostUpdated`, and a name with
-`::` is used as it is. A class that does not exist, or is not a
-`GraphQL::Schema::Subscription`, raises `Lighthouse::DefinitionError`.
+`::` is used as it is. A class that does not exist, is not a
+`GraphQL::Schema::Subscription`, or does not inherit from the schema's
+`base_types[:subscription]` raises `Lighthouse::DefinitionError`.
 `@guard`, `@can*` and the other wrapping directives work on a subscription field
 as on any other.
 
@@ -303,7 +322,8 @@ arguments (a Hash, `{}` by default) for the `root` a mutation returned, and
 `subscription_scope` (graphql-ruby's way to give each tenant or user their own
 stream).
 
-With a plain `GraphQL::Schema::Subscription`:
+When the topic includes the arguments (a class with `topic_by :arguments`, or under
+a base that does not include the concern):
 
 - **A field without arguments works out of the box.** Every subscriber's arguments
   are `{}`, and so is the trigger's.
@@ -317,7 +337,9 @@ With a plain `GraphQL::Schema::Subscription`:
   ```
 
   ```ruby
-  class Subscriptions::MessagePosted < GraphQL::Schema::Subscription
+  class Subscriptions::MessagePosted < Subscriptions::BaseSubscription
+    topic_by :arguments
+
     # The subscribers of `messagePosted(room: "<id>")`.
     def self.trigger_arguments(message, _context) = { room: message.room_id.to_s }
   end
@@ -336,11 +358,11 @@ With a plain `GraphQL::Schema::Subscription`:
   those subscribers are updated, so give such a class a `trigger_arguments` too if
   subscribers pass the argument.
 - **To have one trigger reach subscribers with different arguments** (the argument
-  is a filter, not an identity), give the class one topic per field, as
-  graphql-ruby documents, and let `update` return `NO_UPDATE`:
+  is a filter, not an identity) without the concern, give the class one topic per
+  field, as graphql-ruby documents, and let `update` return `NO_UPDATE`:
 
   ```ruby
-  class Subscriptions::PostPublished < GraphQL::Schema::Subscription
+  class Subscriptions::PostPublished < Subscriptions::BaseSubscription # a base without the concern
     def self.topic_for(field:, scope:, **)
       GraphQL::Subscriptions::Serialize.dump_recursive([scope, field.graphql_name])
     end
@@ -417,7 +439,8 @@ the repository's own specs do, in `spec/support/in_memory_subscriptions.rb`.
 graphql-ruby also ships `GraphQL::Testing::MockActionCable` for the real
 ActionCable backend.
 
-The repository's `example/` app is a complete setup: plain subscription classes,
+The repository's `example/` app is a complete setup: subscription classes under
+`Subscriptions::BaseSubscription`,
 `GraphqlChannel`, `ApplicationCable::Connection` with token authentication, and
 specs that drive a mutation through `POST /graphql` and watch the update arrive on
 an ActionCable subscriber (`example/spec/subscriptions/delivery_spec.rb`).
