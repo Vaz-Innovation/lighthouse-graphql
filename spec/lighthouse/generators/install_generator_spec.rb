@@ -47,9 +47,10 @@ RSpec.describe Lighthouse::Generators::InstallGenerator do
   def exist?(path) = File.exist?(File.join(root, path))
 
   describe "on graphql-ruby's install, with its defaults" do
-    before do
+    # The schema class as graphql-ruby's install wrote it: its template differs between releases.
+    let!(:written) do
       graphql_install
-      run_generator
+      read('app/graphql/demo_schema.rb').tap { run_generator }
     end
 
     it "makes graphql-ruby's schema class Lighthouse's, built on every class its install wrote" do
@@ -67,9 +68,13 @@ RSpec.describe Lighthouse::Generators::InstallGenerator do
 
     it 'keeps the rest of the class, but the root types it is built on and the resolve_type stub' do
       schema = read('app/graphql/demo_schema.rb')
+      stub = written[/^ *# Union and Interface Resolution\n.*?RequiredImplementationMissingError\)\n *end\n/m]
+      kept = written.sub(stub, '').lines.map(&:strip).reject(&:empty?)
+                    .grep_v(/\A(class DemoSchema < GraphQL::Schema|query\(Types::QueryType\)|mutation\(Types::MutationType\))\z/)
 
-      expect(schema).to include('use GraphQL::Dataloader', 'def self.type_error', 'max_depth(15)', 'max_query_string_tokens(5000)',
-                                'validate_max_errors(100)', 'def self.id_from_object', 'def self.object_from_id')
+      expect(stub).to include('def self.resolve_type')
+      expect(kept).to include('use GraphQL::Dataloader', 'def self.type_error(err, context)', 'def self.object_from_id(global_id, query_ctx)')
+      expect(kept).to all(satisfy { |line| schema.include?(line) })
       expect(schema).not_to include('query(Types::QueryType)', 'mutation(Types::MutationType)', 'def self.resolve_type',
                                     'RequiredImplementationMissingError')
       expect { RubyVM::InstructionSequence.compile(schema) }.not_to raise_error
@@ -234,7 +239,7 @@ RSpec.describe Lighthouse::Generators::InstallGenerator do
       id = User.find_by(name: 'Alan Turing').id
       expect(schema.execute("{ user(id: #{id}) { email } }").to_h).to eq('data' => { 'user' => { 'email' => 'alan@example.com' } })
       expect(schema.query.fields.keys).to include('node', 'nodes', 'users', 'user')
-      expect(schema.max_depth).to eq(15)
+      expect(schema.validate_max_errors).to eq(100)
     end
   end
 end
