@@ -6,7 +6,8 @@ module Lighthouse::GraphQL
   # of nil, and building the schema then fails to coerce it. Its own
   # build_default_value already maps NullValue to nil; do the same here.
   module NullDirectiveArguments
-    def args_to_kwargs(arg_owner, node)
+    # graphql 2.6.14 added a third parameter (the type resolver): pass on whatever it takes.
+    def args_to_kwargs(arg_owner, node, *rest)
       node.is_a?(::GraphQL::Language::Nodes::NullValue) ? nil : super
     end
   end
@@ -29,7 +30,28 @@ module Lighthouse::GraphQL
     end
 
     def build_interface_type(definition, type_resolver, base_type)
-      Lighthouse::GraphQL::RootTypes.base_for(definition.name) || super
+      root = Lighthouse::GraphQL::RootTypes.base_for(definition.name)
+      return super unless root
+
+      type_resolver.register(root) if type_resolver.respond_to?(:register)
+      root
+    end
+  end
+
+  # graphql 2.6.14 makes the class of every type before any is built, on
+  # base_types, and builds into it, whatever base build_object_type is given:
+  # seed the root types' with the app's (`Types::QueryType`, `Types::NodeType`).
+  module RootTypeClasses
+    def initialize(lookup_hash, directives, queued_directives, type_classes, &block)
+      super
+      # `keys`: the values change while it goes over them.
+      type_classes.keys.each do |name|
+        root = Lighthouse::GraphQL::RootTypes.base_for(name)
+        current = type_classes[name]
+        next if root.nil? || (current.is_a?(Class) ? current < root : current.equal?(root))
+
+        type_classes[name] = root.is_a?(Class) ? Class.new(root) { graphql_name(name) } : root
+      end
     end
   end
 
@@ -37,6 +59,8 @@ module Lighthouse::GraphQL
   # root types are then built on base_types[:object], as before.
   if builder && %i[build_object_type build_interface_type].all? { |name| builder.method_defined?(name) || builder.private_method_defined?(name) }
     builder.prepend(RootTypeBuilder)
+    resolver = builder.const_get(:TypeResolver) if builder.const_defined?(:TypeResolver)
+    resolver.prepend(RootTypeClasses) if resolver&.method_defined?(:interface_module)
   end
 
   # The app's schema class inherits Lighthouse's (`class AppSchema <

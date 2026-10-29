@@ -8,7 +8,9 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # Not ubuntu-latest: setup-ruby has no Ruby 3.1 build for Ubuntu 26.04 (the
+    # new latest), and the matrix below still covers 3.1.
+    runs-on: ubuntu-24.04
 
     strategy:
       fail-fast: false
