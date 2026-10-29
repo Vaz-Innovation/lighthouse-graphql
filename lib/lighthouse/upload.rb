@@ -10,8 +10,9 @@
 class Lighthouse::GraphQL::Upload < GraphQL::Schema::Scalar
   graphql_name 'Upload'
 
+  # An optional Upload the client sets to null stays null.
   def self.coerce_input(value, _context)
-    return value if file?(value)
+    return value if value.nil? || file?(value)
 
     raise ::GraphQL::CoercionError,
           'Could not get uploaded file, be sure to conform to GraphQL multipart request specification: ' \

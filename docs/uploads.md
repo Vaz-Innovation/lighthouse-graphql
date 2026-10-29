@@ -20,7 +20,9 @@ type Mutation {
 
 Lighthouse reads its values itself (`Lighthouse::GraphQL::Upload`): the resolver gets
 the uploaded file, an `ActionDispatch::Http::UploadedFile`. A value that is not a file
-makes the argument invalid. `Upload` is for arguments only, never a field's result.
+makes the argument invalid. An optional `Upload` (`avatar: Upload`) also takes `null`,
+which the resolver gets as `nil`; leaving the argument out is not the same as sending
+`null`. `Upload` is for arguments only, never a field's result.
 
 An ActiveStorage attachment takes the file as it is: with `has_one_attached :avatar`
 on `User`, the mutation above attaches it.

@@ -19,13 +19,17 @@ RSpec.describe 'File uploads' do
         store(file: Upload! @upload(disk: "s3", path: "avatars")): String @field(resolver: "UploadSpecEcho")
         storeMany(files: [Upload!]! @upload): String @field(resolver: "UploadSpecEcho")
         guarded(file: Upload! @upload): String @guard @field(resolver: "UploadSpecEcho")
+        profile(input: ProfileInput!): String @field(resolver: "UploadSpecProfile")
       }
+
+      input ProfileInput { name: String, avatar: Upload @upload }
     GRAPHQL
   end
 
   before do
     stub_const('UploadSpecName', ->(_obj, args, _ctx) { args[:file].original_filename })
     stub_const('UploadSpecEcho', ->(_obj, args, _ctx) { args.values.first.inspect })
+    stub_const('UploadSpecProfile', ->(_obj, args, _ctx) { args[:input].to_h.inspect })
     calls = stored
     allow(Lighthouse::GraphQL::UploadStore).to receive(:call) { |file, **options| (calls << [file, options]) && "stored:#{file.original_filename}" }
   end
@@ -40,6 +44,14 @@ RSpec.describe 'File uploads' do
     result = run('mutation($f: Upload!) { name(file: $f) }', { 'f' => 'not a file' })
 
     expect(result['errors'].first.dig('extensions', 'problems').to_s).to include('Could not get uploaded file')
+  end
+
+  it 'takes an explicit null for an optional Upload, and stores nothing for it' do
+    result = run('mutation($p: ProfileInput!) { profile(input: $p) }', { 'p' => { 'name' => 'ada', 'avatar' => nil } })
+
+    expect(result).to eq('data' => { 'profile' => '{name: "ada", avatar: nil}' })
+    expect(run('mutation { profile(input: { avatar: null }) }', {}).dig('data', 'profile')).to eq('{avatar: nil}')
+    expect(stored).to be_empty
   end
 
   it '@upload stores the file with ActiveStorage (UploadStore) and passes what it answers, for lists too' do

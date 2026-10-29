@@ -6,6 +6,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **An optional `Upload` takes an explicit `null`.** The scalar refused it ("Could not get
+  uploaded file ... Instead got: nil"), so a client had to leave the argument out. `null`
+  now reaches the resolver as `nil`, and `@upload` stores nothing for it.
+
 ## [0.7.3] - 2026-10-29
 
 ### Changed
