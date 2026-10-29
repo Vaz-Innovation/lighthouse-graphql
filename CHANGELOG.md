@@ -11,6 +11,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **An optional `Upload` takes an explicit `null`.** The scalar refused it ("Could not get
   uploaded file ... Instead got: nil"), so a client had to leave the argument out. `null`
   now reaches the resolver as `nil`, and `@upload` stores nothing for it.
+- **`@canFind` fails when nothing is at its `find:` path, instead of passing unchecked.** A
+  misspelt path (`find: "inputt.id"`), or an optional argument the client left out, found
+  no ids, so no model was checked and the field resolved. It now fails with `Got no key to
+  find a model at the expected input path: …`, as PHP Lighthouse does (through `action:`,
+  like the other failures). A `*` over an empty list still checks no model.
 
 ## [0.7.3] - 2026-10-29
 

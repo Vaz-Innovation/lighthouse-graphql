@@ -136,7 +136,7 @@ module Lighthouse::GraphQL::DirectiveResolvers
 
     def authorize_before(_obj, args, ctx)
       model = model_class
-      ids = Lighthouse::Support::Arguments.dig(Lighthouse::Support::Arguments.plain(args), directive_arg('find')).flatten.uniq
+      ids = ids_to_find(Lighthouse::Support::Arguments.plain(args))
       records = scoped(model.where(model.primary_key => ids)).to_a
       if directive_arg('findOrFail') != false && records.size < ids.size
         missing = ids.map(&:to_s) - records.map { |r| r.public_send(model.primary_key).to_s }
@@ -144,6 +144,24 @@ module Lighthouse::GraphQL::DirectiveResolvers
       end
 
       authorize_each!(ctx, records, args)
+    end
+
+    # The ids at the `find:` path. Nothing there (a misspelt path, an argument
+    # the client left out) is an error, as in PHP Lighthouse, so the field never
+    # resolves with nothing checked. A `*` over an empty list finds no model to check.
+    def ids_to_find(args)
+      find = directive_arg('find').to_s
+      ids = Lighthouse::Support::Arguments.dig(args, find)
+      return ids.flatten.uniq unless ids.empty? && !empty_list_at?(args, find)
+
+      raise ::GraphQL::ExecutionError, "Got no key to find a model at the expected input path: #{find}."
+    end
+
+    def empty_list_at?(args, find)
+      return false unless find.include?('*')
+
+      lists = Lighthouse::Support::Arguments.dig(args, find.split('.*').first)
+      lists.any? && lists.all? { |list| list.respond_to?(:empty?) && list.empty? }
     end
   end
 

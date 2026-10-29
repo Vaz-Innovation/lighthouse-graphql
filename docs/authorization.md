@@ -107,7 +107,10 @@ Plus, per directive:
 - `@canFind(find: String!, model: String, findOrFail: Boolean = true, scopes: [String!])`.
   `find` is the argument holding the primary key or keys, and may be a dot path
   (`"input.id"`). A key that matches no record fails with
-  `Couldn't find Post with 'id'=…`, unless `findOrFail: false`. `scopes` are model
+  `Couldn't find Post with 'id'=…`, unless `findOrFail: false`. Nothing at the path (a
+  misspelt one, or an optional argument the client left out) fails with
+  `Got no key to find a model at the expected input path: …`, as in PHP Lighthouse;
+  a `*` over an empty list (`"inputs.*.id"`) checks no model. `scopes` are model
   scopes applied to the lookup.
 - `@canModel(model: String)`.
 - `@canQuery(model: String, scopes: [String!])`. `scopes` narrow the records

@@ -14,6 +14,11 @@ class AuthSpecFindPost
   end
 end
 
+# Resolves no posts.
+class AuthSpecNoPosts
+  def self.call(_obj, _args, _ctx) = []
+end
+
 # Users are hashes: { role: :admin | :writer | :reader, level: Integer }.
 class PostPolicy
   attr_reader :user, :record
@@ -54,6 +59,9 @@ RSpec.describe 'Authorization directives (@guard and the @can* family)' do
           @field(resolver: "AuthSpecFindPost") @canFind(ability: "show", find: "id", action: EXCEPTION_NOT_AUTHORIZED)
         fallbackTitle(id: ID!): String
           @field(resolver: "AuthSpecFindPost") @canFind(ability: "show", find: "id", model: "Post", action: RETURN_VALUE, returnValue: "hidden")
+        misspeltPath(id: ID!): Post @field(resolver: "AuthSpecFindPost") @canFind(ability: "show", find: "input.id")
+        optionalId(id: ID): Post @field(resolver: "AuthSpecFindPost") @canFind(ability: "show", find: "id")
+        eachPost(inputs: [EditPostInput!]!): [Post!]! @field(resolver: "AuthSpecNoPosts") @canFind(ability: "show", find: "inputs.*.id", model: "Post")
       }
 
       type Mutation {
@@ -168,6 +176,19 @@ RSpec.describe 'Authorization directives (@guard and the @can* family)' do
 
     it 'returns returnValue instead with action: RETURN_VALUE' do
       expect(run("{ fallbackTitle(id: #{draft.id}) }", reader)).to eq('data' => { 'fallbackTitle' => 'hidden' })
+    end
+
+    it 'fails, not passes unchecked, when nothing is at the find: path' do
+      result = run("{ misspeltPath(id: #{draft.id}) { title } }", reader)
+
+      expect(result['data']).to eq('misspeltPath' => nil)
+      expect(messages(result)).to eq(['Got no key to find a model at the expected input path: input.id.'])
+      expect(messages(run('{ optionalId { title } }', reader))).to eq(['Got no key to find a model at the expected input path: id.'])
+    end
+
+    it 'checks no model for a * over an empty list' do
+      expect(run('{ eachPost(inputs: []) { id } }', reader)).to eq('data' => { 'eachPost' => [] })
+      expect(messages(run("{ eachPost(inputs: [{ id: #{draft.id} }]) { id } }", reader))).to eq(['This action is unauthorized.'])
     end
   end
 
