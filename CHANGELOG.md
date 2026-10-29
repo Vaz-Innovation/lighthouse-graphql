@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.7.3] - 2026-10-29
+
 ### Changed
 
 - **Filters on input fields apply without `@nest`, as in PHP Lighthouse.** The filter
@@ -53,6 +55,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the moment you write `where: _ @whereConditions`.
 - The `_` placeholder exists only for the IDE: a `scalar _` in your SDL is dropped once the
   schema builds, so the executable schema (and its introspection) has no `_` type.
+
+### Fixed
+
+- Builds on graphql-ruby 2.6.14, whose changed internals made the root types
+  (`Types::QueryType`, ...) lose the app's code-first base.
 
 ## [0.7.1] - 2026-10-18
 
@@ -729,7 +736,8 @@ had been running inside a private monorepo as a path gem before being extracted.
 - Config-driven extension seams: `Lighthouse.configure`, `resolver_namespaces`,
   `on_error`, and `DirectiveRegistry.register` for app-defined directives.
 
-[Unreleased]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.7.2...HEAD
+[Unreleased]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.7.3...HEAD
+[0.7.3]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.6.0...v0.7.0
