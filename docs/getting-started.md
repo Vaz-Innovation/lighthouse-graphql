@@ -5,6 +5,12 @@ GraphQL endpoint.
 
 ## Install
 
+Lighthouse is built on [graphql-ruby](https://graphql-ruby.org), and the two are
+set up together, in three commands:
+
+**The gems.** `lighthouse-graphql` depends on `graphql ~> 2.5`, so adding it
+installs graphql-ruby too:
+
 ```ruby
 # Gemfile
 gem 'lighthouse-graphql'
@@ -14,19 +20,36 @@ gem 'lighthouse-graphql'
 bundle install
 ```
 
-Runtime dependencies (`graphql ~> 2.5`, `activesupport`) come with the gem. If you
-want federation, add `apollo-federation` to your app — it is intentionally **not**
-a hard dependency of Lighthouse so non-federated apps stay lean.
+You can also list `gem 'graphql'` yourself, to pin its version. On graphql 2.5, keep
+the `json` gem below 3: graphql 2.5 calls `JSON.generate` with an option json 3
+removed (graphql 2.6 no longer does). If you want federation, add `apollo-federation`
+to your app — it is intentionally **not** a hard dependency of Lighthouse so
+non-federated apps stay lean.
 
-## The install generator
+**graphql-ruby's install** (optional). This writes the schema class, the base
+classes (`Types::BaseObject`, ...), the root types and the controller. Choose its
+options here, as for any graphql-ruby app (`--relay`, `--batch`, `--api`,
+`--schema=ApiSchema`, `--skip-mutation-root-type`, ...):
+
+```shell
+bin/rails generate graphql:install
+```
+
+**Lighthouse's install.** It adapts what graphql-ruby wrote and adds its own files
+(see below). If you skipped graphql-ruby's install, it runs `graphql:install` for you,
+with graphql-ruby's defaults, so the two commands are never both required:
 
 ```shell
 bin/rails generate lighthouse:install
 ```
 
-does steps 1–5 below for you. It builds on graphql-ruby's own install,
-`rails g graphql:install`, with whichever of its options the app chose (`--relay`,
-`--batch`, `--api`, ...). When the app has no graphql-ruby schema class yet, it runs
+Run `graphql:install` yourself only to pass it options; Lighthouse then keeps them.
+
+## The install generator
+
+`bin/rails generate lighthouse:install` does steps 1–5 below for you. It builds on
+graphql-ruby's own install, `rails g graphql:install`, with whichever of its options
+the app chose (`--relay`, `--batch`, `--api`, ...). When the app has no graphql-ruby schema class yet, it runs
 `graphql:install` first, with graphql-ruby's defaults. Then it adapts what
 graphql-ruby wrote, and adds Lighthouse's own:
 
