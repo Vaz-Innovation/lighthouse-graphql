@@ -14,7 +14,21 @@ module Lighthouse::GraphQL::DirectiveResolvers
   # is reported through Config.on_error and returned uncached.
   class CacheDirectiveResolver < Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
     def self.directive_name = 'cache'
-    def self.definition = 'directive @cache(maxAge: Int, private: Boolean = false) on FIELD_DEFINITION'
+
+    def self.definition
+      <<~GRAPHQL.chomp
+        """
+        Cache the field's resolved value in Rails.cache.
+        The key covers the parent object, the field and its arguments.
+        """
+        directive @cache(
+          "How long, in seconds, the value is kept. Without it, until @clearCache or eviction."
+          maxAge: Int
+          "Keep a value per authenticated user, instead of one shared by all (guests share one)."
+          private: Boolean = false
+        ) on FIELD_DEFINITION
+      GRAPHQL
+    end
 
     ROOT_TYPES = %w[Query Mutation Subscription].freeze
 
@@ -88,8 +102,19 @@ module Lighthouse::GraphQL::DirectiveResolvers
     def self.directive_name = 'clearCache'
 
     def self.definition
-      'directive @clearCache(type: String!, idSource: ClearCacheIdSource, field: String) ' \
-        'repeatable on FIELD_DEFINITION'
+      <<~GRAPHQL.chomp
+        """
+        On a mutation, invalidate @cache entries once the field resolved successfully.
+        """
+        directive @clearCache(
+          "The name of the type whose entries to clear. Alone, it clears all of that type's entries."
+          type: String!
+          "Narrow the entries to those of the objects with the ids found at this path."
+          idSource: ClearCacheIdSource
+          "Narrow the entries to those of this field."
+          field: String
+        ) repeatable on FIELD_DEFINITION
+      GRAPHQL
     end
 
     def self.type_definitions

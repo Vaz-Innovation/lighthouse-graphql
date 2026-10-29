@@ -119,7 +119,7 @@ and `Query.node` / `nodes` are `Types::QueryType`'s.
 | [`requests/graphql/persisted_queries_spec.rb`](spec/requests/graphql/persisted_queries_spec.rb) | Automatic persisted queries over POST and GET (with `Cache-Control` and `ETag`), the trusted-operations manifest |
 | [`channels/graphql_channel_spec.rb`](spec/channels/graphql_channel_spec.rb), [`channels/application_cable/connection_spec.rb`](spec/channels/application_cable/connection_spec.rb) | `GraphqlChannel` with ActionCable's test helpers: a subscription is registered and streamed, a guest is refused by `authorized?`, unsubscribing deletes it; the connection's token |
 | [`subscriptions/delivery_spec.rb`](spec/subscriptions/delivery_spec.rb) | `@broadcast` end to end over ActionCable's pub/sub: `createPost` reaches the `postCreated` subscribers (drafts only their author and admins, `NO_UPDATE`), `publishPost` the `postPublished` ones for that author, `addComment` the `commentAdded` ones with no `postId` or that post's (a draft's only to its author and admins), a failed or refused mutation nothing, a closed socket stops receiving |
-| [`tasks/lighthouse_tasks_spec.rb`](spec/tasks/lighthouse_tasks_spec.rb) | `lighthouse:cache`, `lighthouse:clear_cache`, `lighthouse:ide_helper`, `lighthouse:persisted_queries:verify` |
+| [`tasks/lighthouse_tasks_spec.rb`](spec/tasks/lighthouse_tasks_spec.rb) | `lighthouse:cache`, `lighthouse:clear_cache`, `lighthouse:ide_helper`, `lighthouse:print_schema`, `lighthouse:persisted_queries:verify` |
 | [`graphql/app_schema_spec.rb`](spec/graphql/app_schema_spec.rb) | The types and arguments Lighthouse generates |
 
 ## Subscriptions

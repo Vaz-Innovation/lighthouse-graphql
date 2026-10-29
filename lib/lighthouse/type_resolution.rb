@@ -26,14 +26,20 @@ module Lighthouse::GraphQL::TypeResolution
       The class that picks the object type of this union's values: `resolve_type(object, context)`
       or `call(object, context)`, returning a type name or a type class.
       """
-      directive @union(resolveType: String!) on UNION
+      directive @union(
+        "The class to call, looked up in Config.namespaces[:types]. A fully-qualified name is used as-is."
+        resolveType: String!
+      ) on UNION
     GRAPHQL
     'interface' => <<~GRAPHQL.chomp
       """
       The class that picks the object type of this interface's values: `resolve_type(object, context)`
       or `call(object, context)`, returning a type name or a type class.
       """
-      directive @interface(resolveType: String!) on INTERFACE
+      directive @interface(
+        "The class to call, looked up in Config.namespaces[:types]. A fully-qualified name is used as-is."
+        resolveType: String!
+      ) on INTERFACE
     GRAPHQL
   }.freeze
 

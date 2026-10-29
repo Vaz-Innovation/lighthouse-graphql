@@ -20,7 +20,19 @@ require_relative 'base'
 # each request, so its hooks (`subscribe`, `update`, ...) run as usual.
 class Lighthouse::GraphQL::DirectiveResolvers::SubscriptionDirectiveResolver < Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
   def self.directive_name = 'subscription'
-  def self.definition = 'directive @subscription(class: String!) on FIELD_DEFINITION'
+
+  def self.definition
+    <<~GRAPHQL.chomp
+      """
+      Reference a class to handle a field of the Subscription type: a GraphQL::Schema::Subscription.
+      Without it, the field resolves to the class named after it, in Config.namespaces[:subscriptions].
+      """
+      directive @subscription(
+        "The subscription class, looked up in Config.namespaces[:subscriptions]. A fully-qualified name is used as-is."
+        class: String!
+      ) on FIELD_DEFINITION
+    GRAPHQL
+  end
 
   def define_resolver(target_type_class)
     unless @opts[:root_kind] == :subscriptions

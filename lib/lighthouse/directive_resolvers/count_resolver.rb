@@ -9,7 +9,22 @@ require_relative 'builder_applier'
 # and where/argument filters before counting.
 class Lighthouse::GraphQL::DirectiveResolvers::CountDirectiveResolver < Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
   def self.directive_name = 'count'
-  def self.definition = 'directive @count(model: String, relation: String, scopes: [String!]) on FIELD_DEFINITION'
+
+  def self.definition
+    <<~GRAPHQL.chomp
+      """
+      Return the number of records: of a model's table, or of a relation of the parent.
+      The count honors `scopes`, @builder and the field's argument filters (@eq, @where, ...).
+      """
+      directive @count(
+        "The class name of the model whose records to count. Takes precedence over `relation`."
+        model: String
+        "The relation of the parent to count. Defaults to the field's name, when the parent has it."
+        relation: String
+      #{SCOPES_ARGUMENT}
+      ) on FIELD_DEFINITION
+    GRAPHQL
+  end
 
   def define_resolver(target_type_class)
     model_name = directive_arg('model')

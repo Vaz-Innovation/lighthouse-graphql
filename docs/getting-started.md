@@ -303,10 +303,11 @@ It writes two files:
 - **`programmatic-types.graphql`** — the types Lighthouse adds to the executable
   schema: `<Type>Paginator`, `<Type>SimplePaginator`, `<Type>Connection`/`Edge`,
   `PaginatorInfo`, `SimplePaginatorInfo`, `PageInfo`, the `@whereConditions` and
-  `@orderBy` inputs and enums, and the `_` placeholder scalar (without it, the
-  IDE reports `Unknown type "_"`). It leaves out every type the SDL or
-  `schema-directives.graphql` defines, because graphql-js, which the IDE plugins
-  use, rejects a type defined twice.
+  `@orderBy` inputs and enums, and the `_` placeholder scalar (always declared,
+  even before the SDL uses it; without it, the IDE reports `Unknown type "_"`).
+  It is for the IDE only: the schema Lighthouse builds has no `_` type. It leaves
+  out every type the SDL or `schema-directives.graphql` defines, because
+  graphql-js, which the IDE plugins use, rejects a type defined twice.
 
 Point your IDE's [graphql-config](https://the-guild.dev/graphql/config) at them
 next to your SDL — the install generator writes this `graphql.config.yml`:
@@ -323,6 +324,15 @@ VS Code. The files are derived from your schema, so the generator adds them to
 `.gitignore`. Outside development, rerun the task after changing the schema or
 registering a directive. The IDE reads every `.graphql` file the glob matches, as
 one schema: it does not follow `#import`.
+
+To see the schema clients get, with every type Lighthouse generated and the
+fields rewritten (`users { data { … } }`), print it. The task writes the SDL to
+stdout and nothing else, so redirect it to keep it:
+
+```shell
+bin/rails lighthouse:print_schema                       # AppSchema
+SCHEMA=Admin::Schema bin/rails lighthouse:print_schema > generated.graphql
+```
 
 > The IDE reads fields as you wrote them: `users: [User!]! @paginate` still looks
 > like a list to it, although clients query `users { data { … } }`. Field

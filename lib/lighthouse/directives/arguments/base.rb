@@ -7,6 +7,24 @@
 class Lighthouse::GraphQL::Directives::Arguments::Base
   include Lighthouse::Contracts::ArgBuilder
 
+  # The `key` argument's SDL, which most of them take.
+  KEY_ARGUMENT = Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver.argument_sdl(
+    'key: String', "The column to filter on. Defaults to the argument's name in snake_case."
+  )
+
+  def self.argument_sdl(...) = Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver.argument_sdl(...)
+
+  # The SDL of a filter directive: `description`, then its arguments (`key` by default).
+  def self.sdl(name, description, arguments = KEY_ARGUMENT)
+    parentheses = "(\n#{arguments}\n)" if arguments
+    <<~GRAPHQL.chomp
+      """
+      #{description}
+      """
+      directive @#{name}#{parentheses} on ARGUMENT_DEFINITION | INPUT_FIELD_DEFINITION
+    GRAPHQL
+  end
+
   def initialize(arg_node, directive_node)
     @arg_node = arg_node
     @directive_node = directive_node

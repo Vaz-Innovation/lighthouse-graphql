@@ -12,7 +12,19 @@ require_relative 'base'
 # match is an error, as in PHP Lighthouse; none returns null.
 class Lighthouse::GraphQL::DirectiveResolvers::FindDirectiveResolver < Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
   def self.directive_name = 'find'
-  def self.definition = 'directive @find(model: String, scopes: [String!]) on FIELD_DEFINITION'
+
+  def self.definition
+    <<~GRAPHQL.chomp
+      """
+      Find a single record by the field's argument filters (@eq, @where, ...), or null.
+      More than one match is an error. A lookup by `id` alone is batched.
+      """
+      directive @find(
+      #{MODEL_ARGUMENT}
+      #{SCOPES_ARGUMENT}
+      ) on FIELD_DEFINITION
+    GRAPHQL
+  end
 
   def define_resolver(target_type_class)
     me = self

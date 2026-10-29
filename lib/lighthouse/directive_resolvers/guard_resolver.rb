@@ -7,7 +7,16 @@ require_relative 'base'
 # present (per Config.authenticated_user). Mirrors PHP Lighthouse's @guard.
 class Lighthouse::GraphQL::DirectiveResolvers::GuardDirectiveResolver < Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
   def self.directive_name = 'guard'
-  def self.definition = 'directive @guard on FIELD_DEFINITION'
+
+  def self.definition
+    <<~GRAPHQL.chomp
+      """
+      Require an authenticated user (see Config.authenticated_user) before the field resolves,
+      else fail with "Unauthenticated.".
+      """
+      directive @guard on FIELD_DEFINITION
+    GRAPHQL
+  end
 
   def define_resolver(target_type_class)
     field_name = @field_def.name

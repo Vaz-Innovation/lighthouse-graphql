@@ -22,7 +22,19 @@ module Lighthouse::GraphQL::FeatureDirective
   # Arguments with a default are nullable, not `Type! = default` as in PHP: graphql-ruby
   # 2.5 does not fill in a directive argument's default, so a non-null one would be
   # refused wherever it is left out. Left out or null, it takes its default.
-  DEFINITION = 'directive @feature(name: String!, when: FeatureState = ACTIVE) on FIELD_DEFINITION | OBJECT'
+  DEFINITION = <<~GRAPHQL.chomp
+    """
+    Include a field or an object type in the schema only while a feature flag is in a given state,
+    for the actor of the request (Flipper by default, see Config.feature_checker).
+    Otherwise, it is hidden from introspection and a query selecting it is invalid.
+    """
+    directive @feature(
+      "The name of the feature flag."
+      name: String!
+      "The state the feature must be in for the element to be visible."
+      when: FeatureState = ACTIVE
+    ) on FIELD_DEFINITION | OBJECT
+  GRAPHQL
 
   TYPE_DEFINITIONS = {
     'FeatureState' => <<~GRAPHQL.chomp

@@ -16,7 +16,19 @@ require_relative 'base'
 # taking no parameters is called without them.
 class Lighthouse::GraphQL::DirectiveResolvers::MethodDirectiveResolver < Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
   def self.directive_name = 'method'
-  def self.definition = 'directive @method(name: String) on FIELD_DEFINITION'
+
+  def self.definition
+    <<~GRAPHQL.chomp
+      """
+      Resolve a field by calling a method on the parent object.
+      The field's arguments are passed to the method.
+      """
+      directive @method(
+        "The name of the method to call. Defaults to the field's name in snake_case."
+        name: String
+      ) on FIELD_DEFINITION
+    GRAPHQL
+  end
 
   def define_resolver(target_type_class)
     resolver_method = "resolve_field_#{@field_def.name}"

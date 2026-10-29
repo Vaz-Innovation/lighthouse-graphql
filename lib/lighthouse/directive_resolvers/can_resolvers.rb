@@ -19,8 +19,16 @@ module Lighthouse::GraphQL::DirectiveResolvers
   # generic "This action is unauthorized.", or return `returnValue` instead.
   # All are repeatable; they run after @guard and before validation.
   class CanDirectiveResolver < Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
-    COMMON_ARGUMENTS = 'ability: String!, injectArgs: Boolean = false, args: CanArgs, ' \
-                       'action: CanAction = EXCEPTION_PASS, returnValue: CanArgs'
+    COMMON_ARGUMENTS = [
+      argument_sdl(
+        'ability: String!',
+        'The ability to check, which the policy answers with a predicate: "update" calls `PostPolicy#update?`.'
+      ),
+      argument_sdl('injectArgs: Boolean = false', "Pass the field's arguments to the policy method, as its first extra argument."),
+      argument_sdl('args: CanArgs', 'Constant values to pass to the policy method, after the injected arguments.'),
+      argument_sdl('action: CanAction = EXCEPTION_PASS', 'What to do when the check fails.'),
+      argument_sdl('returnValue: CanArgs', 'The value to return, when `action` is RETURN_VALUE.')
+    ].freeze
 
     TYPE_DEFINITIONS = {
       'CanArgs' => '"Any constant literal value: https://graphql.github.io/graphql-spec/draft/#sec-Input-Values"' \
@@ -40,8 +48,16 @@ module Lighthouse::GraphQL::DirectiveResolvers
 
     def self.type_definitions = TYPE_DEFINITIONS
 
-    def self.definition_with(extra = nil)
-      "directive @#{directive_name}(#{[COMMON_ARGUMENTS, extra].compact.join(', ')}) repeatable on FIELD_DEFINITION"
+    # The SDL of a @can* directive: `description`, the arguments they share, then the `extra` ones.
+    def self.definition_with(description, extra = [])
+      <<~GRAPHQL.chomp
+        """
+        #{description}
+        """
+        directive @#{directive_name}(
+        #{[*COMMON_ARGUMENTS, *extra].join("\n")}
+        ) repeatable on FIELD_DEFINITION
+      GRAPHQL
     end
 
     def define_resolver(target_type_class)
@@ -100,7 +116,21 @@ module Lighthouse::GraphQL::DirectiveResolvers
 
   class CanFindDirectiveResolver < CanDirectiveResolver
     def self.directive_name = 'canFind'
-    def self.definition = definition_with('find: String!, model: String, findOrFail: Boolean = true, scopes: [String!]')
+
+    def self.definition
+      definition_with(<<~TEXT.chomp, [FIND_ARGUMENT, MODEL_ARGUMENT, FIND_OR_FAIL_ARGUMENT, SCOPES_ARGUMENT])
+        Check a policy against the models whose primary keys an argument holds, before the field resolves.
+      TEXT
+    end
+
+    FIND_ARGUMENT = argument_sdl(
+      'find: String!',
+      'The path of the argument holding the id, or a list of ids, of the models to check: "id", or "input.ids".'
+    )
+    FIND_OR_FAIL_ARGUMENT = argument_sdl(
+      'findOrFail: Boolean = true',
+      'Fail when an id matches no model. With false, only the models found are checked.'
+    )
 
     protected
 
@@ -119,7 +149,13 @@ module Lighthouse::GraphQL::DirectiveResolvers
 
   class CanModelDirectiveResolver < CanDirectiveResolver
     def self.directive_name = 'canModel'
-    def self.definition = definition_with('model: String')
+
+    def self.definition
+      definition_with(<<~TEXT.chomp, [MODEL_ARGUMENT])
+        Check a policy against the model class itself, before the field resolves,
+        e.g. `create?` before a @create.
+      TEXT
+    end
 
     protected
 
@@ -130,7 +166,13 @@ module Lighthouse::GraphQL::DirectiveResolvers
 
   class CanQueryDirectiveResolver < CanDirectiveResolver
     def self.directive_name = 'canQuery'
-    def self.definition = definition_with('model: String, scopes: [String!]')
+
+    def self.definition
+      definition_with(<<~TEXT.chomp, [MODEL_ARGUMENT, SCOPES_ARGUMENT])
+        Check a policy against each model the field's query would return,
+        narrowed by the field's argument filters (@eq, @where, ...), before the field resolves.
+      TEXT
+    end
 
     protected
 
@@ -142,7 +184,13 @@ module Lighthouse::GraphQL::DirectiveResolvers
 
   class CanResolvedDirectiveResolver < CanDirectiveResolver
     def self.directive_name = 'canResolved'
-    def self.definition = definition_with
+
+    def self.definition
+      definition_with(<<~TEXT.chomp)
+        Check a policy against whatever the field resolved to, each item of a list, after it resolves.
+        The field runs first: only use it on fields that do not change data.
+      TEXT
+    end
 
     protected
 
@@ -166,7 +214,12 @@ module Lighthouse::GraphQL::DirectiveResolvers
 
   class CanRootDirectiveResolver < CanDirectiveResolver
     def self.directive_name = 'canRoot'
-    def self.definition = definition_with
+
+    def self.definition
+      definition_with(<<~TEXT.chomp)
+        Check a policy against the parent object of the field, before the field resolves.
+      TEXT
+    end
 
     protected
 

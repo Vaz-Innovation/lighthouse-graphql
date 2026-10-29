@@ -8,7 +8,19 @@ require_relative 'builder_applier'
 # be combined with @eq/@where to fetch one record by criteria.
 class Lighthouse::GraphQL::DirectiveResolvers::FirstDirectiveResolver < Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
   def self.directive_name = 'first'
-  def self.definition = 'directive @first(model: String, scopes: [String!]) on FIELD_DEFINITION'
+
+  def self.definition
+    <<~GRAPHQL.chomp
+      """
+      Get the first record that matches the field's argument filters (@eq, @where, ...),
+      or null. Unlike @find, it does not fail when more than one record matches.
+      """
+      directive @first(
+      #{MODEL_ARGUMENT}
+      #{SCOPES_ARGUMENT}
+      ) on FIELD_DEFINITION
+    GRAPHQL
+  end
 
   def define_resolver(target_type_class)
     method_name = "resolve_field_#{@field_def.name}"

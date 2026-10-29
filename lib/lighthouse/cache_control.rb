@@ -21,8 +21,20 @@ module Lighthouse::GraphQL::CacheControl
   # Arguments with a default are nullable, not `Type! = default` as in PHP: graphql-ruby
   # 2.5 does not fill in a directive argument's default, so a non-null one would be
   # refused wherever it is left out. Left out or null, it takes its default.
-  DEFINITION = 'directive @cacheControl(maxAge: Int = 0, scope: CacheControlScope = PUBLIC, ' \
-               'inheritMaxAge: Boolean = false) on FIELD_DEFINITION | OBJECT | INTERFACE | UNION'
+  DEFINITION = <<~GRAPHQL.chomp
+    """
+    Set the HTTP Cache-Control header of the response, from the fields and types a query selects.
+    The response may be cached for the lowest maxAge among them, and is private if any scope is.
+    """
+    directive @cacheControl(
+      "The maximum amount of time, in seconds, the field's value may be cached. 0 means `no-cache`."
+      maxAge: Int = 0
+      "Who a cached response may be shared with."
+      scope: CacheControlScope = PUBLIC
+      "Use the maxAge of the parent field. The `maxAge` argument is ignored."
+      inheritMaxAge: Boolean = false
+    ) on FIELD_DEFINITION | OBJECT | INTERFACE | UNION
+  GRAPHQL
 
   TYPE_DEFINITIONS = {
     'CacheControlScope' => <<~GRAPHQL.chomp

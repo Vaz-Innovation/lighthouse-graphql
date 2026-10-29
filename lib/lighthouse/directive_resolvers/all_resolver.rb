@@ -5,7 +5,19 @@ require_relative 'builder_applier'
 
 class Lighthouse::GraphQL::DirectiveResolvers::AllDirectiveResolver < Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
   def self.directive_name = 'all'
-  def self.definition = 'directive @all(model: String, scopes: [String!]) on FIELD_DEFINITION'
+
+  def self.definition
+    <<~GRAPHQL.chomp
+      """
+      Get a collection of models as the field result: all the model's records,
+      narrowed by `scopes`, @builder and the field's argument filters (@eq, @where, ...).
+      """
+      directive @all(
+      #{MODEL_ARGUMENT}
+      #{SCOPES_ARGUMENT}
+      ) on FIELD_DEFINITION
+    GRAPHQL
+  end
 
   def define_resolver(target_type_class)
     model_class = constantize_model(extract_model_name || @field_def.type.unwrap.graphql_name)

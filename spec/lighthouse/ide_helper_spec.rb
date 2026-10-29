@@ -38,6 +38,25 @@ RSpec.describe Lighthouse::IdeHelper do
     it 'is valid SDL' do
       expect { GraphQL::Language::Parser.parse(output) }.not_to raise_error
     end
+
+    # The IDE shows these descriptions on hover and in autocomplete, so a new
+    # directive, argument, enum value or input field must come documented.
+    it 'describes every directive, argument, enum value and input field' do
+      nodes = GraphQL::Language::Nodes
+      documented = ->(node) { node.description.to_s.strip.present? }
+      undocumented = GraphQL::Language::Parser.parse(described_class.directives_sdl('')).definitions.flat_map do |definition|
+        members =
+          case definition
+          when nodes::DirectiveDefinition then definition.arguments
+          when nodes::EnumTypeDefinition then definition.values
+          when nodes::InputObjectTypeDefinition then definition.fields
+          else []
+          end
+        [definition, *members].reject(&documented).map { |node| "#{definition.name}#{".#{node.name}" unless node.equal?(definition)}" }
+      end
+
+      expect(undocumented).to eq([])
+    end
   end
 
   describe '.programmatic_types_sdl' do
@@ -64,6 +83,14 @@ RSpec.describe Lighthouse::IdeHelper do
 
     it 'declares the `_` placeholder the SDL references' do
       expect(output).to include('scalar _')
+    end
+
+    it 'declares the `_` placeholder even when the SDL does not use it yet' do
+      expect(described_class.programmatic_types_sdl('type Query { a: Int }')).to include('scalar _')
+    end
+
+    it 'leaves the `_` placeholder to an SDL that declares it itself' do
+      expect(described_class.programmatic_types_sdl("scalar _\ntype Query { a: Int }")).not_to include('scalar _')
     end
 
     it 'leaves out the types the SDL defines itself' do

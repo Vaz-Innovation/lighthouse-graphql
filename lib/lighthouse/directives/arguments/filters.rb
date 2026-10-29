@@ -6,7 +6,7 @@ module Lighthouse::GraphQL::Directives::Arguments
   # @eq — equality filter (the default). `field(status: String @eq)`
   class Eq < Base
     def self.directive_name = 'eq'
-    def self.definition = 'directive @eq(key: String) on ARGUMENT_DEFINITION | INPUT_FIELD_DEFINITION'
+    def self.definition = sdl('eq', 'Add an equality filter to the query: the column equals the value.')
 
     def handle_builder(relation, value)
       return relation if value.nil?
@@ -19,7 +19,7 @@ module Lighthouse::GraphQL::Directives::Arguments
   # named; a list matches any of its values. `deletePosts(ids: [ID!]! @whereKey)`
   class WhereKey < Base
     def self.directive_name = 'whereKey'
-    def self.definition = 'directive @whereKey on ARGUMENT_DEFINITION | INPUT_FIELD_DEFINITION'
+    def self.definition = sdl('whereKey', "Filter by the model's primary key, whatever its column is named. A list matches any of its values.", nil)
 
     def handle_builder(relation, value)
       return relation if value.nil?
@@ -31,7 +31,7 @@ module Lighthouse::GraphQL::Directives::Arguments
   # @neq — inequality filter.
   class Neq < Base
     def self.directive_name = 'neq'
-    def self.definition = 'directive @neq(key: String) on ARGUMENT_DEFINITION | INPUT_FIELD_DEFINITION'
+    def self.definition = sdl('neq', 'Add an inequality filter to the query: the column differs from the value.')
 
     def handle_builder(relation, value)
       return relation if value.nil?
@@ -43,7 +43,7 @@ module Lighthouse::GraphQL::Directives::Arguments
   # @in — value is one of a list.
   class In < Base
     def self.directive_name = 'in'
-    def self.definition = 'directive @in(key: String) on ARGUMENT_DEFINITION | INPUT_FIELD_DEFINITION'
+    def self.definition = sdl('in', 'Filter by a list of values: the column is one of them.')
 
     def handle_builder(relation, value)
       return relation if value.nil?
@@ -55,7 +55,7 @@ module Lighthouse::GraphQL::Directives::Arguments
   # @notIn — value is none of a list.
   class NotIn < Base
     def self.directive_name = 'notIn'
-    def self.definition = 'directive @notIn(key: String) on ARGUMENT_DEFINITION | INPUT_FIELD_DEFINITION'
+    def self.definition = sdl('notIn', 'Filter by a list of values: the column is none of them.')
 
     def handle_builder(relation, value)
       return relation if value.nil?
@@ -67,7 +67,7 @@ module Lighthouse::GraphQL::Directives::Arguments
   # @like — SQL LIKE with the value wrapped in wildcards.
   class Like < Base
     def self.directive_name = 'like'
-    def self.definition = 'directive @like(key: String) on ARGUMENT_DEFINITION | INPUT_FIELD_DEFINITION'
+    def self.definition = sdl('like', 'Filter with SQL LIKE: the column contains the value, which is wrapped in wildcards.')
 
     def handle_builder(relation, value)
       return relation if value.nil?
@@ -80,7 +80,16 @@ module Lighthouse::GraphQL::Directives::Arguments
   # the @whereConditions extension. `field(age: Int @where(operator: "GT"))`
   class Where < Base
     def self.directive_name = 'where'
-    def self.definition = 'directive @where(key: String, operator: String) on ARGUMENT_DEFINITION | INPUT_FIELD_DEFINITION'
+
+    def self.definition
+      sdl('where', 'Add a where condition to the query: the column compares to the value with an operator.',
+          "#{KEY_ARGUMENT}\n#{OPERATOR_ARGUMENT}")
+    end
+
+    OPERATOR_ARGUMENT = argument_sdl(
+      'operator: String',
+      'The comparison: EQ (default), NEQ, GT, GTE, LT, LTE, IN, NIN, CONTAINS, STARTS_WITH, ENDS_WITH, IS_NULL or IS_NOT_NULL.'
+    )
 
     # LIKE pattern of each wildcard operator, built from the client value.
     LIKE_PATTERNS = {

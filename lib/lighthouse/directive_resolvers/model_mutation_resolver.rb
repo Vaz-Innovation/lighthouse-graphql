@@ -15,8 +15,30 @@ module Lighthouse::GraphQL::DirectiveResolvers
   # adds server-side values. On an argument, these directives take
   # `relation:` and act on that association of the parent instead.
   class ModelMutationResolver < Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
-    ARGUMENTS = 'model: String, relation: String'
     LOCATIONS = 'FIELD_DEFINITION | ARGUMENT_DEFINITION | INPUT_FIELD_DEFINITION'
+
+    NESTED_RELATION_ARGUMENT = argument_sdl(
+      'relation: String',
+      "On an argument or input field: the association of the parent model that its mutation acts on. Defaults to the argument's name in snake_case."
+    )
+    IDENTIFYING_COLUMNS_ARGUMENT = argument_sdl(
+      'identifyingColumns: [String!]',
+      'The columns whose values in the input identify an existing model to update. Defaults to the primary key. Must not be empty.'
+    )
+
+    # The SDL of a mutation directive: `description`, then its arguments (the model,
+    # the `extra` ones, then the nested relation).
+    def self.sdl(description, extra: [])
+      arguments = [MODEL_ARGUMENT, *extra, NESTED_RELATION_ARGUMENT]
+      <<~GRAPHQL.chomp
+        """
+        #{description}
+        """
+        directive @#{directive_name}(
+        #{arguments.join("\n")}
+        ) on #{LOCATIONS}
+      GRAPHQL
+    end
 
     def define_resolver(target_type_class)
       me = self
@@ -102,7 +124,14 @@ module Lighthouse::GraphQL::DirectiveResolvers
   # @create — create a model from the field's arguments.
   class CreateDirectiveResolver < ModelMutationResolver
     def self.directive_name = 'create'
-    def self.definition = "directive @create(#{ARGUMENTS}) on #{LOCATIONS}"
+
+    def self.definition
+      sdl(<<~TEXT.chomp)
+        Create a model from the field's arguments, through ActiveRecord, so the model's validations apply.
+        Nested input on its associations runs as nested mutations.
+        On an argument or input field, it creates the record on that association of the parent.
+      TEXT
+    end
 
     protected
 
@@ -112,7 +141,13 @@ module Lighthouse::GraphQL::DirectiveResolvers
   # @createMany — create one model per input in the field's single list argument.
   class CreateManyDirectiveResolver < ModelMutationResolver
     def self.directive_name = 'createMany'
-    def self.definition = "directive @createMany(#{ARGUMENTS}) on #{LOCATIONS}"
+
+    def self.definition
+      sdl(<<~TEXT.chomp)
+        Create many models, one per input of the field's single list argument.
+        If any is invalid nothing is saved, and the errors of all are reported.
+      TEXT
+    end
 
     protected
 
@@ -124,7 +159,14 @@ module Lighthouse::GraphQL::DirectiveResolvers
   # @update — find a model by its primary key argument and update it.
   class UpdateDirectiveResolver < ModelMutationResolver
     def self.directive_name = 'update'
-    def self.definition = "directive @update(#{ARGUMENTS}) on #{LOCATIONS}"
+
+    def self.definition
+      sdl(<<~TEXT.chomp)
+        Update a model found by the primary key in the field's arguments, through ActiveRecord,
+        so the model's validations apply. Nested input on its associations runs as nested mutations.
+        On an argument or input field, it updates the record on that association of the parent.
+      TEXT
+    end
 
     protected
 
@@ -134,7 +176,13 @@ module Lighthouse::GraphQL::DirectiveResolvers
   # @updateMany — update one model per input (each carrying its primary key).
   class UpdateManyDirectiveResolver < ModelMutationResolver
     def self.directive_name = 'updateMany'
-    def self.definition = "directive @updateMany(#{ARGUMENTS}) on #{LOCATIONS}"
+
+    def self.definition
+      sdl(<<~TEXT.chomp)
+        Update many models, one per input of the field's single list argument, each carrying its primary key.
+        If any is invalid nothing is saved, and the errors of all are reported.
+      TEXT
+    end
 
     protected
 
@@ -147,7 +195,13 @@ module Lighthouse::GraphQL::DirectiveResolvers
   # else primary key), or create it.
   class UpsertDirectiveResolver < ModelMutationResolver
     def self.directive_name = 'upsert'
-    def self.definition = "directive @upsert(#{ARGUMENTS}, identifyingColumns: [String!]) on #{LOCATIONS}"
+
+    def self.definition
+      sdl(<<~TEXT.chomp, extra: [IDENTIFYING_COLUMNS_ARGUMENT])
+        Update the model the arguments identify (by `identifyingColumns`, else the primary key), or create it.
+        Saved through ActiveRecord, so the model's validations apply.
+      TEXT
+    end
 
     def define_resolver(target_type_class)
       validate_identifying_columns!
@@ -165,7 +219,13 @@ module Lighthouse::GraphQL::DirectiveResolvers
   # @upsertMany — @upsert for each input in the field's single list argument.
   class UpsertManyDirectiveResolver < ModelMutationResolver
     def self.directive_name = 'upsertMany'
-    def self.definition = "directive @upsertMany(#{ARGUMENTS}, identifyingColumns: [String!]) on #{LOCATIONS}"
+
+    def self.definition
+      sdl(<<~TEXT.chomp, extra: [IDENTIFYING_COLUMNS_ARGUMENT])
+        Upsert many models, one per input of the field's single list argument.
+        If any is invalid nothing is saved, and the errors of all are reported.
+      TEXT
+    end
 
     def define_resolver(target_type_class)
       validate_identifying_columns!
@@ -225,7 +285,13 @@ module Lighthouse::GraphQL::DirectiveResolvers
   # (@whereKey, @eq, ...), running their callbacks, and return them.
   class DeleteDirectiveResolver < ModifyModelsResolver
     def self.directive_name = 'delete'
-    def self.definition = "directive @delete(#{ARGUMENTS}, scopes: [String!]) on #{LOCATIONS}"
+
+    def self.definition
+      sdl(<<~TEXT.chomp, extra: [SCOPES_ARGUMENT])
+        Delete the models the field's argument filters (@whereKey, @eq, ...) select, running their callbacks,
+        and return them: a list for a list field, else the first or null. Refuses to run without a filter argument.
+      TEXT
+    end
 
     protected
 

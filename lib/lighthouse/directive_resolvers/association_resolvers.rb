@@ -20,6 +20,21 @@ module Lighthouse::GraphQL::DirectiveResolvers
 
     def self.collection? = false
 
+    # The directive's SDL: `description`, then the arguments of a relationship —
+    # and, on a collection, the pagination ones.
+    def self.definition(name = directive_name, description = self::DESCRIPTION)
+      arguments = [RELATION_ARGUMENT, SCOPES_ARGUMENT]
+      arguments += PAGINATION_ARGUMENTS if collection?
+      <<~GRAPHQL.chomp
+        """
+        #{description}
+        """
+        directive @#{name}(
+        #{arguments.join("\n")}
+        ) on FIELD_DEFINITION
+      GRAPHQL
+    end
+
     def define_resolver(target_type_class)
       me = self
       install(target_type_class, lambda do |obj, args, ctx|
@@ -116,49 +131,90 @@ module Lighthouse::GraphQL::DirectiveResolvers
     end
   end
 
-  COLLECTION_ARGUMENTS = 'relation: String, scopes: [String!], type: PaginateType, defaultCount: Int, maxCount: Int'
+  PAGINATION_ARGUMENTS = [
+    BaseDirectiveResolver.argument_sdl(
+      'type: PaginateType',
+      'How to paginate the list: PAGINATOR, SIMPLE or CONNECTION. Without it, the whole list is returned.'
+    ),
+    BaseDirectiveResolver.argument_sdl(
+      'defaultCount: Int',
+      'The page size when the client omits `first`. Defaults to Config.pagination_default_count.'
+    ),
+    BaseDirectiveResolver.argument_sdl(
+      'maxCount: Int',
+      'The most records the client may ask for with `first`; null for no limit. Defaults to Config.pagination_max_count.'
+    )
+  ].freeze
 
   class HasManyDirectiveResolver < AssociationDirectiveResolver
     def self.collection? = true
     def self.directive_name = 'hasMany'
-    def self.definition = "directive @hasMany(#{COLLECTION_ARGUMENTS}) on FIELD_DEFINITION"
+    DESCRIPTION = <<~TEXT.chomp
+      Resolve a one-to-many association of the parent (`has_many`) as a list,
+      batch-loaded so that listing it for many parents is not an N+1.
+      With `type`, the list is paginated.
+    TEXT
   end
 
   class BelongsToManyDirectiveResolver < AssociationDirectiveResolver
     def self.collection? = true
     def self.directive_name = 'belongsToMany'
-    def self.definition = "directive @belongsToMany(#{COLLECTION_ARGUMENTS}) on FIELD_DEFINITION"
+    DESCRIPTION = <<~TEXT.chomp
+      Resolve a many-to-many association of the parent (`has_and_belongs_to_many`) as a list,
+      batch-loaded so that listing it for many parents is not an N+1.
+      With `type`, the list is paginated.
+    TEXT
   end
 
   class MorphManyDirectiveResolver < AssociationDirectiveResolver
     def self.collection? = true
     def self.directive_name = 'morphMany'
-    def self.definition = "directive @morphMany(#{COLLECTION_ARGUMENTS}) on FIELD_DEFINITION"
+    DESCRIPTION = <<~TEXT.chomp
+      Resolve a polymorphic one-to-many association of the parent (`has_many ..., as:`) as a list,
+      batch-loaded so that listing it for many parents is not an N+1.
+      With `type`, the list is paginated.
+    TEXT
   end
 
   class MorphToManyDirectiveResolver < AssociationDirectiveResolver
     def self.collection? = true
     def self.directive_name = 'morphToMany'
-    def self.definition = "directive @morphToMany(#{COLLECTION_ARGUMENTS}) on FIELD_DEFINITION"
+    DESCRIPTION = <<~TEXT.chomp
+      Resolve a polymorphic many-to-many association of the parent as a list,
+      batch-loaded so that listing it for many parents is not an N+1.
+      With `type`, the list is paginated.
+    TEXT
   end
 
   class HasOneDirectiveResolver < AssociationDirectiveResolver
     def self.directive_name = 'hasOne'
-    def self.definition = 'directive @hasOne(relation: String, scopes: [String!]) on FIELD_DEFINITION'
+    DESCRIPTION = <<~TEXT.chomp
+      Resolve a one-to-one association of the parent (`has_one`),
+      batch-loaded so that loading it for many parents is not an N+1.
+    TEXT
   end
 
   class MorphOneDirectiveResolver < AssociationDirectiveResolver
     def self.directive_name = 'morphOne'
-    def self.definition = 'directive @morphOne(relation: String, scopes: [String!]) on FIELD_DEFINITION'
+    DESCRIPTION = <<~TEXT.chomp
+      Resolve a polymorphic one-to-one association of the parent (`has_one ..., as:`),
+      batch-loaded so that loading it for many parents is not an N+1.
+    TEXT
   end
 
   class BelongsToDirectiveResolver < AssociationDirectiveResolver
     def self.directive_name = 'belongsTo'
-    def self.definition = 'directive @belongsTo(relation: String, scopes: [String!]) on FIELD_DEFINITION'
+    DESCRIPTION = <<~TEXT.chomp
+      Resolve the inverse of a one-to-one or one-to-many association (`belongs_to`),
+      batch-loaded so that loading it for many parents is not an N+1.
+    TEXT
   end
 
   class MorphToDirectiveResolver < AssociationDirectiveResolver
     def self.directive_name = 'morphTo'
-    def self.definition = 'directive @morphTo(relation: String, scopes: [String!]) on FIELD_DEFINITION'
+    DESCRIPTION = <<~TEXT.chomp
+      Resolve a polymorphic inverse association of the parent (`belongs_to ..., polymorphic: true`),
+      batch-loaded so that loading it for many parents is not an N+1.
+    TEXT
   end
 end

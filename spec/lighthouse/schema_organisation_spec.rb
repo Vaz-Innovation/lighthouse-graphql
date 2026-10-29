@@ -175,5 +175,12 @@ RSpec.describe 'schema organisation' do
       expect { build_sdl("type Query { a(b: _): Int }\n") }
         .to raise_error(Lighthouse::DefinitionError, /Query.a\(b:\) has the placeholder type `_`/)
     end
+
+    it 'leaves no `_` in the schema, the IDE helper being the only one to declare it' do
+      sdl = "scalar _\ntype Query { a(where: _ @whereConditions(columns: [\"id\"])): [Int!]! @all(model: \"Widget\") }\n"
+
+      expect(Lighthouse::GraphQL::ASTBuilder.build(sdl)).not_to match(/scalar _\b|:\s*_\b/)
+      expect(build_schema(sdl).types).not_to have_key('_')
+    end
   end
 end

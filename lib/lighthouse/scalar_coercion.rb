@@ -21,7 +21,10 @@ module Lighthouse::GraphQL::ScalarCoercion
     The class that reads and writes this scalar's values: coerce_input(value, context) and
     coerce_result(value, context), as a GraphQL::Schema::Scalar.
     """
-    directive @scalar(class: String!) on SCALAR
+    directive @scalar(
+      "The scalar class, looked up in Config.namespaces[:types]. A fully-qualified name is used as-is."
+      class: String!
+    ) on SCALAR
   GRAPHQL
 
   module_function

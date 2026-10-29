@@ -67,6 +67,12 @@ class Lighthouse::GraphQL::DocumentAST
     self
   end
 
+  # Drops the type of that name, if any.
+  def remove_type(name)
+    @types.delete(name)
+    self
+  end
+
   # Adds the type parsed from `sdl`, unless the document has a type of that name.
   def define_type(name, sdl = nil)
     return @types[name] if @types.key?(name)

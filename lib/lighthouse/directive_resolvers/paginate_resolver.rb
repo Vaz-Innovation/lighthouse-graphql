@@ -18,8 +18,23 @@ class Lighthouse::GraphQL::DirectiveResolvers::PaginateDirectiveResolver < Light
   def self.directive_name = 'paginate'
 
   def self.definition
-    'directive @paginate(type: PaginateType = PAGINATOR, model: String, scopes: [String!], ' \
-      'defaultCount: Int, maxCount: Int) on FIELD_DEFINITION'
+    <<~GRAPHQL.chomp
+      """
+      Query multiple model entries as a paginated list.
+      The query is the model's, narrowed by `scopes`, @builder and the field's argument filters
+      (@eq, @where, @orderBy, ...). On a nested field, it pages the parent's association of the same name.
+      """
+      directive @paginate(
+        "Which pagination style to use."
+        type: PaginateType = PAGINATOR
+      #{MODEL_ARGUMENT}
+      #{SCOPES_ARGUMENT}
+        "The page size when the client omits `first`. Defaults to Config.pagination_default_count."
+        defaultCount: Int
+        "The most records the client may ask for with `first`; null for no limit. Defaults to Config.pagination_max_count."
+        maxCount: Int
+      ) on FIELD_DEFINITION
+    GRAPHQL
   end
 
   def self.type_definitions

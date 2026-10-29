@@ -6,6 +6,24 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `bin/rails lighthouse:print_schema` prints the final schema, as PHP Lighthouse's
+  `lighthouse:print-schema` does: to stdout, from the current configuration
+  (`SCHEMA=AppSchema` names another schema). Redirect it to keep it:
+  `bin/rails lighthouse:print_schema > generated.graphql`.
+
+### Changed
+
+- **`schema-directives.graphql` documents everything.** Every directive, argument, enum value
+  and input field Lighthouse defines carries a description, so the IDE shows it on hover and in
+  autocomplete. A spec fails when a new one is added without.
+- `programmatic-types.graphql` always declares the `_` placeholder scalar (unless your SDL
+  declares it), whether or not the SDL uses it yet, so the IDE never reports `Unknown type "_"`
+  the moment you write `where: _ @whereConditions`.
+- The `_` placeholder exists only for the IDE: a `scalar _` in your SDL is dropped once the
+  schema builds, so the executable schema (and its introspection) has no `_` type.
+
 ## [0.7.1] - 2026-10-18
 
 ### Added

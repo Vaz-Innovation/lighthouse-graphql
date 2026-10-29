@@ -7,6 +7,14 @@ namespace :lighthouse do
     Lighthouse::IdeHelper.write(output_dir: output_dir).each { |path| puts "Wrote #{path}" }
   end
 
+  desc 'Print the final schema (SDL) to stdout, as clients see it (SCHEMA=AppSchema)'
+  task print_schema: :environment do
+    schema = Object.const_get(ENV.fetch('SCHEMA', 'AppSchema'))
+    puts schema.to_definition
+  rescue StandardError => e
+    abort("#{schema || 'Schema'} can not be printed: #{e.message}")
+  end
+
   desc 'Build the schema cache in tmp/cache (for config.schema_cache; e.g. during a Docker build)'
   task cache: :environment do
     puts "Wrote #{Lighthouse::GraphQL::SchemaCache.warm!}"

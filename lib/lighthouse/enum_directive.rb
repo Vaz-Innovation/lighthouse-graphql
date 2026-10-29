@@ -24,7 +24,12 @@ module Lighthouse::GraphQL::EnumDirective
     ) on ENUM_VALUE
   GRAPHQL
 
-  TYPE_DEFINITIONS = { 'Mixed' => 'scalar Mixed' }.freeze
+  TYPE_DEFINITIONS = {
+    'Mixed' => <<~GRAPHQL.chomp
+      "Loose type that allows any value. Be careful when passing in large JSON objects, as it may result in poor performance."
+      scalar Mixed
+    GRAPHQL
+  }.freeze
 
   module_function
 

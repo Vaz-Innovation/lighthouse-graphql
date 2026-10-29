@@ -33,6 +33,12 @@ RSpec.describe 'lighthouse rake tasks', type: :task do
     expect(File.read(File.join(dir, 'programmatic-types.graphql'))).to include('type PostPaginator', 'type PostConnection')
   end
 
+  it 'lighthouse:print_schema prints the final schema to stdout, with the types Lighthouse generates and no `_`' do
+    expect { run('lighthouse:print_schema', 'SCHEMA' => 'AppSchema') }
+      .to output(/type PostPaginator.*type Query/m).to_stdout
+    expect { run('lighthouse:print_schema', 'SCHEMA' => 'AppSchema') }.not_to output(/scalar _\b|:\s*_\b/).to_stdout
+  end
+
   it 'lighthouse:validate_schema dispatches ValidateSchema and accepts the example schema' do
     listener = Lighthouse::Events.listen(Lighthouse::Events::ValidateSchema, &:schema)
 

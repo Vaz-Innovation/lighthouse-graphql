@@ -11,7 +11,12 @@ class Lighthouse::GraphQL::DirectiveResolvers::FieldDirectiveResolver < Lighthou
       Assign a resolver to a field: a class, or a class and a method separated by `@`
       ("Statistics@users_total"). Without a method, the class resolves, or is called.
       """
-      directive @field(resolver: String, class: String) on FIELD_DEFINITION
+      directive @field(
+        "The resolver: a class, or a class and a method separated by `@`. Required unless `class` is given."
+        resolver: String
+        "Alias of `resolver`, used when `resolver` is not given."
+        class: String
+      ) on FIELD_DEFINITION
     GRAPHQL
   end
 

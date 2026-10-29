@@ -25,7 +25,19 @@ require_relative 'base'
 # across arguments, arguments of a query, or input that never reaches a model.
 class Lighthouse::GraphQL::DirectiveResolvers::ValidatorDirectiveResolver < Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
   def self.directive_name = 'validator'
-  def self.definition = 'directive @validator(class: String) on FIELD_DEFINITION | INPUT_OBJECT'
+
+  def self.definition
+    <<~GRAPHQL.chomp
+      """
+      Validate the arguments of a field, or the values of an input type, with a contract class
+      before the field resolves. Failures are reported keyed by argument path.
+      """
+      directive @validator(
+        "The contract class, looked up in Config.namespaces[:validators]. Defaults to Validators::<ParentType>::<FieldName>Validator on a field, and to Validators::<InputType>Validator on an input type."
+        class: String
+      ) on FIELD_DEFINITION | INPUT_OBJECT
+    GRAPHQL
+  end
 
   # A default name, e.g. Mutation::SignUpValidator: always looked up under
   # the validators namespaces, although it contains `::`.

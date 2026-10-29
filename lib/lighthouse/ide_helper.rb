@@ -78,9 +78,8 @@ module Lighthouse::IdeHelper
   end
 
   def placeholder_only(sdl)
-    declared = sdl.to_s.match?(/^\s*scalar\s+_\b/) ? Set['_'] : Set.new
     render('The schema does not build: only the `_` placeholder is declared until it does.',
-           undeclared_placeholder?(sdl, declared) ? [PLACEHOLDER_SCALAR] : [])
+           placeholder_declared?(sdl) ? [] : [PLACEHOLDER_SCALAR])
   end
 
   # Config.ide_helper's refresh: the files in the Rails app's root, when the
@@ -110,7 +109,7 @@ module Lighthouse::IdeHelper
   def programmatic_types_sdl(sdl, registry: Lighthouse::DirectiveRegistry.default, directives: directives_sdl(sdl, registry: registry))
     declared = type_names(sdl) | type_names(directives)
     generated_sdl = generated_types(sdl, declared, registry).sort_by(&:name).map(&:to_query_string)
-    generated_sdl.unshift(PLACEHOLDER_SCALAR) if undeclared_placeholder?(sdl, declared)
+    generated_sdl.unshift(PLACEHOLDER_SCALAR) if declared.exclude?('_')
 
     render(
       'Types the manipulation phase generates (Connection/Paginator types, whereConditions inputs, ...).',
@@ -128,9 +127,11 @@ module Lighthouse::IdeHelper
 
   # The manipulation phase replaces the `_` placeholder (`where: _ @whereConditions`,
   # `orderBy: _ @orderBy`), but the IDE reads the SDL as written, so it needs
-  # the placeholder declared.
-  def undeclared_placeholder?(sdl, declared)
-    sdl.to_s.match?(/:\s*\[?\s*_\b/) && declared.exclude?('_')
+  # the placeholder declared. It is always declared, whether or not the SDL
+  # uses it yet, so the first `_` an author writes is not an error; only an SDL
+  # that declares it itself is left alone.
+  def placeholder_declared?(sdl)
+    sdl.to_s.match?(/^\s*scalar\s+_\b/)
   end
 
   def type_names(sdl)

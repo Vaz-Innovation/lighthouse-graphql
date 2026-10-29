@@ -105,7 +105,7 @@ RSpec.describe '@event' do
   it 'is injected, repeatable, with its definition' do
     definition = Lighthouse::DirectiveRegistry.default.directive_definitions['event']
 
-    expect(definition).to eq('directive @event(dispatch: String!) repeatable on FIELD_DEFINITION')
+    expect(definition).to include('directive @event(').and include('dispatch: String!').and include(') repeatable on FIELD_DEFINITION')
     expect(Lighthouse::DirectiveRegistry.default.resolution_order('event')).to eq(1)
   end
 end

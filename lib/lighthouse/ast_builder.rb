@@ -11,7 +11,8 @@
 # 4. The argument manipulators: each argument directive whose class includes
 #    Contracts::ArgManipulator rewrites its argument (@whereConditions,
 #    @whereHasConditions, @orderBy turn `_` into the input types they generate).
-# 5. The definitions of directives the generated types use (`@enum`).
+# 5. `scalar _`, if the SDL declares it for the IDE, dropped: nothing is left of the placeholder.
+# 6. The definitions of directives the generated types use (`@enum`).
 #
 # Returns the manipulated SDL; ManipulateAST listeners then see its document.
 module Lighthouse::GraphQL::ASTBuilder
@@ -48,6 +49,8 @@ module Lighthouse::GraphQL::ASTBuilder
 
     document_ast = Lighthouse::GraphQL::DocumentAST.from_source(registry.manipulate_sdl(document_ast.to_sdl))
     apply_arg_manipulators(document_ast, registry)
+    # `scalar _` is for the IDE (IdeHelper); the executable schema has no placeholder.
+    document_ast.remove_type(Lighthouse::GraphQL::Directives::GeneratedTypes::PLACEHOLDER)
 
     Lighthouse::GraphQL::SchemaGenerator.inject_directive_definitions(document_ast.to_sdl)
   end

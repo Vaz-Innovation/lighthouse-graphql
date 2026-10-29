@@ -2,7 +2,16 @@
 
 class Lighthouse::GraphQL::DirectiveResolvers::AuthDirectiveResolver < Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
   def self.directive_name = 'auth'
-  def self.definition = 'directive @auth on FIELD_DEFINITION'
+
+  def self.definition
+    <<~GRAPHQL.chomp
+      """
+      Require an authenticated user (`context[:current_user]`) before the field resolves,
+      else fail with "Unauthenticated.". @guard is the configurable equivalent.
+      """
+      directive @auth on FIELD_DEFINITION
+    GRAPHQL
+  end
 
   def define_resolver(target_type_class)
     inner = original_resolver(target_type_class)

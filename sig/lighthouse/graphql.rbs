@@ -50,6 +50,7 @@ module Lighthouse
       def add: (untyped definition) -> untyped
       # Adds a type, or replaces the one of the same name.
       def put_type: (untyped definition) -> self
+      def remove_type: (String name) -> self
       # Adds the type parsed from the SDL (or the block's), unless one of the name exists.
       def define_type: (String name, ?String? sdl) ?{ () -> String } -> untyped
       def type?: (String name) -> bool

@@ -16,7 +16,23 @@ class Lighthouse::GraphQL::DirectiveResolvers::AggregateDirectiveResolver < Ligh
   }.freeze
 
   def self.definition
-    'directive @aggregate(function: String!, column: String, model: String, relation: String) on FIELD_DEFINITION'
+    <<~GRAPHQL.chomp
+      """
+      Return an aggregate of a column over the records of a model, or of a relation of the parent.
+      The records are narrowed by the field's argument filters (@eq, @where, ...).
+      An unknown function, or a failing aggregation, answers null.
+      """
+      directive @aggregate(
+        "The aggregate to compute: SUM, AVG, MIN, MAX or COUNT (case-insensitive)."
+        function: String!
+        "The column to aggregate. COUNT does not use it."
+        column: String
+        "The class name of the model whose records to aggregate. Takes precedence over `relation`."
+        model: String
+        "The relation of the parent to aggregate over."
+        relation: String
+      ) on FIELD_DEFINITION
+    GRAPHQL
   end
 
   def define_resolver(target_type_class)

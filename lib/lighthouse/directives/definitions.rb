@@ -8,10 +8,38 @@
 module Lighthouse::GraphQL::Directives::Definitions
   # Directives that only mark the SDL for others to read.
   PASSIVE = {
-    'nest' => 'directive @nest on ARGUMENT_DEFINITION | INPUT_FIELD_DEFINITION',
-    'spread' => 'directive @spread on ARGUMENT_DEFINITION | INPUT_FIELD_DEFINITION',
-    'inject' => 'directive @inject(context: String!, name: String!) repeatable on FIELD_DEFINITION',
-    'cacheKey' => 'directive @cacheKey on FIELD_DEFINITION'
+    'nest' => <<~GRAPHQL.chomp,
+      """
+      On an argument of an input object type, apply the filters of the input's fields
+      (@eq, @where, ...; at any depth, for those that carry @nest too) as if they were the field's own arguments.
+      """
+      directive @nest on ARGUMENT_DEFINITION | INPUT_FIELD_DEFINITION
+    GRAPHQL
+    'spread' => <<~GRAPHQL.chomp,
+      """
+      On an argument of an input object type, merge the input's fields into the arguments
+      the field's resolver or mutation receives, as if they were the field's own.
+      """
+      directive @spread on ARGUMENT_DEFINITION | INPUT_FIELD_DEFINITION
+    GRAPHQL
+    'inject' => <<~GRAPHQL.chomp,
+      """
+      Set an argument from the request's context, on the server, so clients cannot set it.
+      """
+      directive @inject(
+        "A path in the context, with dots: \\"current_user.id\\"."
+        context: String!
+        "The name of the argument to set, with dots for a nested one: \\"input.author_id\\"."
+        name: String!
+      ) repeatable on FIELD_DEFINITION
+    GRAPHQL
+    'cacheKey' => <<~GRAPHQL.chomp
+      """
+      Mark the field whose value identifies its object in the keys of @cache and @clearCache.
+      Without one, the first field of type ID is used.
+      """
+      directive @cacheKey on FIELD_DEFINITION
+    GRAPHQL
   }.freeze
 
   module_function
@@ -38,8 +66,17 @@ module Lighthouse::GraphQL::Directives::Definitions
   # @hasManyThrough and @hasOneThrough: @hasMany's and @hasOne's definitions, renamed.
   def through_aliases
     resolvers = Lighthouse::GraphQL::DirectiveResolvers
-    { 'hasManyThrough' => resolvers::HasManyDirectiveResolver, 'hasOneThrough' => resolvers::HasOneDirectiveResolver }
-      .to_h { |name, klass| [name, klass.definition.sub("@#{klass.directive_name}(", "@#{name}(")] }
+    {
+      'hasManyThrough' => [resolvers::HasManyDirectiveResolver, <<~TEXT.chomp],
+        Resolve a one-to-many association of the parent that goes through another (`has_many :through`)
+        as a list, batch-loaded so that listing it for many parents is not an N+1.
+        With `type`, the list is paginated.
+      TEXT
+      'hasOneThrough' => [resolvers::HasOneDirectiveResolver, <<~TEXT.chomp]
+        Resolve a one-to-one association of the parent that goes through another (`has_one :through`),
+        batch-loaded so that loading it for many parents is not an N+1.
+      TEXT
+    }.to_h { |name, (klass, description)| [name, klass.definition(name, description)] }
   end
 
   # { type name => its SDL }, for the types the directives above refer to.

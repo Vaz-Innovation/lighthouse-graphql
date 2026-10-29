@@ -1,6 +1,24 @@
 # frozen_string_literal: true
 
 class Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
+  # A directive argument's SDL with its description, indented to sit in a
+  # definition's parentheses (see the constants below, and `definition`s).
+  def self.argument_sdl(declaration, description)
+    %(  "#{description.gsub(/["\\]/) { |c| "\\#{c}" }}"\n  #{declaration})
+  end
+
+  # The arguments many directives share, to splice into a definition with
+  # `#{MODEL_ARGUMENT}`.
+  MODEL_ARGUMENT = argument_sdl(
+    'model: String',
+    "The class name of the model to use. Defaults to the model of another directive on the field, else the field's return type."
+  )
+  SCOPES_ARGUMENT = argument_sdl('scopes: [String!]', 'Names of model scopes to apply to the underlying query, in order.')
+  RELATION_ARGUMENT = argument_sdl(
+    'relation: String',
+    "The name of the association on the parent model. Defaults to the field's name in snake_case."
+  )
+
   def initialize(field_def, type_def, directive_node, opts = {})
     @field_def = field_def
     @type_def = type_def

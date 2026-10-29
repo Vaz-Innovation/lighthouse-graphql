@@ -7,7 +7,20 @@ require_relative 'base'
 # of the GraphQL field name.
 class Lighthouse::GraphQL::DirectiveResolvers::RenameDirectiveResolver < Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
   def self.directive_name = 'rename'
-  def self.definition = 'directive @rename(attribute: String!) on FIELD_DEFINITION | ARGUMENT_DEFINITION | INPUT_FIELD_DEFINITION'
+
+  def self.definition
+    <<~GRAPHQL.chomp
+      """
+      Use another attribute than the name of the field, argument or input field.
+      On a field, its value is read from that attribute of the parent object;
+      on an argument, @create and @update write it to that attribute of the model.
+      """
+      directive @rename(
+        "The name of the attribute, in the model or the parent object."
+        attribute: String!
+      ) on FIELD_DEFINITION | ARGUMENT_DEFINITION | INPUT_FIELD_DEFINITION
+    GRAPHQL
+  end
 
   def define_resolver(target_type_class)
     method_name = "resolve_field_#{@field_def.name}"

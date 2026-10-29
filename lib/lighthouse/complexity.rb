@@ -28,7 +28,17 @@
 # Analyzer scores each query for BuildExtensionsResponse#query_complexity while
 # something listens to that event.
 module Lighthouse::GraphQL::Complexity
-  DEFINITION = 'directive @complexity(resolver: String) on FIELD_DEFINITION'
+  DEFINITION = <<~GRAPHQL.chomp
+    """
+    Customize the cost of a field in the complexity score of a query, which graphql-ruby checks
+    against the schema's `max_complexity`. Without a resolver, the field costs 1 plus its selection,
+    once per item asked for on a paginated field.
+    """
+    directive @complexity(
+      "The analyzer class that gives the cost, looked up in Config.namespaces[:analyzers]. It includes Lighthouse::GraphQL::ComplexityAnalyzer and declares `complexity`."
+      resolver: String
+    ) on FIELD_DEFINITION
+  GRAPHQL
 
   CONTEXT_KEY = :lighthouse_query_complexity
 
