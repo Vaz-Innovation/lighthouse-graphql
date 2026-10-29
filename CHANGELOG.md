@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-10-29
+
 ### Added
 
 - `bin/rails lighthouse:print_schema` prints the final schema, as PHP Lighthouse's
@@ -699,7 +701,8 @@ had been running inside a private monorepo as a path gem before being extracted.
 - Config-driven extension seams: `Lighthouse.configure`, `resolver_namespaces`,
   `on_error`, and `DirectiveRegistry.register` for app-defined directives.
 
-[Unreleased]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.7.2...HEAD
+[0.7.2]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.5.0...v0.6.0
