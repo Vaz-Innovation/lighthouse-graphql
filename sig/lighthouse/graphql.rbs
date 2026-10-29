@@ -51,6 +51,7 @@ module Lighthouse
       # Adds a type, or replaces the one of the same name.
       def put_type: (untyped definition) -> self
       def remove_type: (String name) -> self
+      def remove_directive: (String name) -> self
       # Adds the type parsed from the SDL (or the block's), unless one of the name exists.
       def define_type: (String name, ?String? sdl) ?{ () -> String } -> untyped
       def type?: (String name) -> bool
@@ -62,6 +63,8 @@ module Lighthouse
     # The manipulation phase: extensions merged, then the type, field and argument manipulators.
     module ASTBuilder
       ROOT_TYPES: Array[String]
+      # graphql-ruby's own directives, whose definitions the SDL may repeat.
+      BUILT_IN_DIRECTIVES: Array[String]
 
       def self?.build: (String sdl, ?registry: DirectiveRegistry) -> String
     end

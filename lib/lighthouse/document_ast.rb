@@ -73,6 +73,12 @@ class Lighthouse::GraphQL::DocumentAST
     self
   end
 
+  # Drops the directive definition of that name, if any.
+  def remove_directive(name)
+    @directives.delete(name)
+    self
+  end
+
   # Adds the type parsed from `sdl`, unless the document has a type of that name.
   def define_type(name, sdl = nil)
     return @types[name] if @types.key?(name)

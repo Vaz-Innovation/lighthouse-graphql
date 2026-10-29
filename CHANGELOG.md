@@ -17,9 +17,22 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A definition of a built-in directive in the SDL no longer disables it.** graphql-ruby
+  replaced its `@oneOf`, `@skip`, `@include`, `@deprecated` and `@specifiedBy` with a plain
+  directive of the same name when the SDL declared one (`directive @oneOf on INPUT_OBJECT`),
+  so a `@oneOf` input accepted any number of fields while introspection still reported
+  `isOneOf: true`, and `@skip` skipped nothing. Lighthouse now drops those definitions and
+  keeps graphql-ruby's directives.
 - A relation field (`@hasMany`, ...) filtered only through an input object's fields took the
   batched load and ignored the filters, and `@delete`, `@forceDelete` and `@restore` refused
   such an argument as no filter ("Would modify all models"). Both now see nested filters.
+
+### Added
+
+- `@oneOf` input objects are documented and specced
+  ([Filtering & Ordering](docs/filtering-and-ordering.md#one-filter-of-several-oneof)):
+  `user(by: UserBy!): User @find` finds by whichever one field the client gives, and
+  graphql-ruby rejects a query giving none or more than one.
 
 ## [0.7.2] - 2026-10-29
 

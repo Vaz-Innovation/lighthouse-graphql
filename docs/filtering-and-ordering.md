@@ -76,6 +76,36 @@ type Query {
 inputs (`filters: [PostFilter!]`), every input's filters apply, together. An
 argument with `@spread` filters the same way.
 
+### One filter of several: `@oneOf`
+
+An input object marked [`@oneOf`](https://spec.graphql.org/draft/#sec-OneOf-Input-Objects)
+takes exactly one of its fields: to find a user by id **or** by email, but not
+both. Its fields' filters apply to the query:
+
+```graphql
+input UserBy @oneOf {
+  id: ID @eq
+  email: String @eq
+}
+
+type Query {
+  user(by: UserBy!): User @find
+}
+```
+
+```graphql
+{ user(by: { email: "ada@example.com" }) { id } }
+```
+
+graphql-ruby validates it: a query giving two fields, none, or a `null` is rejected
+before anything resolves, and introspection reports the type's `isOneOf`. Every
+field of a `@oneOf` input is nullable and has no default value; the schema fails to
+build otherwise.
+
+`@oneOf` is built in, so the SDL needn't declare it. A `directive @oneOf on
+INPUT_OBJECT` copied from elsewhere is ignored, like a definition of `@skip`,
+`@include`, `@deprecated` or `@specifiedBy`: graphql-ruby's own directive stays.
+
 ## Ordering
 
 `@orderBy` works as in PHP Lighthouse. On an argument, the client picks the

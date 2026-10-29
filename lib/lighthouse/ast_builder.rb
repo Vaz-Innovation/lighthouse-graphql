@@ -4,15 +4,17 @@
 # stitched schema:
 #
 # 1. DocumentAST.from_source: every type defined once.
-# 2. Type extensions merged into the types they extend. An extension of a
+# 2. The SDL's definitions of graphql-ruby's built-in directives (@skip,
+#    @include, @deprecated, @oneOf, @specifiedBy) dropped: see BUILT_IN_DIRECTIVES.
+# 3. Type extensions merged into the types they extend. An extension of a
 #    root type that has no definition (`extend type Query` alone) defines it.
-# 3. The type and field manipulators: @hide/@show, @model, @paginate (and the
+# 4. The type and field manipulators: @hide/@show, @model, @paginate (and the
 #    relation directives' `type:`), @softDeletes, @node.
-# 4. The argument manipulators: each argument directive whose class includes
+# 5. The argument manipulators: each argument directive whose class includes
 #    Contracts::ArgManipulator rewrites its argument (@whereConditions,
 #    @whereHasConditions, @orderBy turn `_` into the input types they generate).
-# 5. `scalar _`, if the SDL declares it for the IDE, dropped: nothing is left of the placeholder.
-# 6. The definitions of directives the generated types use (`@enum`).
+# 6. `scalar _`, if the SDL declares it for the IDE, dropped: nothing is left of the placeholder.
+# 7. The definitions of directives the generated types use (`@enum`).
 #
 # Returns the manipulated SDL; ManipulateAST listeners then see its document.
 module Lighthouse::GraphQL::ASTBuilder
@@ -41,10 +43,17 @@ module Lighthouse::GraphQL::ASTBuilder
 
   OBJECT_LIKE = [Nodes::ObjectTypeDefinition, Nodes::InterfaceTypeDefinition].freeze
 
+  # graphql-ruby's classes for these do the work: @skip skips, @oneOf makes the
+  # input object accept exactly one field. A definition in the SDL (copied from
+  # a printed schema, or from a graphql-js project, where it is harmless) would
+  # replace the class with a plain directive of the same name, which does nothing.
+  BUILT_IN_DIRECTIVES = ::GraphQL::Schema.default_directives.keys.freeze
+
   module_function
 
   def build(sdl, registry: Lighthouse::DirectiveRegistry.default)
     document_ast = Lighthouse::GraphQL::DocumentAST.from_source(sdl)
+    BUILT_IN_DIRECTIVES.each { |name| document_ast.remove_directive(name) }
     extend_types(document_ast)
 
     document_ast = Lighthouse::GraphQL::DocumentAST.from_source(registry.manipulate_sdl(document_ast.to_sdl))
