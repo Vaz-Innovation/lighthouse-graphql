@@ -54,6 +54,28 @@ type Query {
 }
 ```
 
+### Filters inside input objects
+
+Filter directives also go on the fields of an input object. Its fields' filters
+apply when the client sends it, at any depth, as in PHP Lighthouse:
+
+```graphql
+input PostFilter {
+  title: String @like
+  author: AuthorFilter
+}
+
+input AuthorFilter { id: ID @eq(key: "author_id") }
+
+type Query {
+  posts(filter: PostFilter): [Post!]! @all
+}
+```
+
+`posts(filter: { author: { id: 1 } })` keeps the posts of author 1. In a list of
+inputs (`filters: [PostFilter!]`), every input's filters apply, together. An
+argument with `@spread` filters the same way.
+
 ## Ordering
 
 `@orderBy` works as in PHP Lighthouse. On an argument, the client picks the

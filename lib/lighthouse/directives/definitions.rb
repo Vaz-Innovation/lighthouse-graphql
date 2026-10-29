@@ -10,8 +10,8 @@ module Lighthouse::GraphQL::Directives::Definitions
   PASSIVE = {
     'nest' => <<~GRAPHQL.chomp,
       """
-      On an argument of an input object type, apply the filters of the input's fields
-      (@eq, @where, ...; at any depth, for those that carry @nest too) as if they were the field's own arguments.
+      Accepted on an argument or input field of an input object type, as PHP Lighthouse's SDL
+      writes it. The filters of input fields (@eq, @where, ...) apply at any depth without it.
       """
       directive @nest on ARGUMENT_DEFINITION | INPUT_FIELD_DEFINITION
     GRAPHQL

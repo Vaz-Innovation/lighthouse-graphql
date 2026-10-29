@@ -545,7 +545,7 @@ type Query {
     createdAt: DateRange @whereBetween(key: "created_at")
     tagged: [String!] @whereJsonContains(key: "tags")
     trending: Boolean @scope
-    filter: PostFilter @nest
+    filter: PostFilter
     limit: Int @limit
   ): [Post!]! @all
 }
@@ -554,11 +554,14 @@ input DateRange { from: DateTime! to: DateTime! }
 input PostFilter { title: String @like, authorId: ID @eq(key: "author_id") }
 ```
 
+The filters on an input object's fields (`filter: PostFilter` above) apply when
+the client sends it, at any depth and for each input of a list, as PHP
+Lighthouse applies them. Those of a list's inputs all apply together.
+
 ### `@nest`
 
-On an argument whose type is an input object, applies the filters of the input's
-fields (at any depth, for those that carry `@nest` too), as if they were the
-field's own arguments.
+Accepted as PHP Lighthouse's SDL writes it, on an argument or input field of an
+input object type. Filters on nested input fields apply without it.
 
 ### `@limit`
 

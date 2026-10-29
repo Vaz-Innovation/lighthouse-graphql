@@ -74,16 +74,14 @@ module Lighthouse::GraphQL::DirectiveResolvers
       directive_arg('scopes') || Lighthouse::GraphQL::DirectiveResolvers::BuilderApplier.any?(@field_def.ast_node) || filtered?(args)
     end
 
+    # A supplied argument, or input field at any depth, with a filter directive
+    # (@eq, @where, ...), or a supplied where-conditions argument.
     def filtered?(args)
-      registry = Lighthouse::DirectiveRegistry.default
-      (@field_def.ast_node&.arguments || []).any? do |argument|
-        args.key?(argument.name.underscore.to_sym) && argument.directives.any? { |d| filter_directive?(registry, d) }
-      end
-    end
+      return true if filtering?(args)
 
-    # An argument builder (@eq, @where, ...) or a where-conditions filter.
-    def filter_directive?(registry, directive)
-      registry.arg_builder_class(directive.name) || CONDITION_DIRECTIVES.include?(directive.name)
+      (@field_def.ast_node&.arguments || []).any? do |argument|
+        args.key?(argument.name.underscore.to_sym) && argument.directives.any? { |d| CONDITION_DIRECTIVES.include?(d.name) }
+      end
     end
 
     def constrained(relation, args, ctx)

@@ -6,6 +6,21 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Filters on input fields apply without `@nest`, as in PHP Lighthouse.** The filter
+  directives (`@eq`, `@where`, `@like`, ...) on an input object's fields apply whenever the
+  client sends it: at any depth, for every input of a list (together), and through `@spread`,
+  as PHP Lighthouse's `applyArgBuilderDirectives` goes through nested inputs. They used to
+  apply only under an argument marked `@nest`, which is still accepted and changes nothing.
+  `posts(filter: PostFilter): [Post!]! @all` filters by the `@eq` inside `PostFilter`.
+
+### Fixed
+
+- A relation field (`@hasMany`, ...) filtered only through an input object's fields took the
+  batched load and ignored the filters, and `@delete`, `@forceDelete` and `@restore` refused
+  such an argument as no filter ("Would modify all models"). Both now see nested filters.
+
 ## [0.7.2] - 2026-10-29
 
 ### Added

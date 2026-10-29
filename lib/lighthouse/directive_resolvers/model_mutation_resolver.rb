@@ -254,7 +254,7 @@ module Lighthouse::GraphQL::DirectiveResolvers
     # to the data, as PHP Lighthouse does; the others are still modified.
     def mutate(model, _obj, args, ctx)
       args = Lighthouse::Support::Arguments.shallow(args)
-      raise ::GraphQL::ExecutionError, WOULD_MODIFY_ALL unless filtered?(args)
+      raise ::GraphQL::ExecutionError, WOULD_MODIFY_ALL unless filtering?(args)
 
       records = apply_where_filters(records_of(model), args, ctx).to_a
       records.each do |record|
@@ -271,13 +271,6 @@ module Lighthouse::GraphQL::DirectiveResolvers
     # Act on one record; false when its callbacks refused.
     def modify(_record)
       raise NotImplementedError
-    end
-
-    def filtered?(args)
-      registry = Lighthouse::DirectiveRegistry.default
-      (@field_def.ast_node.arguments || []).any? do |argument|
-        args.key?(argument.name.underscore.to_sym) && argument.directives.any? { |d| registry.arg_builder_class(d.name) }
-      end
     end
   end
 
