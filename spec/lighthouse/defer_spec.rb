@@ -87,7 +87,7 @@ RSpec.describe 'Deferring fields' do
   def pending(*payloads) = payloads.flat_map { |payload| payload['pending'] || [] }
 
   describe 'the specification draft' do
-    it 'answers a query with two deferred fragments as the draft does' do
+    it 'answers a query with two deferred fragments as the draft does, both in one round' do
       query = <<~GRAPHQL
         query {
           user(id: 1) {
@@ -108,10 +108,8 @@ RSpec.describe 'Deferring fields' do
               { 'id' => '1', 'path' => ['user', 'posts', 0], 'label' => 'postDefer' }
             ],
             'hasNext' => true },
-          { 'incremental' => [{ 'id' => '0', 'data' => { 'company' => { 'name' => 'Acme' } } }],
-            'completed' => [{ 'id' => '0' }], 'hasNext' => true },
-          { 'incremental' => [{ 'id' => '1', 'data' => { 'title' => 'p0' } }],
-            'completed' => [{ 'id' => '1' }], 'hasNext' => false }
+          { 'incremental' => [{ 'id' => '0', 'data' => { 'company' => { 'name' => 'Acme' } } }, { 'id' => '1', 'data' => { 'title' => 'p0' } }],
+            'completed' => [{ 'id' => '0' }, { 'id' => '1' }], 'hasNext' => false }
         ]
       )
     end
@@ -396,13 +394,51 @@ RSpec.describe 'Deferring fields' do
   end
 
   describe 'limits' do
-    it 'runs the fragments past defer_max_pending where they stand' do
-      Lighthouse.configure { |c| c.defer_max_pending = 2 }
+    let(:query) do
+      '{ users { id ... @defer(label: "a") { name posts { id ... @defer(label: "b") { title ... @defer(label: "c") { comments { comment } } } } } } }'
+    end
+    let(:labels) { ->(all) { all.map { |payload| payload['pending'].to_a.pluck('label').uniq } } }
 
-      all = payloads('{ users { ... @defer { name } } }')
+    it 'goes in rounds, a payload each, a round for each level of nesting, without a limit' do
+      all = payloads(query)
 
-      expect(all.first['pending'].size).to eq(2)
-      expect(all.first['data']['users'].last).to eq('name' => 'u2')
+      expect(labels.call(all)).to eq([%w[a], %w[b], %w[c], []])
+      expect(all.last['incremental'].first['data']).to eq('comments' => [{ 'comment' => 'c00' }, { 'comment' => 'c01' }])
+    end
+
+    it 'resolves what is left in the last round allowed by defer_max_nested_fields, as PHP Lighthouse' do
+      Lighthouse.configure { |c| c.defer_max_nested_fields = 2 }
+
+      all = payloads(query)
+
+      expect(labels.call(all)).to eq([%w[a], %w[b], []])
+      expect(all.last['incremental'].first['data']).to eq('title' => 'p0', 'comments' => [{ 'comment' => 'c00' }, { 'comment' => 'c01' }])
+      expect(all.last['hasNext']).to be(false)
+    end
+
+    it 'resolves it all in the first round with defer_max_nested_fields 1' do
+      Lighthouse.configure { |c| c.defer_max_nested_fields = 1 }
+
+      all = payloads('{ users @stream(initialCount: 1) { name ... @defer { posts { title ... @defer { id } } } } }')
+
+      expect(all.size).to eq(2)
+      expect(all.last['incremental'].first['items'])
+        .to eq([{ 'name' => 'u1', 'posts' => [{ 'title' => 'p1', 'id' => '2' }] }, { 'name' => 'u2', 'posts' => [{ 'title' => 'p2', 'id' => '3' }] }])
+    end
+
+    it 'resolves what is left in the next round once defer_max_execution_ms have gone, as PHP Lighthouse' do
+      Lighthouse.configure { |c| c.defer_max_execution_ms = 1 }
+      LH::User.define_method(:loud) { (sleep(0.002) || true) && name }
+
+      all = payloads(query.sub('{ id ...', '{ loud ...'))
+
+      expect(labels.call(all)).to eq([%w[a], []])
+      comments = [{ 'comment' => 'c00' }, { 'comment' => 'c01' }]
+      expect(all.last['incremental'].first['data']['posts']).to eq([{ 'id' => '1', 'title' => 'p0', 'comments' => comments }])
+    end
+
+    it 'has no limit by default' do
+      expect([Lighthouse::Config.defer_max_nested_fields, Lighthouse::Config.defer_max_execution_ms]).to eq([0, 0])
     end
   end
 

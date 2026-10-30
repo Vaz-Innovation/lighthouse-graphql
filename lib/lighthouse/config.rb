@@ -33,13 +33,13 @@ module Lighthouse
       queue_broadcasts broadcast_queue
       global_id
       schema_output schema_log
-      defer_max_pending
+      defer_max_nested_fields defer_max_execution_ms
     ].freeze
 
     class << self
       attr_writer :schema_path, :ide_helper, :resolver_namespaces, :on_error, :authenticated_user, :policy_user, :authorizer,
                   :transactional_mutations, :schema_cache, :watch_sdl, :persisted_queries, :persisted_queries_store, :persisted_queries_only,
-                  :queue_broadcasts,
+                  :queue_broadcasts, :defer_max_nested_fields, :defer_max_execution_ms,
                   :convert_empty_strings_to_null, :feature_checker, :feature_actor, :global_id, :schema_log
 
       # A file development keeps the client schema in (SchemaPrinter): a path
@@ -136,12 +136,11 @@ module Lighthouse
         @persisted_queries_store || Lighthouse::GraphQL::Caching.store
       end
 
-      # The most deferred fragments (and, per streamed list, one for each) one request
-      # may leave pending (Defer, experimental). Past it, a fragment runs in the first
-      # response, as the specification allows a server to do. Default 100.
-      attr_writer :defer_max_pending
-
-      def defer_max_pending = @defer_max_pending || 100
+      # @defer's limits (Defer, experimental), PHP Lighthouse's `defer.max_nested_fields`
+      # and `defer.max_execution_ms`; 0 (the default) is no limit. Past that many rounds of
+      # nested fragments, or that many milliseconds, what is left resolves in one last payload.
+      def defer_max_nested_fields = @defer_max_nested_fields || 0
+      def defer_max_execution_ms = @defer_max_execution_ms || 0
 
       # Pagination defaults, overridden by a directive's defaultCount / maxCount.
       # Without a default count, paginated fields require `first`.

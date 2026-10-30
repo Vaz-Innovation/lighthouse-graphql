@@ -77,7 +77,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   directives run once, a mutation does not run again, and the Dataloader still batches across a
   list. Fragments nest, and may sit under a mutation's root field. The whole document goes
   through validation and complexity analysis first. Other clients get one ordinary response.
-  New setting: `defer_max_pending`. Needs graphql-ruby 2.5.21. See
+  New settings: `defer_max_nested_fields`, `defer_max_execution_ms`. Needs graphql-ruby 2.5.21. See
   [performance.md](docs/performance.md#deferring-fields-experimental). PHP Lighthouse's
   field-level `@defer`, which runs the query again for each round, is not what this is.
 - **`@stream` (experimental)**, with `@defer`: `users @stream(initialCount: 2) { name }` answers the

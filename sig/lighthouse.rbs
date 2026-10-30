@@ -315,12 +315,15 @@ module Lighthouse
     def self.schema_output=: ((path | { path: path, ?schema: String })? output) -> (path | { path: path, ?schema: String })?
 
     # Log the schema's build on boot and every reload; nil: in a development server.
-    # The most deferred fragments one request may leave pending (Defer); default 100.
-    def self.defer_max_pending: () -> Integer
-    def self.defer_max_pending=: (Integer? count) -> Integer?
-
     def self.schema_log: () -> bool
     def self.schema_log=: (bool? enabled) -> bool?
+
+    # @defer's limits (Defer), PHP Lighthouse's defer.max_nested_fields and
+    # defer.max_execution_ms: rounds of nesting, milliseconds; 0 (the default) is no limit.
+    def self.defer_max_nested_fields: () -> Integer
+    def self.defer_max_nested_fields=: (Integer? rounds) -> Integer?
+    def self.defer_max_execution_ms: () -> Integer
+    def self.defer_max_execution_ms=: (Integer? milliseconds) -> Integer?
 
     # { queries:, mutations:, subscriptions:, builders:, validators:, events: } => [namespace, ...].
     # Assigning a partial hash overrides only the kinds it names.

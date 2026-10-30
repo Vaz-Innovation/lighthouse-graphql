@@ -198,8 +198,8 @@ own.
 
 The first part is the response without the deferred fragments, and a `pending` entry for each
 one, with a string `id`, the `path` it will arrive at and its `label`. A fragment under a list is
-pending once for each item. Then a part for each fragment, with its `incremental` data and the
-ids that are `completed`; the last has `hasNext: false`.
+pending once for each item. Then a part for each round: every fragment pending, with its
+`incremental` data and the ids that are `completed`; the last has `hasNext: false`.
 
 ```json
 { "data": { "posts": { "data": [{ "title": "Hello" }] } },
@@ -221,7 +221,7 @@ and arrives after it.
   run in the pass that resolves the field; a mutation does not run twice. A fragment
   leaves out the fields without selections its selection set already asks for outside it
   (`id` in `{ id ... @defer { id name } }`). An object field asked for on both sides resolves again.
-- **No N+1.** All the objects of one fragment run in one multiplex, so the Dataloader batches
+- **No N+1.** All the fragments of a round run in one multiplex, so the Dataloader batches
   across a list's items: a deferred fragment under a list of 50 costs the queries it costs without
   `@defer`.
 - **Validation and complexity cover the whole document**, before the first pass: the deferred
@@ -235,8 +235,9 @@ and arrives after it.
 - `@cacheControl` does not apply to a streamed response (`Cache-Control: no-cache`); one that
   defers nothing is cached as always.
 
-[`Lighthouse.configure { |c| c.defer_max_pending = 100 }`](configuration.md#defer_max_pending)
-bounds the fragments one request may leave pending; past it, they run in the first response.
+[`defer_max_nested_fields` and `defer_max_execution_ms`](configuration.md#defer_max_nested_fields-and-defer_max_execution_ms),
+PHP Lighthouse's limits, bound the rounds of nested fragments and the time a response may take;
+past them, what is left resolves in one last payload.
 
 ### Streaming lists (experimental)
 

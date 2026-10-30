@@ -152,14 +152,20 @@ config.persisted_queries_manifest = Rails.root.join('persisted-queries.json')  #
 config.persisted_queries_only = Rails.env.production?  # run nothing else
 ```
 
-### `defer_max_pending`
+### `defer_max_nested_fields` and `defer_max_execution_ms`
 
-The most deferred fragments one request may leave pending ([`@defer`](performance.md#deferring-fields-experimental),
-experimental). Past it, a fragment runs in the first response, as the specification allows a
-server to do. Default `100`.
+The limits of [`@defer`](performance.md#deferring-fields-experimental) (experimental), PHP
+Lighthouse's `defer.max_nested_fields` and `defer.max_execution_ms`. `0`, the default, is no limit.
+
+- `defer_max_nested_fields`: how many rounds of nested deferred fragments a response may take. The
+  last round allowed resolves the fragments it holds where they stand, so `1` delivers everything
+  deferred in one payload after the first.
+- `defer_max_execution_ms`: once that many milliseconds have gone since the first pass started, the
+  next round is the last, and resolves everything left without deferring further.
 
 ```ruby
-config.defer_max_pending = 200
+config.defer_max_nested_fields = 3
+config.defer_max_execution_ms = 2_000
 ```
 
 ### `convert_empty_strings_to_null`

@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
 # What one request's incremental delivery knows while it runs, kept in the
-# context (CONTEXT_KEY): the deferred fragments of its document, and the
-# objects @defer found them pending on.
+# context (CONTEXT_KEY): the deferred fragments of its document, the objects
+# @defer found them pending on, and whether they may still be deferred.
 #
 # @defer asks `defer` for every object a deferred fragment would run on. The
 # fragment does not run there: the object, with its path in the response, is
@@ -55,22 +55,23 @@ class Lighthouse::GraphQL::Incremental::State
 
   attr_reader :fragments
 
-  def initialize(fragments, max: Lighthouse::Config.defer_max_pending)
+  # false once a limit is reached (Run): every fragment then runs where it stands,
+  # and every list is answered whole, as PHP Lighthouse's `shouldDeferFurther`.
+  attr_accessor :deferring
+
+  def initialize(fragments)
     @fragments = fragments
-    @max = max
-    @count = 0
+    @deferring = true
     # The Pending fragments found, by the query (the operation's, or a Partial) that found them.
     @recorded = {}.compare_by_identity
   end
 
   # true when the fragment `fragment_id` is deferred on `object`: the caller
   # leaves it out of the response. false when it runs where it stands (it does
-  # not apply to the object, or the request has as many pending fragments as
-  # Config.defer_max_pending allows).
+  # not apply to the object, or nothing is deferred any more).
   def defer(fragment_id, object, context)
     fragment = @fragments[fragment_id]
-    return false unless fragment&.applies_to?(object, context)
-    return false if @count >= @max
+    return false unless @deferring && fragment&.applies_to?(object, context)
 
     record(context, Pending.new(fragment: fragment, object: object.object, path: context[:current_path]))
   end
@@ -78,7 +79,7 @@ class Lighthouse::GraphQL::Incremental::State
   # true when the list field of fragment `fragment_id` streams: `items` (what is
   # left of the list, after the `offset` the first response has) will follow.
   def stream(fragment_id, items, offset, context)
-    return false if @count >= @max
+    return false unless @deferring
 
     record(context, Pending.new(fragment: @fragments[fragment_id], object: items, path: context[:current_path], offset: offset))
   end
@@ -92,7 +93,6 @@ class Lighthouse::GraphQL::Incremental::State
   private
 
   def record(context, pending)
-    @count += 1
     (@recorded[context.query] ||= []) << pending
     true
   end

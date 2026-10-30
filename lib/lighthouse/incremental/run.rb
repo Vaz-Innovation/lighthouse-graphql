@@ -5,17 +5,26 @@
 #   run = Lighthouse::GraphQL::Incremental::Run.new(schema, query, variables: {}, context: {}, stream: true).start
 #   run.result                   # the first pass, as `schema.execute` answers it
 #   run.deferred?                # fragments are pending
-#   run.each_payload { |payload| ... }   # the initial payload, then one per deferred fragment
+#   run.each_payload { |payload| ... }   # the initial payload, then one per round
 #
 # `start` parses the query, has Document stamp its @defer, and runs the first
 # pass on the stamped document: the whole document goes through graphql-ruby's
 # validation and analysis (complexity, depth, and Rules, which checks @defer and
-# @stream) once, as it would without @defer, and DeferDirective leaves the deferred fragments out of the
-# execution. Each pending fragment is then run on the object it was found on
-# (GraphQL::Query#run_partials), the fragments of one kind together in one
-# multiplex so the Dataloader batches across the objects of a list. A field's
+# @stream) once, as it would without @defer, and DeferDirective leaves the
+# deferred fragments out of the execution.
+#
+# Then it goes in rounds, as PHP Lighthouse's Defer: each round runs every
+# fragment pending, each on the object it was found on (a GraphQL::Query::Partial),
+# all in one multiplex so the Dataloader batches across them, and is one payload;
+# the fragments they hold are announced in it, and make the next round. A field's
 # resolver stack, @throttle and @cache among them, runs once, in the pass that
-# resolves the field; a mutation does not run again.
+# resolves the field; a mutation does not run again (PHP Lighthouse runs the whole
+# query again each round).
+#
+# PHP Lighthouse's limits, 0 for none: past Config.defer_max_nested_fields rounds,
+# or once Config.defer_max_execution_ms milliseconds have gone since the first
+# pass started, the round that runs is the last: the fragments it holds run
+# where they stand, and its lists are answered whole.
 #
 # With `stream: false` nothing is deferred: the query is checked and answered at
 # once, as the specification allows a server that does not stream.
@@ -35,9 +44,12 @@ class Lighthouse::GraphQL::Incremental::Run
     @announced = []
     @next_id = 0
     @running = []
+    @round = 0
   end
 
   def start
+    seconds = Lighthouse::Config.defer_max_execution_ms / 1000.0
+    @deadline = clock + seconds if seconds.positive?
     @result = execute
     self
   end
@@ -86,34 +98,44 @@ class Lighthouse::GraphQL::Incremental::Run
     nil
   end
 
-  # Runs the first pending fragment on all the objects it waits on.
+  # The next round: every pending fragment, run together.
   def next_payload
-    fragment = @queue.first.fragment
-    group = @queue.select { |pending| pending.fragment.equal?(fragment) }
-    @queue -= group
-    @running = group
-    partials = partials(fragment, group)
+    @round += 1
+    @state.deferring = deferring?
+    @running = @queue
+    @queue = []
+    partials = @running.map { |pending| partial(pending) }
     results = run(partials)
     @announced = []
     incremental = []
     completed = []
     extensions = {}
     # Each Partial's own fragments, against its own data, path and offset.
-    group.each_with_index do |pending, index|
+    @running.each_with_index do |pending, index|
       deliver(pending, results[index], incremental, completed, extensions)
       announce(@state.drain(partials[index]), results[index]['data'], pending.path, pending.offset.to_i)
     end
+    @running = []
     Serializer.subsequent(incremental: incremental, completed: completed, pending: @announced, extensions: extensions, has_next: deferred?)
   end
 
-  # A Partial of `fragment` for each object of `group` (the items of a stream).
-  def partials(fragment, group)
+  # May the fragments of this round defer the fragments they hold? Not past the limits:
+  # with defer_max_nested_fields 1, the first round resolves everything left.
+  def deferring?
+    max = Lighthouse::Config.defer_max_nested_fields
+    return false if max.positive? && @round >= max
+
+    @deadline.nil? || clock < @deadline
+  end
+
+  def clock = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+
+  # The Partial that runs `pending`: its fragment on its object, or the items of a stream.
+  def partial(pending)
     query = @result.query
-    type = query.types.type(fragment.type_name) unless fragment.stream
-    group.map do |pending|
-      options = fragment.stream ? {} : { fragment_node: fragment.node, type: type }
-      ::GraphQL::Query::Partial.new(object: pending.object, path: pending.path, query: query, **options)
-    end
+    fragment = pending.fragment
+    options = fragment.stream ? {} : { fragment_node: fragment.node, type: query.types.type(fragment.type_name) }
+    ::GraphQL::Query::Partial.new(object: pending.object, path: pending.path, query: query, **options)
   end
 
   # The responses of the partials, run in one multiplex so the Dataloader batches across them.
@@ -177,7 +199,7 @@ class Lighthouse::GraphQL::Incremental::Run
   def failure_payload
     errors = [{ 'message' => 'Internal server error' }]
     Serializer.subsequent(
-      incremental: [], completed: (@running.to_a + @queue).map { |pending| { 'id' => pending.id, 'errors' => errors } }, pending: [], has_next: false
+      incremental: [], completed: (@running + @queue).map { |pending| { 'id' => pending.id, 'errors' => errors } }, pending: [], has_next: false
     )
   end
 end
