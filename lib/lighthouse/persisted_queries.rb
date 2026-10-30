@@ -78,15 +78,23 @@ module Lighthouse::GraphQL::PersistedQueries
   end
 
   # What `execute` and `incremental` share: the block runs the query the request names
-  # (`text`) after StartOperationOrOperations, and calls `ended` with what EndOperationOrOperations
-  # carries, once it is done; a protocol error comes back as its Hash, and ends the operation.
+  # (`text`) after StartOperationOrOperations, and calls `ended`, once, with what
+  # EndOperationOrOperations carries, once it is done. A protocol error (the request's query
+  # does not resolve) comes back as its Hash, and ends the operation, the block not run. An
+  # error raised elsewhere (a listener, the block) goes through as it is.
   def operation(query, extensions, options)
     operation = { query: query, variables: options[:variables], operation_name: options[:operation_name], extensions: extensions }
     Lighthouse::Events.dispatch(Lighthouse::Events::StartOperationOrOperations.new(operation))
     ended = ->(result) { Lighthouse::Events.dispatch(Lighthouse::Events::EndOperationOrOperations.new(result)) }
-    yield resolve(query, extensions), ended
+    text = resolved(query, extensions) { |error| return error.to_h.tap { |hash| ended.call(hash) } }
+    yield text, ended
+  end
+
+  # The query text `resolve` answers; the block gets the protocol Error it raises instead.
+  def resolved(query, extensions)
+    resolve(query, extensions)
   rescue Error => e
-    e.to_h.tap { |error| ended.call(error) }
+    yield e
   end
 
   # A batch (a JSON array in the request) through `schema.multiplex`; see Batch.

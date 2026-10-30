@@ -110,6 +110,8 @@ module Lighthouse
       def self?.multiplex: (schema schema, Array[Hash[Symbol | String, untyped]] operations, **untyped options) -> Array[_Result]
       # The query text to run for a request's `query` and `extensions`.
       def self?.resolve: (String? query, extensions? extensions) -> String?
+      # `resolve`'s text, or what the block answers for the protocol Error it raises.
+      def self?.resolved: [T] (String? query, extensions? extensions) { (Error error) -> T } -> (String? | T)
       def self?.enabled?: () -> bool
       def self?.digest: (String query) -> String
       # Store a query ahead of time (e.g. from a deploy task); returns its hash.

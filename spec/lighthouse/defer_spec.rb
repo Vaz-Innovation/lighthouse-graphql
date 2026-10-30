@@ -1246,6 +1246,36 @@ RSpec.describe 'Deferring fields' do
 
       expect(ended).to eq([result])
     end
+
+    it "ends one once, and lets through a protocol error the block raises after its run ended, which is not the request's" do
+      error = Lighthouse::GraphQL::PersistedQueries::Error.new('raised by the app', 'APP')
+
+      expect { incremental('{ user(id: 1) { id } }') { raise error } }.to raise_error(error)
+      expect(ended.size).to eq(1)
+      streamed = lambda do |run|
+        run.each_payload { nil }
+        raise error
+      end
+      expect { incremental('{ user(id: 1) { id ... @defer { name } } }', &streamed) }.to raise_error(error)
+      expect(ended.size).to eq(2)
+    end
+
+    it "ends schema.execute's operation once when a listener of its end raises a protocol error" do
+      error = Lighthouse::GraphQL::PersistedQueries::Error.new('raised by a listener', 'LISTENER')
+      Lighthouse::Events.listen(Lighthouse::Events::EndOperationOrOperations) { raise error }
+
+      expect { Lighthouse::GraphQL::PersistedQueries.execute(schema, query: '{ user(id: 1) { id } }') }.to raise_error(error)
+      expect(ended.size).to eq(1)
+    end
+
+    it 'lets through an error a listener of its start raises, and runs nothing' do
+      error = Lighthouse::GraphQL::PersistedQueries::Error.new('raised by a listener', 'LISTENER')
+      Lighthouse::Events.listen(Lighthouse::Events::StartOperationOrOperations) { raise error }
+
+      expect { incremental('{ user(id: 1) { id } }') { raise 'not run' } }.to raise_error(error)
+      expect { Lighthouse::GraphQL::PersistedQueries.execute(schema, query: '{ user(id: 1) { id } }') }.to raise_error(error)
+      expect(ended).to eq([])
+    end
   end
 
   describe Lighthouse::GraphQL::Defer do
