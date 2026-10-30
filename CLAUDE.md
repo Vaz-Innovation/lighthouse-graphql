@@ -15,9 +15,8 @@ bundle exec rake rbs                                # rbs:validate + rbs:test (s
 bundle exec rake build                              # package into pkg/
 bundle exec rake                                    # default: spec, rubocop, rbs
 
-# End-to-end suite: a Rails 8.1 app using the gem from this checkout (path: '..'),
-# on a PostgreSQL that Testcontainers starts in Docker on a dynamic port
-# Needs Docker: Testcontainers starts PostgreSQL, Elasticsearch 9 and OpenSearch 3 (bin/ci also verifies persisted queries)
+# End-to-end suite: a Rails 8.1 app using the gem from this checkout (path: '..'). Needs Docker:
+# Testcontainers starts PostgreSQL, Elasticsearch 9 and OpenSearch 3 on dynamic ports (bin/ci also verifies persisted queries)
 cd example && bundle install && bundle exec rspec
 cd example && bin/rails lighthouse:persisted_queries:verify
 # The same suite on MySQL, with Redis (@throttle) and your own search servers: see example/README.md.
