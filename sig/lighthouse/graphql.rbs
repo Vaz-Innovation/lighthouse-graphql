@@ -216,7 +216,7 @@ module Lighthouse
         def result: () -> (_Result | Hash[String, json])
         # Are fragments pending?
         def deferred?: () -> bool
-        # The initial payload, then one per deferred fragment, until `hasNext` is false.
+        # The initial payload, then one per round of deferred fragments, until `hasNext` is false.
         def each_payload: () { (Hash[String, json]) -> void } -> void
       end
 

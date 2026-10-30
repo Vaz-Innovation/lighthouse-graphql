@@ -11,7 +11,7 @@
 # may ignore @defer, and answers the whole response at once.
 #
 # Document stamps each @defer with the number of its fragment, as the `label`
-# ("lh:3"; the label the client gave is kept in the State), which is how
+# ("lh:3", or "lh:3:details" after the label the client gave), which is how
 # `include?` learns which fragment it is asked about.
 class Lighthouse::GraphQL::Incremental::DeferDirective < GraphQL::Schema::Directive
   graphql_name 'defer'
