@@ -32,8 +32,6 @@
 class Lighthouse::GraphQL::Incremental::Run
   State = Lighthouse::GraphQL::Incremental::State
   Serializer = Lighthouse::GraphQL::Incremental::Serializer
-  # A directive named defer or stream, as the lexer reads one (`@`, then ignored characters).
-  INCREMENTAL = /@[\s,\uFEFF]*(?:defer|stream)\b/
 
   attr_reader :result
 
@@ -113,13 +111,13 @@ class Lighthouse::GraphQL::Incremental::Run
 
   # graphql-ruby parses the query, once, through the schema's trace, as `schema.execute`
   # would, and answers one that does not parse. A State goes in the context of a query that
-  # may use @defer or @stream (INCREMENTAL, on the text: a false positive costs an unused
+  # may use @defer or @stream (Document::INCREMENTAL, on the text: a false positive costs an unused
   # State); it reads the document once it is parsed. The query is the schema's query_class, run
   # by `schema.multiplex` as `schema.execute` runs it: on graphql-ruby's standard engine, where
   # a GraphQL::Query::Partial runs, even when a schema opts into graphql-ruby 2.6's new one
   # (default_execution_next) for its other requests.
   def execute
-    @state = State.new if INCREMENTAL.match?(@query_string.to_s) && traced?
+    @state = State.new if Lighthouse::GraphQL::Incremental::Document::INCREMENTAL.match?(@query_string.to_s) && traced?
     query = @schema.query_class.new(@schema, @query_string, **@options.except(:context), context: query_context)
     @state&.query = query
     result = running { @schema.multiplex([query], max_complexity: nil, context: multiplex_context).first }

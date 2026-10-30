@@ -19,6 +19,9 @@ require 'set'
 class Lighthouse::GraphQL::Incremental::Document
   Nodes = ::GraphQL::Language::Nodes
   DIRECTIVES = %w[defer stream].freeze
+  # A directive named defer or stream, as the lexer reads one (`@`, then ignored characters): a
+  # text without one uses neither (one with it may not: a comment, a string).
+  INCREMENTAL = /@[\s,\uFEFF]*(?:defer|stream)\b/
 
   # A declaration of a field: the field node, the fragments around it in its parent's
   # selection set (`around`, whose type conditions are the parent object's), the fragments and
@@ -74,9 +77,17 @@ class Lighthouse::GraphQL::Incremental::Document
     (@index ||= index)[pattern] || []
   end
 
-  # Do the node's @skip and @include let it through? graphql-ruby's own check, as its runtime makes it.
+  # Do the node's @skip and @include let it through? graphql-ruby's own check
+  # (GraphQL::Execution::DirectiveChecks), as its runtime makes it: arguments that do not
+  # evaluate (an ExecutionError) let it through; with the directives' definitions looked up once.
   def included?(node, query)
-    ::GraphQL::Execution::DirectiveChecks.include?(node.directives, query)
+    node.directives.all? do |candidate|
+      name = candidate.name
+      next true unless name == 'skip' || name == 'include'
+
+      arguments = query.arguments_for(candidate, directive(name))
+      arguments.is_a?(::GraphQL::ExecutionError) || arguments[:if] != (name == 'skip')
+    end
   end
 
   # Does the fragment's type condition hold for an object of the object type `type`?

@@ -321,6 +321,31 @@ RSpec.describe 'Deferring fields' do
       expect(lookups.call(3)).to eq(lookups.call(1))
     end
 
+    it "evaluates @skip and @include with the schema's directives looked up once a request" do
+      lookups = lambda do |count|
+        LH::User.where.not(id: LH::User.order(:id).limit(count).select(:id)).find_each { |user| user.posts.each(&:delete) && user.delete }
+        calls = 0
+        allow(schema).to receive(:directives).and_wrap_original do |original|
+          ours = caller_locations.any? { |location| location.path.include?('/lib/lighthouse/incremental/') && location.path.exclude?('run.rb') }
+          (calls += 1) if ours
+          original.call
+        end
+        payloads('{ users { ... @defer { name @include(if: true) posts { title @skip(if: false) ... @defer { id } } } } }')
+        calls
+      end
+
+      expect(lookups.call(3)).to eq(lookups.call(1))
+    end
+
+    it 'checks only the queries whose text may use @defer or @stream, without walking the others' do
+      allow(Lighthouse::GraphQL::Incremental::Document).to receive(:incremental?).and_call_original
+
+      schema.execute('{ users { name } }')
+      schema.execute(document: GraphQL.parse('{ users { name } }'))
+
+      expect(Lighthouse::GraphQL::Incremental::Document).to have_received(:incremental?).once
+    end
+
     it "builds the operation's query with the schema's query_class, as schema.execute does" do
       query_class = Class.new(GraphQL::Query)
       schema.query_class(query_class)
@@ -846,6 +871,17 @@ RSpec.describe 'Deferring fields' do
 
         expect(analysis(query, variables: { 'd' => true }))
           .to eq([message, 'The @stream directive must be disabled with `if: false` in a subscription.'])
+      end
+
+      it "looks the schema's directives up once a request, not once a directive" do
+        calls = 0
+        allow(schema).to receive(:directives).and_wrap_original do |original|
+          (calls += 1) if caller_locations.any? { |location| location.path.include?('/lib/lighthouse/incremental/') }
+          original.call
+        end
+        analysis('subscription { userCreated { ... @defer(if: false) { name } ... @defer(if: false) { id } posts @stream(if: false) { id } } }')
+
+        expect(calls).to eq(2)
       end
 
       it 'refuses it in a named fragment the subscription spreads' do

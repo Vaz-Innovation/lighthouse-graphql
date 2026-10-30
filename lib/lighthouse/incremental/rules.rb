@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'set'
+
 # The rules @defer and @stream follow, checked for every query of a schema that
 # uses Defer however it runs: streamed, answered whole to a JSON client, through
 # `schema.execute`, in a batch. A graphql-ruby query analyzer (Defer.use installs
@@ -19,15 +21,23 @@
 # - in a subscription, they are disabled with `if: false`, or a variable that is false;
 # - @stream is on a list field.
 #
-# A document without either directive is not walked (`analyze?`).
+# A query whose text names neither directive, or whose document (given as one) has
+# neither, is not walked (`analyze?`). A named fragment spread at several places is
+# checked at each, and an error reported once a directive.
 class Lighthouse::GraphQL::Incremental::Rules < GraphQL::Analysis::Analyzer
   def initialize(subject)
     super
     @errors = []
-    @seen = {}.compare_by_identity
+    @reported = Set.new
+    @definitions = {}
   end
 
+  # The text the query was given (graphql-ruby's Query#query_string would print a document given
+  # instead): the lexer's view of it first, the document's walk only where it may use one.
   def analyze?
+    text = query.instance_variable_get(:@query_string)
+    return false if text.is_a?(String) && !Lighthouse::GraphQL::Incremental::Document::INCREMENTAL.match?(text)
+
     Lighthouse::GraphQL::Incremental::Document.incremental?(query.document)
   end
 
@@ -51,13 +61,10 @@ class Lighthouse::GraphQL::Incremental::Rules < GraphQL::Analysis::Analyzer
 
   private
 
-  # The node's directive `name`, once checked; nil without one, or once it was (a fragment
-  # spread twice is visited twice). `parent_type`: the type of the selection set the node is in.
+  # The node's directive `name`, checked where it is; nil without one. `parent_type`: the type of
+  # the selection set the node is in.
   def check(node, name, parent_type)
-    directive = node.directives.find { |candidate| candidate.name == name }
-    return nil if directive.nil? || @seen.key?(directive)
-
-    @seen[directive] = true
+    directive = node.directives.find { |candidate| candidate.name == name } or return nil
     error(directive, "The @#{name} directive cannot be used on a root mutation field.") if mutation_root?(parent_type)
     check_subscription(directive)
     directive
@@ -71,7 +78,7 @@ class Lighthouse::GraphQL::Incremental::Rules < GraphQL::Analysis::Analyzer
   # allows a variable, and forbids incremental delivery in a subscription, so a true one is refused).
   def check_subscription(directive)
     return unless query.selected_operation.operation_type == 'subscription'
-    return if query.arguments_for(directive, query.schema.directives[directive.name])[:if] == false
+    return if query.arguments_for(directive, definition(directive.name))[:if] == false
 
     error(directive, "The @#{directive.name} directive must be disabled with `if: false` in a subscription.")
   end
@@ -105,8 +112,12 @@ class Lighthouse::GraphQL::Incremental::Rules < GraphQL::Analysis::Analyzer
     end
   end
 
+  # Schema.directives builds its Hash on every call: once an analysis.
+  def definition(name) = @definitions[name] ||= query.schema.directives[name]
+
+  # An error, once for a node.
   def error(node, message)
-    @errors << failure(node, message)
+    @errors << failure(node, message) if @reported.add?([node.object_id, message])
   end
 
   def failure(node, message) = ::GraphQL::AnalysisError.new(message, ast_node: node)
