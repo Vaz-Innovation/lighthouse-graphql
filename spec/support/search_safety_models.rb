@@ -67,6 +67,7 @@ class SafetyPlainPost < ApplicationRecord
 
   # Who wrote it (@whereAuth): a post stands in for a user, by id.
   belongs_to :author, class_name: 'SafetyPlainPost', optional: true
+  has_many :written, class_name: 'SafetyPlainPost', foreign_key: :author_id, inverse_of: :author, dependent: nil
 
   scope :visible, -> { where.not(body: 'invisible').or(where(body: nil)) }
 end

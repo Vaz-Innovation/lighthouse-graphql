@@ -41,21 +41,22 @@ class Lighthouse::GraphQL::DirectiveResolvers::FindDirectiveResolver < Lighthous
     dataloader = Lighthouse::Support::Batching.dataloader(ctx)
     return dataloader.with(Lighthouse::GraphQL::DataloaderSources::ModelLoader, model).load(args[:id]) if dataloader && batchable?(args)
 
-    records = find_relation(model, args).limit(2).to_a
+    records = find_relation(model, args, ctx).limit(2).to_a
     raise ::GraphQL::ExecutionError, 'The query returned more than one result.' if records.size > 1
 
     records.first
   end
 
-  # Only a lookup by `id` alone, with no scopes to apply, can be batched.
+  # Only a lookup by `id` alone, with no scopes and no query directive of the
+  # field's own (@builder, @whereAuth) to apply, can be batched.
   def batchable?(args)
-    args.keys == [:id] && !directive_arg('scopes')
+    args.keys == [:id] && !directive_arg('scopes') && Lighthouse::GraphQL::DirectiveResolvers::BuilderApplier.query_directives(@field_def.ast_node).empty?
   end
 
-  def find_relation(model, args)
+  def find_relation(model, args, ctx)
     relation = apply_scopes(model.all)
     relation = relation.where(model.primary_key => args[:id]) if args.key?(:id) && !filtered?('id')
-    apply_where_filters(relation, args)
+    apply_where_filters(relation, args, ctx)
   end
 
   # Does the argument carry a filter directive (@eq, @where, ...)? An `id`
