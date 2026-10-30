@@ -26,5 +26,9 @@ class Lighthouse::GraphQL::Directives::Arguments::Search < Lighthouse::GraphQL::
     GRAPHQL
   end
 
+  # The search runs for a string: null, or nothing, leaves the query whole.
+  def self.filters?(value) = value.is_a?(String)
+  def self.searches? = true
+
   def handle_builder(relation, _value) = relation
 end

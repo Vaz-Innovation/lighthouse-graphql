@@ -70,6 +70,15 @@ class Builders::SearchSpecBroken
   def self.call(_target, _value, _context) = raise('the builder broke')
 end
 
+# An argument directive of the app's own that narrows only for true: false sent filters nothing.
+class SearchSpecOnlyTrue < Lighthouse::GraphQL::Directives::Arguments::Base
+  def self.directive_name = 'searchSpecOnlyTrue'
+  def self.definition = 'directive @searchSpecOnlyTrue on ARGUMENT_DEFINITION'
+  def self.filters?(value) = value == true
+
+  def handle_builder(relation, value) = value ? relation.where(title: 'bad') : relation
+end
+
 class Builders::SearchSpecOptions
   def self.call(query, value, _context)
     query.options[:fields] = [value]
@@ -1107,6 +1116,22 @@ RSpec.describe '@search' do
           expect(result['errors'].pluck('message')).to eq(['Would modify all models, use an argument to filter.'])
         end
         expect([SearchPost.count, SearchSoftPost.where.not(deleted_at: nil).count]).to eq([4, 1])
+      end
+
+      it 'asks each argument directive whether its value narrows, as @search answers only for a string' do
+        Lighthouse::DirectiveRegistry.default.register(SearchSpecOnlyTrue)
+        schema = build_schema(<<~GRAPHQL)
+          type SearchPost { id: ID! title: String! }
+          type Query { posts: [SearchPost!]! @all }
+          type Mutation { deleteBad(bad: Boolean @searchSpecOnlyTrue): [SearchPost!]! @delete }
+        GRAPHQL
+
+        expect(run(schema, 'mutation { deleteBad(bad: false) { id } }')['errors'].pluck('message'))
+          .to eq(['Would modify all models, use an argument to filter.'])
+        run(schema, 'mutation { deleteBad(bad: true) { id } }')
+        expect(SearchPost.pluck(:title)).to contain_exactly('great one', 'great two', 'great three')
+      ensure
+        Lighthouse::DirectiveRegistry.instance_variable_set(:@default, nil)
       end
 
       it 'modifies what the search finds' do

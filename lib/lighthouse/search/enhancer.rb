@@ -55,14 +55,14 @@ class Lighthouse::Search::Enhancer
   private
 
   def the_search
-    searches = @arguments.select { |argument| search?(argument) && argument.value.is_a?(String) }
+    searches = @arguments.select { |argument| search?(argument) && argument.builder.filters?(argument.value) }
     raise ::GraphQL::ExecutionError, 'Found more than 1 argument with @search.' if searches.size > 1
 
     searches.first
   end
 
   def search?(argument)
-    argument.builder == Lighthouse::GraphQL::Directives::Arguments::Search
+    argument.builder.respond_to?(:searches?) && argument.builder.searches?
   end
 
   def result(adapter, query)

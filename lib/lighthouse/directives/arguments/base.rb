@@ -30,6 +30,15 @@ class Lighthouse::GraphQL::Directives::Arguments::Base
   # what the field resolved) leaves a search outside the database alone.
   def self.changes_query?(_directive_node) = true
 
+  # Does the client's value, once sent, narrow the query? Any value does, null
+  # too, as PHP Lighthouse's wouldEnhanceBuilder counts what the client sent; a
+  # mass mutation (@delete, ...) refuses to run unless one argument does. @search
+  # narrows only for a string, which runs the search.
+  def self.filters?(_value) = true
+
+  # Does the directive run the field's search (@search)?
+  def self.searches? = false
+
   def initialize(arg_node, directive_node)
     @arg_node = arg_node
     @directive_node = directive_node
