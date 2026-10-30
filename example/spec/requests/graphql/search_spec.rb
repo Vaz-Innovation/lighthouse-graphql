@@ -384,14 +384,33 @@ RSpec.describe 'GraphQL @search', type: :request do
         expect(result['errors'].pluck('message')).to eq(['Found arg builder arguments that do not work with @search: @neq on title.'])
       end
 
-      it 'checks @canQuery against every post the search finds, not only the page, in a request of its own' do
+      it 'checks @canQuery against every post the search finds, not only the page, whose hits then serve the page' do
         query = '{ editable(first: 1, search: "great"%s) { data { title } } }'
         result = nil
 
         expect(run(schema, format(query, ''), { current_user: author })['errors'].pluck('message')).to eq(['This action is unauthorized.'])
         requests = requests_in { result = run(schema, format(query, ", authorId: #{author.id}"), { current_user: author }) }
         expect(result.dig('data', 'editable', 'data')).to eq([{ 'title' => 'Really great great title' }])
-        expect(requests).to eq(2) # @canQuery's, then the page's
+        expect(requests).to eq(1)
+      end
+
+      it 'pages the posts @canQuery checked, never one the index gained after the check' do
+        grown = false
+        subscriber = ActiveSupport::Notifications.subscribe('search.searchkick') do |*|
+          next if grown
+
+          grown = true
+          SearchedPost.find(create(:post, author: author, title: 'Great new one', body: 'new').id).reindex
+          SearchedPost.search_index.refresh
+        end
+        query = %({ editable(first: 10, search: "great", authorId: #{author.id}) { data { title } } })
+
+        result = run(schema, query, { current_user: author })
+
+        expect(grown).to be(true)
+        expect(result.dig('data', 'editable', 'data').pluck('title')).to contain_exactly('Great title', 'Really great great title')
+      ensure
+        ActiveSupport::Notifications.unsubscribe(subscriber)
       end
 
       it 'refuses, when the schema is built, what PHP Lighthouse drops silently' do

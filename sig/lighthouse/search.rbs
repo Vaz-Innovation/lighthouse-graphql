@@ -29,7 +29,7 @@ module Lighthouse
       # [column, value] pairs, from @eq, all of which hold.
       attr_reader wheres: Array[[String, untyped]]
       # Adapter-specific options, from @builder on an argument.
-      attr_reader options: Hash[Symbol, untyped]
+      attr_reader options: Hash[Symbol | String, untyped]
       # :with, :only or :without, from @trashed; nil: not given.
       attr_accessor trashed: (:with | :only | :without)?
 
