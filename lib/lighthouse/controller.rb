@@ -112,7 +112,7 @@ module Lighthouse::GraphQL::Controller
   # accepts `multipart/mixed`?
   def lighthouse_incremental?
     defined?(::ActionController::Live) && is_a?(::ActionController::Live) &&
-      Lighthouse::GraphQL::Defer.accepts?(request.headers['Accept']) && Lighthouse::GraphQL::Defer.enabled?(graphql_schema)
+      !Lighthouse::GraphQL::Defer.stream_type_of(request).nil? && Lighthouse::GraphQL::Defer.enabled?(graphql_schema)
   end
 
   # Runs the operation as Incremental::Run does, and renders it whole when no
@@ -133,8 +133,7 @@ module Lighthouse::GraphQL::Controller
   # stream's. Until the first part is written, the response is not committed: an error then
   # surfaces as it would on the JSON path (`execute` does not close the stream).
   def lighthouse_stream(run)
-    accept = request.headers['Accept']
-    Lighthouse::GraphQL::Incremental::Multipart.headers(Lighthouse::GraphQL::Defer.content_type(accept)).each do |name, value|
+    Lighthouse::GraphQL::Incremental::Multipart.headers(Lighthouse::GraphQL::Defer.stream_type_of(request)).each do |name, value|
       response.headers[name] = value
     end
     multipart = Lighthouse::GraphQL::Incremental::Multipart.new(response.stream)

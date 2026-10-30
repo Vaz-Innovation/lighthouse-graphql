@@ -950,26 +950,27 @@ RSpec.describe 'Deferring fields' do
 
   describe Lighthouse::GraphQL::Defer do
     it 'streams to a client that accepts multipart/mixed, in this gem\'s format' do
-      expect(described_class.accepts?('multipart/mixed;incrementalSpec=v0.2,application/json')).to be(true)
-      expect(described_class.accepts?('multipart/mixed')).to be(true)
-      expect(described_class.accepts?('multipart/mixed;deferSpec=20220824,application/json')).to be(false)
-      expect(described_class.accepts?('application/json')).to be(false)
-      expect(described_class.accepts?(nil)).to be(false)
+      expect(described_class.stream_type('multipart/mixed;incrementalSpec=v0.2,application/json')).not_to be_nil
+      expect(described_class.stream_type('multipart/mixed')).not_to be_nil
+      expect(described_class.stream_type('multipart/mixed;deferSpec=20220824,application/json')).to be_nil
+      expect(described_class.stream_type('application/json')).to be_nil
+      expect(described_class.stream_type(nil)).to be_nil
     end
 
     it 'honours q-values: never multipart/mixed at q=0, nor below a JSON type the client prefers' do
-      expect(described_class.accepts?('application/json, multipart/mixed;q=0')).to be(false)
-      expect(described_class.accepts?('multipart/mixed;q=0.5, application/json')).to be(false)
-      expect(described_class.accepts?('multipart/mixed;q=0.5, application/graphql-response+json;q=0.8')).to be(false)
-      expect(described_class.accepts?('application/json;q=0.9, multipart/mixed;q=0.95')).to be(true)
-      expect(described_class.accepts?('multipart/mixed;incrementalSpec=v0.2, application/graphql-response+json, application/json;q=0.9')).to be(true)
-      expect(described_class.accepts?('application/json, multipart/mixed')).to be(false)
-      expect(described_class.accepts?('multipart/mixed;q=0')).to be(false)
+      expect(described_class.stream_type('application/json, multipart/mixed;q=0')).to be_nil
+      expect(described_class.stream_type('multipart/mixed;q=0.5, application/json')).to be_nil
+      expect(described_class.stream_type('multipart/mixed;q=0.5, application/graphql-response+json;q=0.8')).to be_nil
+      expect(described_class.stream_type('application/json;q=0.9, multipart/mixed;q=0.95')).not_to be_nil
+      apollo = 'multipart/mixed;incrementalSpec=v0.2, application/graphql-response+json, application/json;q=0.9'
+      expect(described_class.stream_type(apollo)).not_to be_nil
+      expect(described_class.stream_type('application/json, multipart/mixed')).to be_nil
+      expect(described_class.stream_type('multipart/mixed;q=0')).to be_nil
     end
 
     it 'names the format in the content type when the client did' do
-      expect(described_class.content_type('multipart/mixed;incrementalSpec=v0.2')).to eq('multipart/mixed; boundary="-"; incrementalSpec=v0.2')
-      expect(described_class.content_type('multipart/mixed')).to eq('multipart/mixed; boundary="-"')
+      expect(described_class.stream_type('multipart/mixed;incrementalSpec=v0.2')).to eq('multipart/mixed; boundary="-"; incrementalSpec=v0.2')
+      expect(described_class.stream_type('multipart/mixed')).to eq('multipart/mixed; boundary="-"')
     end
   end
 

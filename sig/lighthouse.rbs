@@ -134,6 +134,7 @@ module Lighthouse
   interface _Request
     def path: () -> String
     def headers: () -> untyped
+    def env: () -> Hash[String, untyped]
   end
 
   # What has response headers: an ActionDispatch::Response.

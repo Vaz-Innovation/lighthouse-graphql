@@ -167,7 +167,8 @@ before it reaches stage 3. Clients that read the draft's format include Apollo C
 
 ### Setup
 
-Use the plugin in the schema class, and stream from the controller:
+Use the plugin in the schema class, and route the clients that prefer a streamed response to a
+controller that streams:
 
 ```ruby
 # app/graphql/app_schema.rb
@@ -176,13 +177,26 @@ class AppSchema < Lighthouse::GraphQL::RbLightHouse.get_schema(options: { ... })
   use Lighthouse::GraphQL::Defer          # adds @defer and @stream
 end
 
-# app/controllers/graphql_controller.rb
-class GraphqlController < ApplicationController
+# app/controllers/graphql_streaming_controller.rb
+class GraphqlStreamingController < GraphqlController
   include ActionController::Live          # streams the response
-  include Lighthouse::GraphQL::Controller
-  lighthouse_schema AppSchema
+
+  # One endpoint: rate_limit and @throttle count both controllers' requests together.
+  def self.controller_path = superclass.controller_path
 end
+
+# config/routes.rb
+post '/graphql', to: 'graphql_streaming#execute', constraints: Lighthouse::GraphQL::Defer::Streaming
+post '/graphql', to: 'graphql#execute'
 ```
+
+`GraphqlController` stays as `lighthouse:install` wrote it. `ActionController::Live` runs an action
+in a thread of its own, with what that changes (the database connection the thread checks out,
+thread-locals, errors once the response is on its way), so only the requests that stream should run
+in it: `Lighthouse::GraphQL::Defer::Streaming` routes there the requests whose `Accept` header
+prefers `multipart/mixed`, and every other request (JSON, batches, uploads) goes to the plain
+controller, as before. A plain controller answers a client that prefers `multipart/mixed` with one
+ordinary response, the deferred fields in it.
 
 Without the plugin the schema has no `@defer`, as the specification asks of a server that does
 not implement it.
@@ -313,14 +327,16 @@ fiber-local read.
 
 ### Transport
 
-The controller streams the response, as `multipart/mixed` parts (graphql-over-http's incremental
+A controller streams the response, as `multipart/mixed` parts (graphql-over-http's incremental
 delivery), when three things hold: the schema uses the plugin, the controller includes
 `ActionController::Live`, and the request's `Accept` header prefers `multipart/mixed` (without the
 older format's `deferSpec` parameter) to a JSON response: not at `q=0`, and ranked, by q and then by
-order as Rails ranks types, before `application/json` and `application/graphql-response+json`. In
-every other case the whole response comes at once, the deferred fragments in it, as the
-specification allows: a JSON client, `schema.execute`, a batch (a JSON array). A query that defers nothing is answered as JSON, whatever the client accepts. A part's
-JSON is encoded as `render json:` encodes any response.
+order as Rails ranks types, before `application/json` and `application/graphql-response+json`
+(`Lighthouse::GraphQL::Defer.stream_type`, which the route constraint and the controller share: the
+header is read once). In every other case the whole response comes at once, the deferred fragments
+in it, as the specification allows: a JSON client, `schema.execute`, a batch (a JSON array). A query
+that defers nothing is answered as JSON, whatever the client accepts. A part's JSON is encoded as
+`render json:` encodes any response.
 
 Streaming needs a server that writes as the action goes (Puma; not a single-threaded buffering
 one) and proxies that do not buffer: the response sends `X-Accel-Buffering: no` for nginx,

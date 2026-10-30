@@ -200,10 +200,17 @@ module Lighthouse
       def self?.use: (schema schema, **untyped options) -> void
       # Does the schema use the plugin?
       def self?.enabled?: (schema schema) -> bool
-      # Does the `Accept` header take a streamed response in this gem's format?
-      def self?.accepts?: (String? accept) -> bool
-      # The Content-Type of the streamed response to `accept`.
-      def self?.content_type: (String? accept) -> String
+      # The Content-Type of the streamed response to `accept`, or nil when the client does not
+      # prefer one to JSON.
+      def self?.stream_type: (String? accept) -> String?
+      # The request's stream_type, its Accept header read once (kept under ENV_KEY).
+      def self?.stream_type_of: (_Request request) -> String?
+      ENV_KEY: String
+
+      # A route constraint: does the request prefer a streamed response?
+      module Streaming
+        def self.matches?: (_Request request) -> bool
+      end
       # Each media range of the header, and the multipart/mixed one the client prefers to JSON.
       def self?.ranges: (String? accept) -> Array[MediaRange]
       def self?.preferred: (String? accept) -> MediaRange?

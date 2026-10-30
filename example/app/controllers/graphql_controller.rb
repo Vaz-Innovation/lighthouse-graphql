@@ -7,9 +7,8 @@ class GraphqlController < ApplicationController
   # instead of failing CSRF verification:
   # protect_from_forgery with: :null_session
 
-  # Streams the response of a query with @defer to a client that accepts
-  # multipart/mixed (use Lighthouse::GraphQL::Defer in AppSchema); other requests are unchanged.
-  include ActionController::Live
+  # Answers every request whole, a query with @defer too. A client that prefers
+  # multipart/mixed is routed to GraphqlStreamingController instead (config/routes.rb).
   include Lighthouse::GraphQL::Controller
 
   lighthouse_schema AppSchema

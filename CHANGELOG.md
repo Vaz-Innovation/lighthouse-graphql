@@ -73,7 +73,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (graphql-spec PR #1110: on fragments, with `if` and `label`, answered as `pending` /
   `incremental` / `completed` / `hasNext`), and a controller that includes
   `ActionController::Live` streams it as `multipart/mixed` to a client that prefers it (q-values
-  honoured); other clients get one ordinary response. As PHP Lighthouse's, a response goes in
+  honoured), which the route constraint `Lighthouse::GraphQL::Defer::Streaming` sends there, so
+  only streamed requests run in Live's thread; other clients get one ordinary response. As PHP Lighthouse's, a response goes in
   rounds, one payload each, and stops deferring past its limits, with their names and meaning:
   `defer_max_nested_fields` and `defer_max_execution_ms` (0, the default, for none). PHP
   Lighthouse's rules hold: no `@defer` on a root mutation field ("The @defer directive cannot be

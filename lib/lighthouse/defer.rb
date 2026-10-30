@@ -9,17 +9,19 @@
 #     use Lighthouse::GraphQL::Defer
 #   end
 #
-#   class GraphqlController < ApplicationController
-#     include ActionController::Live        # streams the response
-#     include Lighthouse::GraphQL::Controller
-#     lighthouse_schema AppSchema
+#   class GraphqlStreamingController < GraphqlController
+#     include ActionController::Live        # only the streamed requests run in it
 #   end
 #
+#   # config/routes.rb: the client that prefers multipart/mixed goes to the streaming one
+#   post '/graphql', to: 'graphql_streaming#execute', constraints: Lighthouse::GraphQL::Defer::Streaming
+#   post '/graphql', to: 'graphql#execute'
+#
 # The plugin adds the directives to the schema (without it the schema has none,
-# as the specification asks of a server that does not implement it). The
+# as the specification asks of a server that does not implement it). A
 # controller streams a response when the schema uses the plugin, the controller
-# includes ActionController::Live, and the client accepts `multipart/mixed`
-# (`Defer.accepts?`); every other request is answered whole. The plugin also
+# includes ActionController::Live, and the client prefers `multipart/mixed`
+# (`Defer.stream_type`); every other request is answered whole. The plugin also
 # installs Rules, the analyzer that checks the directives in every query.
 # Run does the work; Document, State, Serializer and Multipart are its parts.
 module Lighthouse::GraphQL::Defer
@@ -55,19 +57,30 @@ module Lighthouse::GraphQL::Defer
     schema.trace_with(Lighthouse::GraphQL::Incremental::Recorder, mode: Lighthouse::GraphQL::Incremental::Recorder::MODE)
   end
 
+  # Where a request's stream_type is kept, so the header is read once.
+  ENV_KEY = 'lighthouse.defer.stream_type'
+
+  # A route constraint: does the request prefer a streamed response? It keeps the answer in
+  # the request for the controller.
+  module Streaming
+    def self.matches?(request) = !Lighthouse::GraphQL::Defer.stream_type_of(request).nil?
+  end
+
+  # The request's stream_type, its `Accept` header read once.
+  def stream_type_of(request)
+    request.env.fetch(ENV_KEY) { request.env[ENV_KEY] = stream_type(request.headers['Accept']) }
+  end
+
   def enabled?(schema)
     schema.directives['defer'] == Lighthouse::GraphQL::Incremental::DeferDirective
   end
 
-  # Does the `Accept` header take a streamed response in this gem's format, and prefer it to JSON?
-  def accepts?(accept)
-    !preferred(accept).nil?
-  end
-
-  # The Content-Type of the streamed response to `accept`: it names the format when the client did.
-  def content_type(accept)
-    named = preferred(accept)&.params&.include?(FORMAT)
-    named ? "#{Lighthouse::GraphQL::Incremental::Multipart::CONTENT_TYPE}; incrementalSpec=v0.2" : Lighthouse::GraphQL::Incremental::Multipart::CONTENT_TYPE
+  # The Content-Type of the streamed response to `accept`, or nil when the client does not prefer
+  # one in this gem's format to JSON. It names the format when the client did.
+  def stream_type(accept)
+    range = preferred(accept) or return nil
+    type = Lighthouse::GraphQL::Incremental::Multipart::CONTENT_TYPE
+    range.params.include?(FORMAT) ? "#{type}; incrementalSpec=v0.2" : type
   end
 
   # The `multipart/mixed` range of the header the client prefers to a JSON response, if one:

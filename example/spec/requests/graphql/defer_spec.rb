@@ -27,6 +27,14 @@ RSpec.describe 'Deferring fields', type: :request do
     create_list(:post, 3).each { |post| create(:comment, post: post) }
   end
 
+  it 'reads the Accept header once a request' do
+    allow(Lighthouse::GraphQL::Defer).to receive(:ranges).and_call_original
+
+    stream(query)
+
+    expect(Lighthouse::GraphQL::Defer).to have_received(:ranges).once
+  end
+
   it 'answers with multipart/mixed parts that a proxy does not buffer' do
     stream(query)
 

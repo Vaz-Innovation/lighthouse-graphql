@@ -26,7 +26,7 @@ class AppSchema < Lighthouse::GraphQL::RbLightHouse.get_schema(
   use GraphQL::Dataloader
 
   # @defer: a client that sends `Accept: multipart/mixed` gets the deferred fragments
-  # streamed after the rest (GraphqlController includes ActionController::Live).
+  # streamed after the rest (by GraphqlStreamingController, see config/routes.rb).
   # Guide: ../docs/performance.md#deferring-fields-experimental
   use Lighthouse::GraphQL::Defer
 
