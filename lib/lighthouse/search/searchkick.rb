@@ -75,7 +75,7 @@ class Lighthouse::Search::Searchkick
   def model_error(model)
     return nil if model.respond_to?(:search_where)
 
-    narrowing = ("#{model.name}'s default scope" if default_conditions?(model)) ||
+    narrowing = ("#{model.name}'s default scope" if Lighthouse::Support::Relations.narrowing_default_scope?(model)) ||
                 ("#{model.name}.search_results" if Lighthouse::Search.results_scope?(model))
     return nil unless narrowing
 
@@ -138,15 +138,6 @@ class Lighthouse::Search::Searchkick
   def searchable!(model)
     error = per_model(:model_error, model) { model_error(model) }
     raise Lighthouse::DefinitionError, "@search: #{error}." if error
-  end
-
-  # Does the model's default scope narrow its records (conditions, joins)? When it
-  # cannot be told (it raises outside a request), it is taken to.
-  def default_conditions?(model)
-    base = model.all
-    !(base.where_clause.empty? && base.joins_values.empty? && base.left_outer_joins_values.empty? && base.from_clause.empty?)
-  rescue StandardError
-    true
   end
 
   # The model's search_where, the engine's `where:` for what its default scope and

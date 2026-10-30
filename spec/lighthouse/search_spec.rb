@@ -519,6 +519,12 @@ RSpec.describe '@search' do
         end.to raise_error(Lighthouse::DefinitionError, /SearchkickTenantPost's default scope narrows what a search loads.*search_where/)
       end
 
+      it 'takes any part of a default scope that narrows the records for one, a limit too' do
+        expect do
+          build_schema('type SearchkickLimitedPost { title: String! } type Query { posts(search: String @search): [SearchkickLimitedPost!]! @all }')
+        end.to raise_error(Lighthouse::DefinitionError, /SearchkickLimitedPost's default scope narrows what a search loads/)
+      end
+
       it "counts only what loads, the engine applying the model's search_where" do
         [1, 1, 2].each { |author| SearchkickTenantPost.unscoped.create!(title: 'tenant', author_id: author) }
         schema = build_schema(<<~GRAPHQL)

@@ -249,3 +249,11 @@ end
 class SearchkickTenantFilteredPost < SearchkickTenantPost
   def self.search_where = { author_id: 1 }
 end
+
+# A default scope that narrows without a condition: a LIMIT.
+class SearchkickLimitedPost < ApplicationRecord
+  self.table_name = 'search_posts'
+  extend FakeSearch::Searchkicked
+
+  default_scope { limit(1) }
+end

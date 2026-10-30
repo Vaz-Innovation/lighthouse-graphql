@@ -93,28 +93,13 @@ class Lighthouse::Search::Enhancer
   # the app's code gives (enhance_builder) must select what the model's own does.
   def whole_index!(adapter)
     model = @relation.klass
-    return if unnarrowed?(@relation, model.all)
+    # Every part that selects records equals the model's own, conditions and their values
+    # included: a default scope whose values read the clock is refused, as it cannot be told apart.
+    return if Lighthouse::Support::Relations.same_records?(@relation, model.all)
 
     raise Lighthouse::DefinitionError,
           "@search with #{adapter.class.name.demodulize} searches the whole index of #{model.name}: it cannot apply the conditions " \
           "of the relation it was given. Search #{model.name}.all, and narrow the search with the field's arguments."
-  end
-
-  # The parts of a relation that decide which records it selects.
-  SELECTING = %i[where_clause having_clause from_clause joins_values left_outer_joins_values group_values limit_value offset_value].freeze
-
-  # Does the relation select what the model's own does? Each part equals the
-  # model's, conditions and their values included; anything else is refused, a
-  # default scope whose values read the clock too, since it cannot be told apart.
-  def unnarrowed?(relation, base)
-    !null_relation?(relation) && SELECTING.all? { |part| relation.public_send(part) == base.public_send(part) }
-  end
-
-  # `none`: a null relation (Rails 7.1+ answers null_relation?).
-  def null_relation?(relation)
-    return relation.null_relation? if relation.respond_to?(:null_relation?)
-
-    defined?(::ActiveRecord::NullRelation) && relation.is_a?(::ActiveRecord::NullRelation)
   end
 
   # The directives of an argument the client sent that a search engine cannot apply.
