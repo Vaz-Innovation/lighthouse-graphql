@@ -403,6 +403,19 @@ RSpec.describe 'Deferring fields', type: :request do
     Lighthouse::Events.reset!
   end
 
+  it 'keeps the parts it writes only while something listens to EndRequest' do
+    allow(Lighthouse::GraphQL::Incremental::Multipart).to receive(:new).and_call_original
+
+    stream(query)
+    Lighthouse::Events.listen(Lighthouse::Events::EndRequest) { nil }
+    stream(query)
+
+    expect(Lighthouse::GraphQL::Incremental::Multipart).to have_received(:new).with(anything, keep: false).ordered
+    expect(Lighthouse::GraphQL::Incremental::Multipart).to have_received(:new).with(anything, keep: true).ordered
+  ensure
+    Lighthouse::Events.reset!
+  end
+
   it 'resolves the schema once a request' do
     resolved = 0
     allow_any_instance_of(GraphqlStreamingController).to receive(:graphql_schema).and_wrap_original do |original| # rubocop:disable RSpec/AnyInstance

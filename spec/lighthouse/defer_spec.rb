@@ -1424,6 +1424,26 @@ RSpec.describe 'Deferring fields' do
   end
 
   describe Lighthouse::GraphQL::Incremental::Multipart do
+    # A Live response's stream, as far as Multipart writes and closes it.
+    let(:stream_class) do
+      Struct.new(:written, :closed) do
+        def write(part) = written << part
+        def close = (self.closed = true)
+        def closed? = closed || false
+      end
+    end
+    let(:response) { Struct.new(:stream).new(stream_class.new([])) }
+
+    it 'keeps no part without keep:, and joins those it keeps when the body is read' do
+      kept = described_class.new(response.stream)
+      dropped = described_class.new(response.stream, keep: false)
+      [kept, dropped].each { |multipart| multipart.emit(multipart.part('data' => {})) && multipart.finish }
+
+      expect(dropped.ended(response).body).to eq('')
+      expect(kept.ended(response).body).to eq(response.stream.written.first(2).join)
+      expect(response.stream.closed?).to be(true)
+    end
+
     it 'writes the parts of a multipart/mixed body, each ending with the boundary that opens the next' do
       stream = StringIO.new
       multipart = described_class.new(stream)
