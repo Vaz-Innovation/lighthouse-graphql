@@ -243,6 +243,129 @@ type Query {
 An argument written with a type of its own, such as `orderBy: [MyClause!] @orderBy`,
 keeps that type. Its input needs a `column` and an `order`.
 
+## Full-text search
+
+`@search` runs a field's query through a full-text engine when the client sends a
+search term, as PHP Lighthouse's does through Laravel Scout (the directive is in
+[directives.md](directives.md#search)). Lighthouse supports the two gems Rails apps
+use, behind one adapter seam; neither is a dependency of Lighthouse, so add the one you use
+to your Gemfile.
+
+```graphql
+type Query {
+  posts(
+    search: String @search
+    authorId: ID @eq(key: "author_id")
+    orderBy: _ @orderBy(columns: ["created_at"])
+  ): [Post!]! @paginate
+}
+```
+
+The search runs when the client sends a string for the argument (`""` too). `null` or
+nothing leaves the query to the database.
+
+### With pg_search (in the database)
+
+```ruby
+class Post < ApplicationRecord
+  include PgSearch::Model
+  pg_search_scope :search, against: { title: 'A', body: 'B' }
+  pg_search_scope :search_title, against: :title
+end
+```
+
+`@search` calls the scope `search` (or the one `within:` names: `@search(within: "search_title")`)
+on the field's relation. Because a pg_search scope is a relation, **everything else Lighthouse does
+composes on it**: the field's `scopes:`, `@builder`, `@whereAuth`, every argument filter,
+`@whereConditions`, `@orderBy`, nested fields and nested `@paginate` (batched through one window
+query), `@count`, `@first` and `@find`.
+
+**Order.** pg_search's rank sorts first, then the client's `orderBy`, the field's
+`@orderBy(column:)` and the primary key break its ties. A search is ordered by relevance, so a client
+that sorts by date gets the best matches first and, among equally ranked ones, the newest. A
+`scopes:` entry that orders the relation sorts before the rank, since it is applied first.
+
+### With Searchkick (outside the database)
+
+```ruby
+class Post < ApplicationRecord
+  searchkick
+
+  def search_data = { title: title, body: body, author_id: author_id, deleted_at: deleted_at }
+end
+```
+
+Searchkick queries Elasticsearch / OpenSearch, which knows nothing of your database, so what
+narrows a search must be translated into the engine's filters. Lighthouse does it for the
+directives of PHP Lighthouse's `ScoutBuilderDirective`:
+
+| Directive | In the search |
+| --- | --- |
+| `@eq` | `where: { column => value }`, so the column must be in `search_data` |
+| `@trashed` | filters on the soft-delete column the index holds: `ONLY` keeps the records with a value in it, `WITHOUT` those without, `WITH` both, if you index trashed records. The column is paranoia's or discard's, else `deleted_at`; `Config.search = Lighthouse::Search::Searchkick.new(trashed_column: :archived_at)` names another. A model whose `search_data` does not hold it is an error. Apps often leave trashed records out of the index (`should_index?`): then `ONLY` finds nothing. |
+| `@builder` on an argument | gets the `Lighthouse::Search::Query` instead of the relation (below) |
+
+The directives work at any depth of input objects (`filter: PostFilter` with `@eq` fields). The
+engine answers with Active Record records, loaded in one query and in relevance order, so
+nested fields and the Dataloader work on them as usual.
+
+```ruby
+# app/graphql/builders/title_fields.rb: `titleOnly: Boolean @builder(class: "TitleFields")`
+class Builders::TitleFields
+  def self.call(target, value, _context)
+    return target unless value
+    return target.where(body: nil) unless target.is_a?(Lighthouse::Search::Query)  # a relation
+
+    target.options[:fields] = ['title^10']  # passed to Searchkick's search
+    target
+  end
+end
+```
+
+A query holds `model`, `term`, `index`, `wheres`, `trashed` and `options` (Searchkick's `fields:`,
+`match:`, `boost_by:`, ... as a hash).
+
+**Which fields.** The engine answers with records, not a relation, so `@search` with Searchkick
+is for `@all` and `@paginate` on a root field (or with `model:`). Any other field (`@find`,
+`@first`, `@count`, a nested relationship, a field resolved by your own class) is a schema error at
+build. For the same reason a field with `scopes:`, `@builder`, `@whereAuth` or `@orderBy(column:)`
+is a schema error: **PHP Lighthouse drops those silently when it searches**, and a search that skipped
+`@whereAuth` would return records the user must not see. Lighthouse fails when the schema is built
+instead. Put the constraint in the index (`search_data` and a `@eq` argument), or search with pg_search.
+
+At run time, a client that sends an argument whose directive the engine cannot apply (`@neq`,
+`@in`, `@like`, `@orderBy`, `@whereConditions`, ...) with a search, or two `@search`
+arguments, gets an error, as in PHP Lighthouse. (`@in`, `@notIn` and `@whereKey`, which Scout
+has as `whereIn` / `whereNotIn`, are not supported yet.)
+
+### Pagination
+
+`@paginate` pages a search with all three types: `PAGINATOR`, `SIMPLE` and `CONNECTION`, whose
+cursors are positions that Searchkick's `offset:` covers. The engine's response holds the total, so
+a page and `paginatorInfo { total }` cost **one request**. Unlike Scout, `first: 0` can still count.
+`@all` reads the records through `first` and `offset` when the field has them, else up to 10,000
+(Elasticsearch's default `index.max_result_window`).
+
+### Choosing the engine
+
+By default the engine is detected per model: Searchkick if it calls `searchkick`, else pg_search if
+it includes `PgSearch::Model`. [`Config.search`](configuration.md#search) replaces that with one
+adapter (`Lighthouse::Search::PgSearch.new`, `Lighthouse::Search::Searchkick.new`) or your own. An
+adapter answers `searchable?(model, index)`, `relational?` and either `scope(relation, query)` (a
+relational one, like pg_search) or `page(query, offset:, limit:)` returning `[records, total]`. This
+protocol is experimental.
+
+### Errors
+
+| Case | PHP Lighthouse | Lighthouse |
+| --- | --- | --- |
+| Two `@search` arguments sent | `ScoutException` at run time | client error |
+| An argument the engine cannot apply is sent | `ScoutException` at run time | same with Searchkick; none with pg_search |
+| Model not searchable | `ScoutException` at run time | schema error at build, once the field's model is known |
+| `within:` not a string | `DefinitionException` | schema error at build |
+| Nested field (a relation) | `ScoutException` at run time | schema error with Searchkick; works with pg_search |
+| Field has `scopes:`, `@builder`, `@whereAuth`, `@orderBy(column:)` | dropped silently | schema error with Searchkick; applied with pg_search |
+
 ## Complex where conditions
 
 `@whereConditions` works as in PHP Lighthouse. The client builds the `WHERE`

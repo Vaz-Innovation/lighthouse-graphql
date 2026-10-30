@@ -6,6 +6,32 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **`@search`**, PHP Lighthouse's directive, with its definition: on a `String` argument, a string
+  from the client (`""` too) runs the field's query through a full-text engine instead of the
+  database; `null` or nothing falls back to it. `within:` names the index (Searchkick) or the
+  `pg_search_scope`. Ruby has no Laravel Scout, so two gems back it behind one adapter seam
+  (`Lighthouse::Search`), neither a dependency of Lighthouse: **Searchkick** (Elasticsearch /
+  OpenSearch) answers with the records it found, in relevance order, for `@all` and `@paginate`
+  (all three types; the total comes with the page, one request, and `first: 0` can count, which Scout
+  cannot); **pg_search** is a scope on the relation, so `scopes:`, `@builder`, `@whereAuth`, the
+  argument filters, `@orderBy`, nested fields and batched nested `@paginate` all apply on top of it,
+  the rank first. The engine is detected per model; `Config.search` replaces the detection. `@eq`,
+  `@trashed` and `@builder` on an argument narrow a Searchkick search through the new
+  `Contracts::SearchBuilder` and `Lighthouse::Search::Query`, as Scout's `ScoutBuilderDirective`.
+  `@trashed` filters on the soft-delete column the index holds (`trashed_column:`).
+  See [Full-text search](docs/filtering-and-ordering.md#full-text-search).
+
+### Changed
+
+- **`@search` is stricter than PHP Lighthouse where it drops a constraint silently.** With an engine
+  outside the database (Searchkick) PHP Lighthouse ignores the field's `scopes:`, `@builder`,
+  `@whereAuth` and `@orderBy(column:)` when it searches, so a search that skipped `@whereAuth`
+  returns records the user must not see. Here that field is a schema error at build, as are `@search`
+  on a model that is not searchable, a `within:` that is not a string, and, with Searchkick, any field
+  but `@all` / `@paginate` on a root field. A relational engine (pg_search) applies them all.
+
 ## [0.8.2] - 2026-10-30
 
 ### Fixed

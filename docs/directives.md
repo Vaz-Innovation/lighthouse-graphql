@@ -560,6 +560,7 @@ Full guide: [filtering-and-ordering.md](filtering-and-ordering.md).
 | `@whereBetween` / `@whereNotBetween` | `column BETWEEN` / `NOT BETWEEN` the input's two fields, in order |
 | `@whereJsonContains` | a JSON column contains the value (every value of a list); `key: "meta->tags"` points into it |
 | `@scope(name:)` | calls the model scope with the value (`name:` defaults to the argument's) |
+| [`@search(within:)`](#search) | runs the field's query through a full-text engine (Searchkick, pg_search) |
 | `@orderBy` | sort by the client's clauses (columns, relations' aggregates); on a field, a fixed order |
 
 ```graphql
@@ -612,6 +613,59 @@ other argument directives. Use it on root fields: on a relation batched for many
 parents it would cut them all together, as PHP Lighthouse warns. PHP Lighthouse
 also allows `@limit` on the field itself, where it only marks the field the argument
 limits; it is accepted there and changes nothing.
+
+### `@search`
+
+Perform a full-text search by the given input value, as PHP Lighthouse's `@search`
+does through Laravel Scout. On a `String` argument or input field:
+
+```graphql
+type Query {
+  posts(search: String @search, authorId: ID @eq(key: "author_id")): [Post!]! @paginate
+}
+```
+
+When the client sends a string (`""` too), the field's query runs through the engine
+instead of the database. `null` or an omitted argument falls back to the database
+query, so `posts(first: 10)` still lists. (`@convertEmptyStringsToNull` turns `""` into
+`null`, so it does not search.)
+
+```graphql
+directive @search(
+  "Specify a custom index to use for search."
+  within: String
+) on ARGUMENT_DEFINITION | INPUT_FIELD_DEFINITION
+```
+
+`within:` names the Searchkick index (`index_name:`), or the `pg_search_scope` to
+search with (`search` by default). It must be a string, or the schema fails to build.
+
+Ruby has no Laravel Scout, so two gems back it, **neither a dependency of Lighthouse**: add
+the one your models use to your Gemfile. The engine is detected per model
+([`Config.search`](configuration.md#search) replaces the detection):
+
+| Model | Engine | Runs |
+| --- | --- | --- |
+| calls `searchkick` | [Searchkick](https://github.com/ankane/searchkick) | in Elasticsearch / OpenSearch, outside the database |
+| includes `PgSearch::Model` | [pg_search](https://github.com/Casecommons/pg_search) | in PostgreSQL, as a scope on the relation |
+
+The two behave differently, and so do the directives next to `@search`; the
+[full guide](filtering-and-ordering.md#full-text-search) has the details.
+
+- **pg_search** narrows the relation, ranked first, and **everything else applies on
+  top of it**: `scopes:`, `@builder`, `@whereAuth`, every argument filter, `@orderBy`,
+  pagination, and nested fields, batched as usual.
+- **Searchkick** answers with the records the engine found, in relevance order. Only `@eq`,
+  `@trashed` and `@builder` on an argument narrow it (as Scout's `@eq` / `@trashed` /
+  `@builder`); they work at any depth of input objects. It serves `@all` and `@paginate` on a
+  root field.
+
+Two `@search` arguments sent together, and (Searchkick) an argument whose directive an
+engine cannot apply (`@neq`, `@orderBy`, `@whereConditions`, ...), are errors.
+Schema errors, at build, where PHP Lighthouse fails when a query runs: a `within:` that is
+not a string, a model that is not searchable, and, with Searchkick, a field with `scopes:`,
+`@builder`, `@whereAuth` or `@orderBy(column:)`, which PHP Lighthouse **drops silently** when
+it searches (a search that skipped `@whereAuth` would return records the user must not see).
 
 ### `@orderBy`
 

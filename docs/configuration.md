@@ -214,6 +214,25 @@ config.soft_deletes = SoftDeleteAdapter.new
 
 See [Soft deletes & global scopes](directives.md#soft-deletes-global-scopes).
 
+### `search`
+
+Which engine searches a model, for [`@search`](directives.md#search). By default each model is
+inspected: Searchkick if it calls `searchkick`, then pg_search if it includes `PgSearch::Model`
+(neither gem is a dependency of Lighthouse). Set it to use one adapter for every model, or one of your own:
+
+```ruby
+config.search = Lighthouse::Search::PgSearch.new
+
+# Searchkick, with the indexed column @trashed filters on:
+config.search = Lighthouse::Search::Searchkick.new(trashed_column: :archived_at)
+
+# Any object answering `searchable?(model, index)` and `relational?`, and `scope(relation, query)`
+# (a relational one, in the database) or `page(query, offset:, limit:)` -> [records, total]
+config.search = MySearch.new
+```
+
+The adapter protocol is experimental. See [Full-text search](filtering-and-ordering.md#full-text-search).
+
 ### `authenticated_user`, `policy_user`, `authorizer`
 
 The authentication and authorization seams behind `@guard` and the `@can*`
