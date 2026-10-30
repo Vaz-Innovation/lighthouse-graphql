@@ -26,22 +26,25 @@ class Lighthouse::GraphQL::Incremental::State
     def stream? = !list_type.nil?
   end
 
-  attr_reader :document
-
   # false once a limit is reached (Run): every fragment then runs where it stands,
   # and every list is answered whole, as PHP Lighthouse's `shouldDeferFurther`.
   attr_accessor :deferring
 
-  def initialize(document)
-    @document = document
+  # `query`: the operation's GraphQL::Query, whose document State reads once it is parsed.
+  def initialize(query)
+    @query = query
     @deferring = true
     @recorded = {}.compare_by_identity
     @seen = {}.compare_by_identity
-    @directives = {}.compare_by_identity
     @needed = Set.new
     @keys = Set.new
     @objects = {}
     @offsets = {}.compare_by_identity
+  end
+
+  # The client's document, as Document reads it.
+  def document
+    @document ||= Lighthouse::GraphQL::Incremental::Document.new(@query.schema, @query.document, @query.selected_operation)
   end
 
   # A stream's Partial (`query`) runs the items of the list at `path` from 0, and they start at
@@ -66,8 +69,8 @@ class Lighthouse::GraphQL::Incremental::State
     return false unless @deferring
 
     query = context.query
-    fragment = directive_for(query, 'defer', arguments)&.then { |directive| @document.owner(directive) }
-    return false unless fragment && @document.included?(fragment, query) && @document.applies?(fragment, object.class, query)
+    fragment = directive_for(query, 'defer', arguments)&.then { |directive| document.owner(directive) }
+    return false unless fragment && document.included?(fragment, query) && document.applies?(fragment, object.class, query)
 
     path = absolute(query, context[:current_path])
     found(query, Pending.new(node: fragment, object: object.object, type: object.class, path: path, label: arguments[:label]))
@@ -83,7 +86,7 @@ class Lighthouse::GraphQL::Incremental::State
     query = context.query
     directive = directive_for(query, 'stream', arguments) or return false
     path = absolute(query, context[:current_path])
-    selections = @document.merged(directive, path, parent.class, query, @deferring) or return false
+    selections = document.merged(directive, path, parent.class, query, @deferring) or return false
 
     record(query, Pending.new(node: directive, object: items, path: path, label: arguments[:label], offset: arguments[:initial_count],
                               selections: selections, list_type: list_type))
@@ -116,16 +119,24 @@ class Lighthouse::GraphQL::Incremental::State
 
   private
 
-  # The directive node `arguments` were evaluated for, in `query`.
+  # The directive node `arguments` were evaluated for, in `query`: the one directive of the
+  # document with those values, evaluated once for the request; where several share them, the
+  # one whose arguments `query` cached are these (Query#arguments_for). nil if none: whatever
+  # it is, it then defers nothing.
   def directive_for(query, name, arguments)
-    map = @directives[query] ||= {}.compare_by_identity.tap do |directives|
-      %w[defer stream].each do |each|
-        definition = @document.schema.directives[each]
-        @document.directives(each).each { |directive| directives[query.arguments_for(directive, definition)] = directive }
-      end
+    candidates = values[name][arguments.keyword_arguments] or return nil
+    return candidates.first if candidates.one?
+
+    definition = @query.schema.directives[name]
+    candidates.find { |directive| query.arguments_for(directive, definition).equal?(arguments) }
+  end
+
+  # The document's @defer and @stream, by name, then by the values of their arguments.
+  def values
+    @values ||= %w[defer stream].to_h do |name|
+      definition = @query.schema.directives[name]
+      [name, document.directives(name).group_by { |directive| @query.arguments_for(directive, definition).keyword_arguments }]
     end
-    directive = map[arguments]
-    directive if directive&.name == name
   end
 
   def record(query, pending)
@@ -138,7 +149,7 @@ class Lighthouse::GraphQL::Incremental::State
   # of the query asked for them too.
   def need(fragment, path)
     base = path.grep_v(Integer)
-    object_fields(@document.selections(fragment), [], Set.new).each do |relative|
+    object_fields(document.selections(fragment), [], Set.new).each do |relative|
       @needed << (base + relative)
       @keys << relative.last
     end
@@ -153,7 +164,7 @@ class Lighthouse::GraphQL::Incremental::State
         own = prefix + [selection.alias || selection.name]
         [own] + object_fields(selection.selections, own, seen)
       when ::GraphQL::Language::Nodes::FragmentSpread
-        seen.add?(selection.name) ? object_fields(@document.selections(selection), prefix, seen) : []
+        seen.add?(selection.name) ? object_fields(document.selections(selection), prefix, seen) : []
       else object_fields(selection.selections, prefix, seen)
       end
     end

@@ -241,6 +241,37 @@ RSpec.describe 'Deferring fields' do
       expect(whole).to eq([{ 'data' => { 'user' => { 'name' => 'u0' } }, 'pending' => [], 'hasNext' => false }])
     end
 
+    it "parses through the schema's trace, once, a document that does not parse too" do
+      parsed = []
+      schema.trace_with(Module.new do
+        define_method(:parse) do |query_string:, &block|
+          (parsed << query_string) && super(query_string: query_string, &block)
+        end
+      end)
+      allow(GraphQL).to receive(:parse).and_call_original
+
+      run('{ users { name } }')
+      run('{ users { ... @defer { name } } }')
+      run('{ users { ')
+
+      expect(parsed).to eq(['{ users { name } }', '{ users { ... @defer { name } } }', '{ users { '])
+      expect(GraphQL).to have_received(:parse).thrice
+    end
+
+    it "evaluates the arguments of the document's directives once a request, not again in each unit" do
+      calls = 0
+      allow_any_instance_of(GraphQL::Query::Partial).to receive(:arguments_for).and_wrap_original do |original, node, definition, **options| # rubocop:disable RSpec/AnyInstance
+        calls += 1 if definition == Lighthouse::GraphQL::Incremental::DeferDirective
+        original.call(node, definition, **options)
+      end
+
+      all = payloads('{ users { ... @defer(label: "a") { posts { ... @defer(label: "b") { title } } } ... @defer(label: "c") { id } } }')
+
+      expect(all.last['incremental'].size).to eq(3)
+      # graphql-ruby's own: once for each post the nested fragment is gathered on.
+      expect(calls).to eq(LH::Post.count)
+    end
+
     it 'parses the query once' do
       allow(GraphQL).to receive(:parse).and_call_original
 

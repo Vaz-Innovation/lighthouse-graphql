@@ -33,7 +33,8 @@ require 'active_support/core_ext/object/deep_dup'
 class Lighthouse::GraphQL::Incremental::Run
   State = Lighthouse::GraphQL::Incremental::State
   Serializer = Lighthouse::GraphQL::Incremental::Serializer
-  Document = Lighthouse::GraphQL::Incremental::Document
+  # A directive named defer or stream, as the lexer reads one (`@`, then ignored characters).
+  INCREMENTAL = /@[\s,\uFEFF]*(?:defer|stream)\b/
 
   attr_reader :result
 
@@ -97,30 +98,19 @@ class Lighthouse::GraphQL::Incremental::Run
 
   private
 
-  # One that does not parse goes to graphql-ruby as it came, which answers its error.
+  # graphql-ruby parses the query, once, through the schema's trace, as `schema.execute`
+  # would, and answers one that does not parse. A State goes in the context of a query that
+  # may use @defer or @stream (INCREMENTAL, on the text: a false positive costs an unused
+  # State); it reads the document once it is parsed.
   def execute
-    document = parse or return @schema.execute(@query_string, **@options)
-
-    query = ::GraphQL::Query.new(@schema, document: document, **@options)
-    query.query_string = @query_string
-    @state = state(query, document) if @stream && Document.incremental?(document)
+    query = ::GraphQL::Query.new(@schema, @query_string, **@options)
+    @state = query.context[State::CONTEXT_KEY] = State.new(query) if @stream && INCREMENTAL.match?(@query_string.to_s)
     result = @schema.multiplex([query], max_complexity: nil, context: multiplex_context).first
     return result unless @state
 
     @tree = result.to_h['data'].deep_dup
     announce(@state.drain(query))
     result
-  end
-
-  def parse
-    ::GraphQL.parse(@query_string, max_tokens: @schema.max_query_string_tokens) if @query_string
-  rescue ::GraphQL::ParseError
-    nil
-  end
-
-  def state(query, document)
-    operation = query.selected_operation or return nil
-    query.context[State::CONTEXT_KEY] = State.new(Document.new(@schema, document, operation))
   end
 
   # What Schema.execute hands its multiplex of the query's context, and the trace mode with
