@@ -177,7 +177,7 @@ module Lighthouse
         # `search`: nil, a relation only; :model, a Search::Result for the model's own relation; :given, one for a relation the app's code gave.
         def apply_where_filters: (relation relation, _ArgumentSet? args, ?context? ctx, ?search: (:model | :given)?) -> (relation | Search::Result)
         def apply_arg_builders: (relation relation, arguments args_h, ?context? ctx) -> relation
-        def apply_field_builders: (relation relation, ?arguments args_h, ?context? ctx, ?strict: bool) -> relation
+        def apply_field_builders: (relation relation, ?arguments args_h, ?context? ctx) -> relation
         def constantize_model: (String? name) -> Class?
         def apply_scopes: (relation relation) -> relation
 
@@ -195,9 +195,9 @@ module Lighthouse
       class BuilderApplier
         DEFINITION: String
 
-        # `strict`: a builder that raises fails the query, rather than be reported and skipped.
-        def self.apply: (relation relation, _NamedNode? field_def_ast_node, arguments args, context? ctx, ?strict: bool) -> relation
-        def self.apply_directive: (relation relation, _DirectiveNode directive_node, arguments args, context? ctx, ?strict: bool) -> relation
+        # A builder that raises, or cannot be found, goes on to the caller, which fails the field.
+        def self.apply: (relation relation, _NamedNode? field_def_ast_node, arguments args, context? ctx) -> relation
+        def self.apply_directive: (relation relation, _DirectiveNode directive_node, arguments args, context? ctx) -> relation
         def self.extract_directive_arg: (_DirectiveNode directive_node, String name) -> literal
         # The field's own query directives `apply` applies (@builder, @whereAuth, field builders), in SDL order.
         def self.query_directives: (_NamedNode? field_def_ast_node) -> Array[_DirectiveNode]

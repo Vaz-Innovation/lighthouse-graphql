@@ -52,15 +52,15 @@ class Lighthouse::GraphQL::DirectiveResolvers::BuilderApplier
 
   DEFINITIONS = { 'builder' => DEFINITION, 'whereAuth' => WHERE_AUTH_DEFINITION }.freeze
 
-  # `strict`: a builder that raises fails the query (a field with @search), rather
-  # than be reported and skipped, as it is elsewhere (call_builder).
-  def self.apply(relation, field_def_ast_node, args, ctx, strict: false)
+  # A builder that raises goes on to the caller, which fails the field
+  # (BaseDirectiveResolver#apply_where_filters): never skipped.
+  def self.apply(relation, field_def_ast_node, args, ctx)
     return relation unless field_def_ast_node&.directives
 
     registry = Lighthouse::DirectiveRegistry.default
     field_def_ast_node.directives.reduce(relation) do |acc, directive_node|
       case directive_node.name
-      when 'builder' then apply_directive(acc, directive_node, args, ctx, strict: strict)
+      when 'builder' then apply_directive(acc, directive_node, args, ctx)
       when 'whereAuth' then where_auth(acc, directive_node, ctx)
       else field_builder(registry, acc, field_def_ast_node, directive_node)
       end
@@ -98,38 +98,33 @@ class Lighthouse::GraphQL::DirectiveResolvers::BuilderApplier
     relation.where(model.primary_key => owned.select(model.arel_table[model.primary_key]))
   end
 
-  def self.apply_directive(relation, directive_node, args, ctx, strict: false)
+  def self.apply_directive(relation, directive_node, args, ctx)
     value = directive_node.arguments&.any? { |a| a.name == 'value' } ? extract_directive_arg(directive_node, 'value') : args
-    call_builder(relation, directive_node, value, ctx, strict: strict)
+    call_builder(relation, directive_node, value, ctx)
   end
 
   # @builder on an argument the client sent: the method gets its value.
-  def self.apply_argument(relation, directive_node, value, ctx, strict: false)
-    call_builder(relation, directive_node, value, ctx, strict: strict)
+  def self.apply_argument(relation, directive_node, value, ctx)
+    call_builder(relation, directive_node, value, ctx)
   end
 
-  # A builder that raises is reported (Config.on_error) and skipped, the query
-  # going on without it, as it always has; with `strict`, the error goes on to
-  # the caller instead.
-  def self.call_builder(relation, directive_node, value, ctx, strict: false)
+  # The builder's relation. One that cannot be found, or raises, is never
+  # skipped: a builder that enforces tenancy would be bypassed, and the query
+  # answer every row. Its error goes on to the caller, which fails the field
+  # (BaseDirectiveResolver#apply_where_filters).
+  def self.call_builder(relation, directive_node, value, ctx)
     builder_class, method_name = reference(directive_node)
-    return relation unless builder_class
-
-    receiver = builder_receiver(builder_class, method_name)
-    return relation unless receiver
+    receiver = builder_class && builder_receiver(builder_class, method_name)
+    raise Lighthouse::DefinitionError, "@builder: no builder #{reference_name(directive_node)}." unless receiver
 
     receiver.public_send(method_name, relation, value, ctx) || relation
-  rescue ::GraphQL::ExecutionError
-    # Client-facing errors (e.g. authorization / scoping guards raised by a
-    # builder) MUST propagate — never silently fall back to the unscoped
-    # relation, or a builder that enforces tenancy could be bypassed.
-    raise
-  rescue StandardError => e
-    raise if strict
-
-    Lighthouse::Config.handle_error(e)
-    relation
   end
+
+  # What the directive names, for its errors.
+  def self.reference_name(directive_node)
+    [extract_directive_arg(directive_node, 'class'), extract_directive_arg(directive_node, 'method')].compact.join(' ').inspect
+  end
+  private_class_method :reference_name
 
   # [builder class, method name] from `class:` and `method:`, or from
   # `method: "Class@method"`. Builders are not resolvers: they live in their

@@ -114,9 +114,11 @@ This is the seam that keeps the gem free of your app's namespace.
 ### `on_error`
 
 A callable `->(error, context) { ... }` invoked when a directive or resolver
-swallows an error (e.g. a malformed filter). The default **raises in test** (so
-failures surface in your suite) and logs otherwise. Point it at your error
-reporter in production:
+reports an error. A filter that raises (an argument directive, a `@builder`,
+`@whereAuth`) is one: the field fails, its client reads `Could not apply the
+filters of Type.field.`, and the error comes here. A query is never answered
+without a filter that failed. The default **raises in test** (so failures surface
+in your suite) and logs otherwise. Point it at your error reporter in production:
 
 ```ruby
 config.on_error = ->(error, _ctx) { Sentry.capture_exception(error) }

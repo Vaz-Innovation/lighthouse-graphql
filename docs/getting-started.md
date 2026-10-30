@@ -331,7 +331,7 @@ Lighthouse.configure do |config|
   # e.g. @field(resolver: "Users::Profile") or @all(model: "User").
   config.resolver_namespaces = ['App::Graphql', 'Resolvers']
 
-  # How swallowed directive errors are surfaced (raise in test, log otherwise).
+  # How directive errors are reported (raise in test, log otherwise).
   # config.on_error = ->(error, _ctx) { Sentry.capture_exception(error) }
 end
 ```

@@ -518,8 +518,11 @@ end
 `@builder` works with `@all`, `@paginate`, `@first`, `@count` and `@aggregate`.
 It is repeatable, and `method:` names a method other than `call`. Builder classes
 are looked up in the builders namespace only. Raising a `GraphQL::ExecutionError`
-from a builder (e.g. a tenancy check) always reaches the client; it never falls
-back to the unscoped relation.
+from a builder (e.g. a tenancy check) always reaches the client. Any other error
+fails the field too, reported to [`on_error`](configuration.md#on_error): the client
+reads `Could not apply the filters of Type.field.`. A query never falls back to the
+relation without the builder, nor does a builder whose class or method cannot be
+found (a `Lighthouse::DefinitionError`).
 
 The gem ships RBS signatures in `sig/`, so with Steep (or anything that reads
 `rbs collection`) a builder can be checked against `Lighthouse::_Builder`:

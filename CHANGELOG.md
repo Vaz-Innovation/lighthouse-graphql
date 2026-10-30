@@ -54,6 +54,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **A filter that raises fails its field; it is never skipped.** An argument directive, a
+  `@builder` or `@whereAuth` that raised was reported to `Config.on_error` and dropped, and the
+  field answered without it, or without any filter: a `@builder` that enforces tenancy, a
+  `@whereAuth` whose user has no id, or a `@builder` class that does not exist let the client read
+  every row, and a mass `@delete` whose builder raised deleted every row. Now the error is
+  reported, and the field fails with `Could not apply the filters of Type.field.`, on every field
+  (lists, pages, relationships, counts, mass mutations, `enhance_builder`). A `@builder` whose class
+  or method cannot be found is a `Lighthouse::DefinitionError`. Breaking for an app that relied on a
+  failing filter being skipped.
 - **`@search` is stricter than PHP Lighthouse where it drops a constraint silently.** With an engine
   outside the database (Searchkick) PHP Lighthouse ignores the field's `scopes:`, `@builder`,
   `@whereAuth` and `@orderBy(column:)` when it searches, so a search that skipped `@whereAuth`

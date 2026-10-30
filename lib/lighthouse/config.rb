@@ -146,7 +146,8 @@ module Lighthouse
         @transactional_mutations.nil? || @transactional_mutations
       end
 
-      # Hook invoked when a directive/resolver swallows an error. Defaults to
+      # Hook invoked when a directive/resolver reports an error (a filter that
+      # raised, which fails its field). Defaults to
       # re-raising in test (so failures surface) and logging otherwise. Override
       # via `Lighthouse.configure { |c| c.on_error = ->(e, ctx) { ... } }`.
       def on_error

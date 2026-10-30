@@ -122,7 +122,7 @@ class Lighthouse::Search::Enhancer
     if argument.builder == :builder
       return query unless argument.present
 
-      Lighthouse::GraphQL::DirectiveResolvers::BuilderApplier.apply_argument(query, argument.directive, argument.value, @context, strict: true)
+      Lighthouse::GraphQL::DirectiveResolvers::BuilderApplier.apply_argument(query, argument.directive, argument.value, @context)
     elsif !argument.value.nil? && argument.builder.include?(Lighthouse::Contracts::SearchBuilder)
       argument.builder.new(argument.node, argument.directive).handle_search_builder(query, argument.value)
     else
