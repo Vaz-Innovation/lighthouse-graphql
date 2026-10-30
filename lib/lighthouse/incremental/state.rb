@@ -1,99 +1,144 @@
 # frozen_string_literal: true
 
+require 'set'
+
 # What one request's incremental delivery knows while it runs, kept in the
-# context (CONTEXT_KEY): the deferred fragments of its document, the objects
-# @defer found them pending on, and whether they may still be deferred.
+# context (CONTEXT_KEY): the client's Document, the fragments @defer and the
+# lists @stream left pending, whether they may still be deferred, and the
+# objects the fragments will need (Recorder keeps them).
 #
-# @defer asks `defer` for every object a deferred fragment would run on. The
-# fragment does not run there: the object, with its path in the response, is
-# kept as a Pending, and Run executes the fragment on it once the first
-# response is out (GraphQL::Query#run_partials).
+# graphql-ruby asks DeferDirective.include? (and StreamDirective.resolve) with a
+# directive's arguments, not its AST node. It takes those arguments from
+# GraphQL::Query#arguments_for, which caches them per node and query: State maps
+# the arguments object back to its node (`directive_for`), so the document is never
+# rewritten to tell fragments apart. Arguments it does not know (were that cache to
+# change) defer nothing: the fragment runs where it stands.
 class Lighthouse::GraphQL::Incremental::State
   CONTEXT_KEY = :lighthouse_incremental
+  MISSING = Object.new.freeze
 
-  # What Document sets the `label` of each @defer and @stream to: this, the fragment's
-  # number, and the label the client gave, if it did ("lh:3", "lh:4:details").
-  STAMP = 'lh:'
-
-  def self.stamp(id, label)
-    label ? "#{STAMP}#{id}:#{label}" : "#{STAMP}#{id}"
+  # A deferred fragment waiting to run on `object` (the application value, not graphql-ruby's
+  # wrapper) of the object type `type`, at `path` of the response; or, with a `list_type`, the
+  # items of a streamed list that the first response left out (`object`), which start at index
+  # `offset` and run `selections`. `node`: the fragment, or the @stream directive. `id` is its
+  # string id in `pending` entries, set once announced.
+  Pending = Struct.new(:node, :object, :type, :path, :label, :id, :offset, :selections, :list_type, keyword_init: true) do
+    def stream? = !list_type.nil?
   end
 
-  def self.stamped_id(label)
-    label.delete_prefix(STAMP).to_i if label.is_a?(String) && label.start_with?(STAMP)
-  end
-
-  # The label the client gave a stamped directive (nil when it gave none).
-  def self.given_label(stamped)
-    stamped.delete_prefix(STAMP).split(':', 2)[1]
-  end
-
-  # A deferred fragment, or a streamed field (`stream`), of the document, as Document
-  # found it. For a fragment, `node` holds the selections it runs (an InlineFragment
-  # without type or directives); `condition` is the name of its type condition,
-  # `parent_type` the name of the type the selection set it sits in has (what an
-  # untyped fragment runs on).
-  Fragment = Struct.new(:id, :node, :condition, :parent_type, :label, :stream, keyword_init: true) do
-    def type_name = condition || parent_type
-
-    # An object of the type a typed fragment names, or of a type that is
-    # possible for it: a fragment on `Admin` under a list of `User` interface
-    # items only runs on the admins.
-    def applies_to?(object, context)
-      return true if condition.nil?
-
-      type = context.query.types.type(condition)
-      !type.nil? && context.query.types.possible_types(type).include?(object.class)
-    end
-  end
-
-  # A fragment waiting to run on `object` (the application value, not
-  # graphql-ruby's wrapper), at `path` of the response. `id` is its string id
-  # in `pending` entries, set once announced. For a streamed field, `object` is
-  # the items the first response left out, which start at index `offset` of the list.
-  Pending = Struct.new(:fragment, :object, :path, :id, :offset, keyword_init: true)
-
-  attr_reader :fragments
+  attr_reader :document
 
   # false once a limit is reached (Run): every fragment then runs where it stands,
   # and every list is answered whole, as PHP Lighthouse's `shouldDeferFurther`.
   attr_accessor :deferring
 
-  def initialize(fragments)
-    @fragments = fragments
+  def initialize(document)
+    @document = document
     @deferring = true
-    # The Pending fragments found, by the query (the operation's, or a Partial) that found them.
     @recorded = {}.compare_by_identity
+    @seen = {}.compare_by_identity
+    @directives = {}.compare_by_identity
+    @needed = Set.new
+    @keys = Set.new
+    @objects = {}
   end
 
-  # true when the fragment `fragment_id` is deferred on `object`: the caller
-  # leaves it out of the response. false when it runs where it stands (it does
-  # not apply to the object, or nothing is deferred any more).
-  def defer(fragment_id, object, context)
-    fragment = @fragments[fragment_id]
-    return false unless @deferring && fragment&.applies_to?(object, context)
-
-    record(context, Pending.new(fragment: fragment, object: object.object, path: context[:current_path]))
-  end
-
-  # true when the list field of fragment `fragment_id` streams: `items` (what is
-  # left of the list, after the `offset` the first response has) will follow.
-  def stream(fragment_id, items, offset, context)
+  # true when the fragment of the @defer whose `arguments` graphql-ruby evaluates is deferred
+  # on `object` (graphql-ruby's wrapper): the caller leaves it out. false when it runs where
+  # it stands. A fragment gathered twice on one object (spread twice) is deferred once.
+  def defer(object, arguments, context)
     return false unless @deferring
 
-    record(context, Pending.new(fragment: @fragments[fragment_id], object: items, path: context[:current_path], offset: offset))
+    query = context.query
+    fragment = directive_for(query, 'defer', arguments)&.then { |directive| @document.owner(directive) }
+    return false unless fragment && @document.included?(fragment, query) && @document.applies?(fragment, object.class, query)
+
+    found(query, Pending.new(node: fragment, object: object.object, type: object.class, path: context[:current_path], label: arguments[:label]))
+    true
   end
 
-  # The Pending fragments `query` found (the GraphQL::Query of the first pass, or the
-  # GraphQL::Query::Partial of a later one), forgotten once drained.
+  # true when the list field whose @stream has `arguments` streams: `items` (what is left of
+  # the list after the `initialCount` the first response has) will follow, with the selections
+  # every declaration of the field gives them. `parent`: the wrapper of the field's object.
+  def stream(parent, arguments, items, context, list_type)
+    return false unless @deferring
+
+    query = context.query
+    directive = directive_for(query, 'stream', arguments) or return false
+    path = context[:current_path]
+    selections = @document.merged(directive, path, parent.class, query, @deferring) or return false
+
+    record(query, Pending.new(node: directive, object: items, path: path, label: arguments[:label], offset: arguments[:initial_count],
+                              selections: selections, list_type: list_type))
+  end
+
+  # A deferred fragment `query` found (or a round's Plan, as `defer` would have), once per path.
+  def found(query, pending)
+    return unless (@seen[query] ||= Set.new).add?([pending.node.object_id, pending.path])
+
+    need(pending.node, pending.path)
+    record(query, pending)
+  end
+
+  # The pending fragments and lists `query` found (the GraphQL::Query of the first pass, a
+  # GraphQL::Query::Partial of a later one, or a round's Plan), forgotten once drained.
   def drain(query)
     @recorded.delete(query) || []
   end
 
+  # Recorder: is a field of response key `key` one a pending fragment may need the object of?
+  def wanted?(key) = @keys.include?(key)
+
+  # Recorder: the value a field resolved to at `path`, if a pending fragment may need it.
+  def keep(path, value)
+    @objects[path] = value if @needed.include?(path.grep_v(Integer))
+  end
+
+  # The value kept at `path`, or MISSING.
+  def object_at(path) = @objects.fetch(path, MISSING)
+
   private
 
-  def record(context, pending)
-    (@recorded[context.query] ||= []) << pending
+  # The directive node `arguments` were evaluated for, in `query`.
+  def directive_for(query, name, arguments)
+    map = @directives[query] ||= {}.compare_by_identity.tap do |directives|
+      %w[defer stream].each do |each|
+        definition = @document.schema.directives[each]
+        @document.directives(each).each { |directive| directives[query.arguments_for(directive, definition)] = directive }
+      end
+    end
+    directive = map[arguments]
+    directive if directive&.name == name
+  end
+
+  def record(query, pending)
+    (@recorded[query] ||= []) << pending
     true
+  end
+
+  # The object fields a fragment selects, at any depth (as response paths without list indices
+  # from its object): the round that runs it needs the objects those resolved to when the rest
+  # of the query asked for them too.
+  def need(fragment, path)
+    base = path.grep_v(Integer)
+    object_fields(@document.selections(fragment), [], Set.new).each do |relative|
+      @needed << (base + relative)
+      @keys << relative.last
+    end
+  end
+
+  def object_fields(selections, prefix, seen)
+    selections.flat_map do |selection|
+      case selection
+      when ::GraphQL::Language::Nodes::Field
+        next [] if selection.selections.empty?
+
+        own = prefix + [selection.alias || selection.name]
+        [own] + object_fields(selection.selections, own, seen)
+      when ::GraphQL::Language::Nodes::FragmentSpread
+        seen.add?(selection.name) ? object_fields(@document.selections(selection), prefix, seen) : []
+      else object_fields(selection.selections, prefix, seen)
+      end
+    end
   end
 end

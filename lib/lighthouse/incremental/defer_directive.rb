@@ -10,9 +10,8 @@
 # out. Without one, `include?` is true and the directive does nothing: a server
 # may ignore @defer, and answers the whole response at once.
 #
-# Document stamps each @defer with the number of its fragment, as the `label`
-# ("lh:3", or "lh:3:details" after the label the client gave), which is how
-# `include?` learns which fragment it is asked about.
+# `include?` is given the directive's arguments, not its node: State knows the
+# fragment by them (State#directive_for). The document is never rewritten.
 class Lighthouse::GraphQL::Incremental::DeferDirective < GraphQL::Schema::Directive
   graphql_name 'defer'
   description 'Deliver the fields of a fragment after the rest of the response, when the client accepts a streamed response (experimental).'
@@ -28,8 +27,7 @@ class Lighthouse::GraphQL::Incremental::DeferDirective < GraphQL::Schema::Direct
       state = context[Lighthouse::GraphQL::Incremental::State::CONTEXT_KEY]
       return true if state.nil? || arguments[:if] == false
 
-      id = Lighthouse::GraphQL::Incremental::State.stamped_id(arguments[:label])
-      id.nil? || !state.defer(id, object, context)
+      !state.defer(object, arguments, context)
     end
   end
 end

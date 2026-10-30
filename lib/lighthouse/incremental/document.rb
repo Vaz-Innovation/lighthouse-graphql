@@ -2,33 +2,34 @@
 
 require 'set'
 
-# Reads a query's @defer and @stream for Run: stamps each with the number of its
-# fragment (as its `label`, see DeferDirective) in a copy of the document, with
-# the fragments it found. The rules the directives follow are Rules', which
-# graphql-ruby checks for every query, before the first pass runs.
+# What incremental delivery reads of the client's document, which it never
+# rewrites: graphql-ruby runs the document as the client sent it, and listeners,
+# `query_string`, tracing and Rules all see that one.
 #
-# A field is deferred only when every declaration of it is, as Apollo and PHP
-# Lighthouse have it: a field of a deferred fragment that the selection set also
-# asks for outside any @defer (itself, or through a fragment without directives)
-# comes in the payload that delivers the other declaration, and does not resolve
-# again. A leaf (`id` in `{ id ... @defer { id name } }`) is left out of the
-# fragment; a field with selections moves, with them, to an inline fragment next
-# to it that is not deferred (with the fragment's type condition, @skip and
-# @include), so graphql-ruby merges it into the other declaration. A fragment
-# left with nothing of its own is not deferred at all. Only the fragment's own
-# fields are looked at, not those of the fragments it holds.
+# - `directives(name)`: the @defer and @stream directive nodes the operation reaches,
+#   and `owner(directive)`, the fragment or field each sits on. State tells them apart
+#   at run time by node identity (see State#directive_for).
+# - `selections(fragment)`, `condition(fragment)`: what a deferred fragment selects.
+# - `declarations(pattern)`: every declaration of the field at a response path, with what
+#   decides whether it is part of the field's selection set for a given object. A
+#   streamed field's later items get the selections of all of them (Document#merged),
+#   as graphql-ruby merges them for the first ones.
+# - `included?`, `applies?`, `deferred?`: a node's @skip/@include, a fragment's type
+#   condition and a fragment's @defer, evaluated with a query's variables.
 class Lighthouse::GraphQL::Incremental::Document
   Nodes = ::GraphQL::Language::Nodes
   DIRECTIVES = %w[defer stream].freeze
-  Prepared = Struct.new(:document, :fragments, keyword_init: true)
 
-  # Where a selection set sits: the type it selects on, and the response keys it asks for
-  # outside any @defer (its own, and an enclosing one's on the same object).
-  Scope = Struct.new(:type, :covered)
+  # A declaration of a field: the field node, the fragments around it in its parent's
+  # selection set (`around`, whose type conditions are the parent object's), the fragments and
+  # fields above those (`gates`, whose @skip and @include must hold), whether one of those has
+  # a type condition only some objects meet (`uncertain`: it cannot be told from the parent
+  # object), and the @defer fragments around it, at any level.
+  Declaration = Struct.new(:field, :around, :gates, :uncertain, :defers, keyword_init: true)
 
-  def self.prepare(schema, document)
-    new(schema, document).prepare
-  end
+  # Where the walk of `declarations` is: the response path (without list indices), the type of
+  # the selection set the level starts with and the one it is in, and what a Declaration holds.
+  At = Struct.new(:pattern, :level_type, :type, :around, :gates, :uncertain, :defers, keyword_init: true)
 
   # Does the document use @defer or @stream? A walk of its selections, for the queries that do not.
   def self.incremental?(document)
@@ -42,171 +43,168 @@ class Lighthouse::GraphQL::Incremental::Document
     end
   end
 
-  def initialize(schema, document)
+  attr_reader :schema
+
+  # `operation`: the operation that runs (GraphQL::Query#selected_operation).
+  def initialize(schema, document, operation)
     @schema = schema
-    @document = document
-    @fragments = []
+    @operation = operation
     @definitions = document.definitions.grep(Nodes::FragmentDefinition).index_by(&:name)
-    @stamped = {}
+    @owners = {}.compare_by_identity
   end
 
-  def prepare
-    definitions = @document.definitions.map do |definition|
-      case definition
-      when Nodes::OperationDefinition then operation(definition)
-      when Nodes::FragmentDefinition then stamped_definition(definition.name)
-      else definition
+  def directives(name)
+    (@directives ||= collect_directives)[name] || []
+  end
+
+  def owner(directive)
+    directives('defer')
+    @owners[directive]
+  end
+
+  def selections(fragment)
+    fragment.is_a?(Nodes::FragmentSpread) ? @definitions[fragment.name]&.selections.to_a : fragment.selections
+  end
+
+  def condition(fragment)
+    (fragment.is_a?(Nodes::FragmentSpread) ? @definitions[fragment.name]&.type : fragment.type)&.name
+  end
+
+  def declarations(pattern)
+    (@index ||= index)[pattern] || []
+  end
+
+  # Do the node's @skip and @include let it through?
+  def included?(node, query)
+    node.directives.all? do |directive|
+      case directive.name
+      when 'skip' then !argument(directive, query)
+      when 'include' then argument(directive, query)
+      else true
       end
     end
-    Prepared.new(document: @document.merge(definitions: definitions), fragments: @fragments)
+  end
+
+  # Does the fragment's type condition hold for an object of the object type `type`?
+  def applies?(fragment, type, query)
+    name = condition(fragment) or return true
+    named = query.types.type(name)
+    !named.nil? && query.types.possible_types(named).include?(type)
+  end
+
+  # Does the fragment carry a @defer that `if` does not turn off?
+  def deferred?(fragment, query)
+    directive = fragment.directives.find { |candidate| candidate.name == 'defer' } or return false
+    argument(directive, query) != false
+  end
+
+  # The selections the later items of a streamed list run: those of each declaration of the field
+  # at `path` that holds for the parent object (of type `parent_type`). nil when that cannot be
+  # told (a declaration under a type condition of an object above the parent, or under another
+  # @defer that `deferring` would defer): the list is then answered whole.
+  def merged(directive, path, parent_type, query, deferring)
+    field = owner(directive)
+    declarations = declarations(path.grep_v(Integer))
+    own = declarations.find { |declaration| declaration.field.equal?(field) } or return nil
+    declarations.each_with_object(field.selections.dup) do |declaration, selections|
+      next if declaration.equal?(own)
+      return nil if unknowable?(declaration, own, query, deferring)
+
+      selections.concat(declaration.field.selections) if holds?(declaration, parent_type, query)
+    end
   end
 
   private
 
-  def operation(definition)
-    scope = Scope.new(@schema.root_type_for_operation(definition.operation_type), Set.new)
-    definition.merge(selections: walk(definition.selections, scope))
+  def argument(directive, query)
+    query.arguments_for(directive, @schema.directives[directive.name])[:if]
   end
 
-  # A fragment definition, stamped. A cycle (invalid, and reported later by graphql-ruby) is left as it is.
-  def stamped_definition(name)
-    return @stamped[name] if @stamped.key?(name)
-
-    definition = @definitions[name] or return nil
-    @stamped[name] = definition
-    scope = Scope.new(@schema.get_type(definition.type.name), Set.new)
-    @stamped[name] = definition.merge(selections: walk(definition.selections, scope))
+  def holds?(declaration, parent_type, query)
+    (declaration.gates + declaration.around + [declaration.field]).all? { |node| included?(node, query) } &&
+      declaration.around.all? { |fragment| applies?(fragment, parent_type, query) }
   end
 
-  # `scope.covered`: what an enclosing selection set on the same object asks for.
-  def walk(selections, scope)
-    scope = Scope.new(scope.type, scope.covered | covered(selections, scope.type))
+  # Whether a declaration is part of the field's selection set cannot be told from the parent
+  # object: a type condition above it, or a @defer around it but not around `own` that defers.
+  def unknowable?(declaration, own, query, deferring)
+    declaration.uncertain || (deferring && (declaration.defers - own.defers).any? { |fragment| deferred?(fragment, query) })
+  end
 
-    selections.flat_map do |selection|
+  # The directive nodes the operation reaches, each fragment definition walked once.
+  def collect_directives
+    Hash.new { |hash, name| hash[name] = [] }.tap { |found| gather(@operation&.selections.to_a, found, Set.new) }
+  end
+
+  def gather(selections, found, seen)
+    selections.each do |selection|
+      selection.directives.each do |directive|
+        next unless DIRECTIVES.include?(directive.name)
+
+        found[directive.name] << directive
+        @owners[directive] = selection
+      end
+      next gather(selection.selections, found, seen) unless selection.is_a?(Nodes::FragmentSpread)
+
+      gather(@definitions[selection.name].selections, found, seen) if @definitions.key?(selection.name) && seen.add?(selection.name)
+    end
+  end
+
+  def index
+    {}.tap do |index|
+      root = @schema.root_type_for_operation(@operation.operation_type)
+      top = At.new(pattern: [], level_type: root, type: root, around: [], gates: [], uncertain: false, defers: [])
+      collect(@operation.selections, top, index, [])
+    end
+  end
+
+  def collect(selections, at, index, stack)
+    selections.each do |selection|
       case selection
-      when Nodes::Field then field(selection, scope)
-      when Nodes::InlineFragment then inline_fragment(selection, scope)
-      when Nodes::FragmentSpread then fragment_spread(selection, scope)
-      else selection
+      when Nodes::Field then declare(selection, at, index, stack)
+      when Nodes::InlineFragment then within(selection, selection.selections, at, index, stack)
+      when Nodes::FragmentSpread
+        definition = @definitions[selection.name]
+        within(selection, definition.selections, at, index, stack + [selection.name]) if definition && stack.exclude?(selection.name)
       end
     end
   end
 
-  def field(node, scope)
-    type = scope.type
-    definition = type && !type.kind.union? ? @schema.get_field(type, node.name) : nil
-    selections = node.selections
-    selections = walk(selections, Scope.new(definition&.type&.unwrap, Set.new)) unless selections.empty?
-    node.merge(selections: selections, directives: stamp_stream(node.directives))
+  def declare(field, at, index, stack)
+    pattern = at.pattern + [field.alias || field.name]
+    (index[pattern] ||= []) << Declaration.new(field: field, around: at.around, gates: at.gates, uncertain: at.uncertain, defers: at.defers)
+    collect(field.selections, below(field, at, pattern), index, stack) unless field.selections.empty?
   end
 
-  # The field's @stream, if it has one, stamped.
-  def stamp_stream(directives)
-    stream = directives.find { |directive| directive.name == 'stream' }
-    return directives unless stampable?(stream)
-
-    id = @fragments.size
-    @fragments << Lighthouse::GraphQL::Incremental::State::Fragment.new(id: id, label: label_of(stream), stream: true)
-    directives.reject { |directive| directive.equal?(stream) } + [stamp_label(stream, id)]
+  # Where the walk is in the field's selection set.
+  def below(field, at, pattern)
+    type = field_type(at.type, field)
+    uncertain = at.uncertain || at.around.any? { |fragment| !always?(condition(fragment), at.level_type) }
+    At.new(pattern: pattern, level_type: type, type: type, around: [], gates: at.gates + at.around + [field], uncertain: uncertain, defers: at.defers)
   end
 
-  def inline_fragment(node, scope)
-    condition = node.type&.name
-    inner = walk(node.selections, Scope.new(condition ? @schema.get_type(condition) : scope.type, scope.covered))
-    stamp(node, inner, scope, condition) { |selections| node.merge(selections: selections) }
+  def field_type(type, field)
+    return nil if type.nil? || type.kind.union?
+
+    @schema.get_field(type, field.name)&.type&.unwrap
   end
 
-  def fragment_spread(node, scope)
-    definition = stamped_definition(node.name)
-    return node unless definition
-
-    stamp(node, definition.selections, scope, definition.type.name) { |_| node }
-  end
-
-  # `node` with its @defer stamped (and, next to it, what it brings to the first payload);
-  # `selections` are what a deferred fragment runs, `condition` the name of its type condition.
-  def stamp(node, selections, scope, condition)
-    defer = node.directives.find { |directive| directive.name == 'defer' }
-    return yield(selections).merge(directives: node.directives) unless stampable?(defer)
-
-    others = node.directives.reject { |directive| directive.equal?(defer) }
-    shared, kept = selections.partition { |selection| shared?(selection, scope) }
-    return yield(selections).merge(directives: others) if kept.empty?
-
-    id = register(defer, kept, scope, condition)
-    # @skip and @include answer before @defer does.
-    [yield(selections).merge(directives: others + [stamp_label(defer, id)]), *brought(shared, condition, others)]
-  end
-
-  # A deferred fragment that runs `selections`: its number.
-  def register(defer, selections, scope, condition)
-    @fragments << Lighthouse::GraphQL::Incremental::State::Fragment.new(
-      id: @fragments.size, node: Nodes::InlineFragment.new(selections: selections),
-      condition: condition, parent_type: scope.type&.graphql_name, label: label_of(defer)
-    )
-    @fragments.size - 1
-  end
-
-  # The fields with selections a deferred fragment shares with the rest, in an inline fragment that is not deferred.
-  def brought(shared, condition, directives)
-    shared = shared.reject { |field| field.selections.empty? }
-    return [] if shared.empty?
-
-    [Nodes::InlineFragment.new(type: condition && Nodes::TypeName.new(name: condition), directives: directives, selections: shared)]
-  end
-
-  # The response keys `selections` ask for wherever they run on an object of `type`, outside any
-  # @defer: their fields without directives, and those of their fragments without directives that
-  # apply to every object of the type.
-  def covered(selections, type, seen = Set.new)
-    selections.each_with_object(Set.new) do |selection, keys|
-      next unless selection.directives.empty?
-
-      selection.is_a?(Nodes::Field) ? keys << response_key(selection) : keys.merge(fragment_keys(selection, type, seen))
-    end
-  end
-
-  # Those of an inline fragment or a fragment spread (each definition once).
-  def fragment_keys(fragment, type, seen)
-    if fragment.is_a?(Nodes::FragmentSpread)
-      definition = @definitions[fragment.name]
-      return [] unless definition && seen.add?(fragment.name)
-
-      fragment = definition
-    end
-    applies?(fragment.type&.name, type) ? covered(fragment.selections, type, seen) : []
+  def within(fragment, selections, at, index, stack)
+    name = condition(fragment)
+    defers = fragment.directives.any? { |directive| directive.name == 'defer' } ? at.defers + [fragment] : at.defers
+    collect(selections, at.dup.tap do |inner|
+      inner.type = name ? @schema.get_type(name) : at.type
+      inner.around = at.around + [fragment]
+      inner.defers = defers
+    end, index, stack)
   end
 
   # Does a type condition hold for every object of `type`?
-  def applies?(condition, type)
-    return true if condition.nil? || condition == type&.graphql_name
+  def always?(name, type)
+    return true if name.nil? || name == type&.graphql_name
     return false unless type&.kind&.object?
 
-    named = @schema.get_type(condition)
+    named = @schema.get_type(name)
     !named.nil? && @schema.possible_types(named).include?(type)
-  end
-
-  def response_key(field) = field.alias || field.name
-
-  # A field the selection set asks for outside any @defer.
-  def shared?(selection, scope)
-    selection.is_a?(Nodes::Field) && scope.covered.include?(response_key(selection))
-  end
-
-  # A directive Document can stamp: one with no label, or a literal one. A label that is a
-  # variable (which Rules refuses) stays, or the variable would be unused.
-  def stampable?(directive)
-    !directive.nil? && !directive.arguments.find { |argument| argument.name == 'label' }&.value.is_a?(Nodes::VariableIdentifier)
-  end
-
-  # The directive with the fragment's number as its label, and the label the client gave after it.
-  def stamp_label(directive, id)
-    label = Nodes::Argument.new(name: 'label', value: Lighthouse::GraphQL::Incremental::State.stamp(id, label_of(directive)))
-    directive.merge(arguments: directive.arguments.reject { |argument| argument.name == 'label' } + [label])
-  end
-
-  def label_of(directive)
-    argument = directive.arguments.find { |arg| arg.name == 'label' }
-    argument&.value.is_a?(String) ? argument.value : nil
   end
 end

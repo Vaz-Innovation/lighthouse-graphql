@@ -71,6 +71,8 @@ require_relative 'namespaces'
   incremental/stream_extension
   incremental/document
   incremental/rules
+  incremental/plan
+  incremental/recorder
   incremental/serializer
   incremental/multipart
   incremental/run

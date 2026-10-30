@@ -32,6 +32,6 @@ module Lighthouse::GraphQL::Incremental::Serializer
 
   # An entry of `pending`: the Hash it is answered with. A label that was not given is left out.
   def pending_entry(entry)
-    { 'id' => entry.id, 'path' => entry.path, 'label' => entry.fragment.label }.compact
+    { 'id' => entry.id, 'path' => entry.path, 'label' => entry.label }.compact
   end
 end

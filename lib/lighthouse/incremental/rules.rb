@@ -10,7 +10,9 @@
 #
 # From the specification draft (section 5.7), with PHP Lighthouse's message where it has one:
 #
-# - `label` is a String literal, not a variable, and no two directives share it;
+# - `label` is a String literal, not a variable, and no two directives of the
+#   document share it (every operation and fragment of it, as a validation rule
+#   would see them, not only those of the operation that runs);
 # - @defer and @stream are not used on a root mutation field, whose fields must run
 #   one after the other ("The @defer directive cannot be used on a root mutation
 #   field.", as PHP Lighthouse words it), whether the fragment is inline or named;
@@ -22,7 +24,6 @@ class Lighthouse::GraphQL::Incremental::Rules < GraphQL::Analysis::Analyzer
   def initialize(subject)
     super
     @errors = []
-    @labels = {}
     @seen = {}.compare_by_identity
   end
 
@@ -46,7 +47,7 @@ class Lighthouse::GraphQL::Incremental::Rules < GraphQL::Analysis::Analyzer
     error(stream, 'The @stream directive must be used on a list field.') if field && !field.type.list?
   end
 
-  def result = @errors
+  def result = labels + @errors
 
   private
 
@@ -57,7 +58,6 @@ class Lighthouse::GraphQL::Incremental::Rules < GraphQL::Analysis::Analyzer
     return nil if directive.nil? || @seen.key?(directive)
 
     @seen[directive] = true
-    check_label(directive)
     error(directive, "The @#{name} directive cannot be used on a root mutation field.") if mutation_root?(parent_type)
     check_subscription(directive)
     directive
@@ -76,28 +76,37 @@ class Lighthouse::GraphQL::Incremental::Rules < GraphQL::Analysis::Analyzer
     error(directive, "The @#{directive.name} directive must be disabled with `if: false` in a subscription.")
   end
 
-  def check_label(directive)
-    argument = directive.arguments.find { |candidate| candidate.name == 'label' } or return
-    unless argument.value.is_a?(String)
-      error(directive, "The label of @#{directive.name} must be a String literal, not a variable.")
-      return
-    end
+  # The errors of the labels of the whole document, in its order.
+  def labels
+    seen = {}
+    directives(query.document.definitions).filter_map do |directive|
+      label = directive.arguments.find { |argument| argument.name == 'label' }&.value
+      next if label.nil?
+      next failure(directive, "The label of @#{directive.name} must be a String literal, not a variable.") unless label.is_a?(String)
+      next failure(directive, "The label \"#{label}\" is used by more than one @defer or @stream in the document.") if seen.key?(label)
 
-    label = given_label(argument.value) or return
-    if @labels.key?(label)
-      error(directive, "The label \"#{label}\" is used by more than one @defer or @stream in the document.")
-    else
-      @labels[label] = true
+      seen[label] = true
+      nil
     end
   end
 
-  # The label as the client wrote it: Run's first pass analyzes the document Document stamped.
-  def given_label(value)
-    stamped = query.context[Lighthouse::GraphQL::Incremental::State::CONTEXT_KEY] && Lighthouse::GraphQL::Incremental::State.stamped_id(value)
-    stamped ? Lighthouse::GraphQL::Incremental::State.given_label(value) : value
+  # Every @defer and @stream of the nodes, each fragment definition once (it is a definition).
+  def directives(nodes)
+    nodes.flat_map do |node|
+      own = if node.respond_to?(:directives)
+              node.directives.select do |directive|
+                Lighthouse::GraphQL::Incremental::Document::DIRECTIVES.include?(directive.name)
+              end
+            else
+              []
+            end
+      own + (node.respond_to?(:selections) ? directives(node.selections) : [])
+    end
   end
 
   def error(node, message)
-    @errors << ::GraphQL::AnalysisError.new(message, ast_node: node)
+    @errors << failure(node, message)
   end
+
+  def failure(node, message) = ::GraphQL::AnalysisError.new(message, ast_node: node)
 end

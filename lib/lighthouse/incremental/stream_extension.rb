@@ -2,7 +2,8 @@
 
 # The graphql-ruby field extension behind @stream (Defer.use adds it to the
 # schema's list fields). Once the resolver has answered, it cuts the list the
-# field's @stream asks to cut: with an Incremental::State in the context, it
+# field's @stream asks to cut: with an Incremental::State in the context (which
+# knows the directive by its arguments, see State), it
 # returns the first `initialCount` items, and keeps the rest in the State to
 # follow (Run). The field's resolver, directives included, runs once, for the
 # whole list; the items' own selections run for the items that stay, here, and for
@@ -29,13 +30,12 @@ class Lighthouse::GraphQL::Incremental::StreamExtension < GraphQL::Schema::Field
 
   # A negative initialCount is a field error (the draft's CompleteValue), whether the
   # response is streamed or not.
-  def after_resolve(value:, context:, memo:, **)
+  def after_resolve(object:, value:, context:, memo:, **)
     return value unless memo && list?(value)
     return ::GraphQL::ExecutionError.new(NEGATIVE) if memo[:initial_count].negative?
 
     state = context[State::CONTEXT_KEY]
-    id = State.stamped_id(memo[:label])
-    state && id ? cut(value.to_a, id, memo[:initial_count], state, context) : value
+    state ? cut(value.to_a, object, memo, state, context) : value
   end
 
   private
@@ -45,10 +45,12 @@ class Lighthouse::GraphQL::Incremental::StreamExtension < GraphQL::Schema::Field
     !value.nil? && value.respond_to?(:to_a) && !value.is_a?(Hash)
   end
 
-  # The first `initial` items, with the rest kept in the State; the list as it is when there is no rest to stream.
-  def cut(items, id, initial, state, context)
+  # The first `initialCount` items, with the rest kept in the State; the list as it is when there is no rest to stream.
+  def cut(items, object, arguments, state, context)
+    initial = arguments[:initial_count]
     return items if items.size <= initial
 
-    state.stream(id, items.drop(initial), initial, context) ? items.first(initial) : items
+    type = field.type.non_null? ? field.type.of_type : field.type
+    state.stream(object, arguments, items.drop(initial), context, type) ? items.first(initial) : items
   end
 end

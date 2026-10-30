@@ -137,12 +137,13 @@ RSpec.describe 'Deferring fields, as PHP Lighthouse tests it' do
         # Two fields, each deferred on its own in PHP Lighthouse: two fragments here, one round.
         payloads = stream('{ posts { title ... @defer { author { name } } ... @defer { comments { message } } } }')
 
+        # The fragments of a round at one path run together: one entry each path, under the first id.
         expect(payloads.size).to eq(2)
-        expect(payloads.last['incremental'].pluck('data')).to eq(
-          [{ 'author' => { 'name' => 'John Doe' } }, { 'comments' => [{ 'message' => 'foobar' }] },
-           { 'author' => { 'name' => 'Jane Doe' } }, { 'comments' => [{ 'message' => 'foobar' }] }]
-        )
         expect(payloads.first['pending'].pluck('path')).to eq([['posts', 0], ['posts', 0], ['posts', 1], ['posts', 1]])
+        comments = [{ 'message' => 'foobar' }]
+        expect(chunks(payloads).last).to eq('posts.0' => { 'data' => { 'author' => { 'name' => 'John Doe' }, 'comments' => comments } },
+                                            'posts.1' => { 'data' => { 'author' => { 'name' => 'Jane Doe' }, 'comments' => comments } })
+        expect(payloads.last['completed'].pluck('id')).to eq(%w[0 1 2 3])
       end
     end
 
@@ -224,7 +225,11 @@ RSpec.describe 'Deferring fields, as PHP Lighthouse tests it' do
       end
     end
 
-    it 'requires @defer on every declaration of a field (testRequiresDeferDirectiveOnAllFieldDeclarations)' do
+    # PHP Lighthouse (as Apollo) does not defer a field one of whose declarations is not deferred.
+    # The specification draft defers the fragment all the same: the field comes in the first
+    # payload with the rest of the query, resolved once, and the fragment completes with nothing
+    # left to send.
+    it 'sends a field asked for outside the fragment too in the first payload (testRequiresDeferDirectiveOnAllFieldDeclarations)' do
       DeferPhpMock.value = { 'name' => 'John Doe', 'parent' => { 'name' => 'Jane Doe' } }
       query = <<~GRAPHQL
         fragment UserWithParent on User { name parent { name } }
@@ -232,7 +237,8 @@ RSpec.describe 'Deferring fields, as PHP Lighthouse tests it' do
       GRAPHQL
 
       expect(graphql(query)).to eq('data' => { 'user' => DeferPhpMock.value })
-      expect(stream(query)).to eq([{ 'data' => { 'user' => DeferPhpMock.value }, 'pending' => [], 'hasNext' => false }])
+      expect(stream(query)).to eq([{ 'data' => { 'user' => DeferPhpMock.value }, 'pending' => [{ 'id' => '0', 'path' => ['user'] }],
+                                     'hasNext' => true }, { 'completed' => [{ 'id' => '0' }], 'hasNext' => false }])
     end
 
     describe 'a root mutation field (testThrowsIfTryingToDeferRootMutationFields)' do

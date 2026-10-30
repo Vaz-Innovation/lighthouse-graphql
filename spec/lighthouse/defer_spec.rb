@@ -167,6 +167,17 @@ RSpec.describe 'Deferring fields' do
       expect(pending(*all).pluck('path').last(3)).to eq([['users', 1, 'posts', 0], ['users', 1, 'posts', 1], ['users', 2, 'posts', 0]])
     end
 
+    it 'delivers a fragment nested in a deferred one at the same path a round after it' do
+      all = payloads(<<~GRAPHQL)
+        { user(id: 1) { ... @defer(label: "a") { name ... @defer(label: "b") { loud } } ... @defer(label: "c") { ... @defer(label: "d") { id } } } }
+      GRAPHQL
+
+      expect(all.map { |payload| payload['pending'].to_a.pluck('label') }).to eq([%w[a c], %w[b d], []])
+      expect(all[1]['incremental']).to eq([{ 'id' => '0', 'data' => { 'name' => 'u0' } }])
+      expect(all[1]['completed'].pluck('id')).to eq(%w[0 1])
+      expect(all[2]['incremental']).to eq([{ 'id' => '2', 'data' => { 'loud' => 'U0', 'id' => '1' } }])
+    end
+
     it 'costs the queries of the same fragments inline' do
       inline = query.gsub(/ @defer\(label: "\w"\)/, '')
       whole = queries_in { schema.execute(inline) }
@@ -204,17 +215,28 @@ RSpec.describe 'Deferring fields' do
       expect(whole).to eq([{ 'data' => { 'user' => { 'name' => 'u0' } }, 'pending' => [], 'hasNext' => false }])
     end
 
-    it 'parses the query once, and stamps only a document that uses @defer or @stream, on a streamed response' do
+    it 'parses the query once' do
       allow(GraphQL).to receive(:parse).and_call_original
-      allow(Lighthouse::GraphQL::Incremental::Document).to receive(:prepare).and_call_original
 
       expect(run('{ users { name } }').result.to_h['data']['users'].size).to eq(3)
       expect(run('{ users { ... @defer { name } } }', stream: false).result.to_h['data']['users'].first).to eq('name' => 'u0')
-      expect(GraphQL).to have_received(:parse).twice
-      expect(Lighthouse::GraphQL::Incremental::Document).not_to have_received(:prepare)
-
       expect(run('{ users { ... @defer { name } } }')).to be_deferred
       expect(GraphQL).to have_received(:parse).thrice
+    end
+
+    it "runs the client's document as it came: listeners, query_string and the fingerprint see it, streamed or not" do
+      query = 'query Names { users { ... @defer(label: "late") { name } } }'
+      seen = []
+      Lighthouse::Events.listen(Lighthouse::Events::StartExecution) do |event|
+        (seen << [event.query.to_query_string, event.graphql_query.then { |q| q.is_a?(GraphQL::Query::Partial) ? q.query : q }]) && nil
+      end
+
+      run(query).then { |started| started.each_payload { nil } }
+      first = seen.first.last
+
+      expect(seen.map(&:first).uniq).to eq([GraphQL.parse(query).to_query_string])
+      expect(first.query_string).to eq(query)
+      expect(first.fingerprint).to eq(GraphQL::Query.new(schema, query, operation_name: 'Names').fingerprint)
     end
 
     it 'runs a fragment with `if: false` where it stands' do
@@ -227,35 +249,63 @@ RSpec.describe 'Deferring fields' do
       expect(loud_calls.size).to eq(3)
     end
 
+    # The specification draft's: the fragment is deferred all the same, and completes; what the
+    # rest of the query already delivered at its path is neither resolved nor sent again. (Apollo
+    # and PHP Lighthouse do not defer such a field at all.)
     describe 'a field asked for outside a @defer too' do
-      it 'comes in the first payload, deferred only where every declaration is, as Apollo and PHP Lighthouse have it' do
+      def completed_only(id) = { 'completed' => [{ 'id' => id }], 'hasNext' => false }
+
+      it 'comes in the first payload, and the fragment completes with nothing left to send' do
         query = <<~GRAPHQL
           { user(id: 1) { ...UserWithCompany ... @defer { company { name } } } }
           fragment UserWithCompany on User { name company { name } }
         GRAPHQL
 
-        expect(payloads(query)).to eq([{ 'data' => { 'user' => { 'name' => 'u0', 'company' => { 'name' => 'Acme' } } }, 'pending' => [],
-                                         'hasNext' => false }])
+        expect(payloads(query)).to eq([{ 'data' => { 'user' => { 'name' => 'u0', 'company' => { 'name' => 'Acme' } } },
+                                         'pending' => [{ 'id' => '0', 'path' => ['user'] }], 'hasNext' => true },
+                                       completed_only('0')])
       end
 
-      it 'brings the selections the deferred declaration adds with it, and defers the rest of the fragment' do
-        all = payloads('{ users { company { name } ... @defer { name company { id } } } }')
+      it 'is resolved once, whether the @defer sits in a named fragment or an inline one' do
+        named = payloads('{ user(id: 1) { loud ...F } } fragment F on User { ... @defer { loud } }')
+        inline = payloads('{ user(id: 1) { loud ... @defer { loud } } }')
 
-        expect(all.first['data']['users'].first).to eq('company' => { 'name' => 'Acme', 'id' => '1' })
-        expect(all.last['incremental'].first['data']).to eq('name' => 'u0')
+        expect([named, inline]).to all(eq([{ 'data' => { 'user' => { 'loud' => 'U0' } }, 'pending' => [{ 'id' => '0', 'path' => ['user'] }],
+                                             'hasNext' => true }, completed_only('0')]))
+        expect(loud_calls).to eq([1, 1])
       end
 
-      it 'keeps the @include of the fragment on what it brings' do
-        query = 'query($on: Boolean!) { users { company { name } ... @defer @include(if: $on) { name company { id } } } }'
+      it 'sends the rest of the fragment, and the selections it adds to a shared object, at their subPath, resolving it once' do
+        query = '{ users { company { name } ... @defer { name company { id } } } }'
+        all = nil
+        deferred = queries_in { all = payloads(query) }
 
-        expect(payloads(query, variables: { 'on' => false }).first['data']['users'].first).to eq('company' => { 'name' => 'Acme' })
+        expect(all.first['data']['users'].first).to eq('company' => { 'name' => 'Acme' })
+        expect(all.last['incremental'].first(2)).to eq([{ 'id' => '0', 'data' => { 'name' => 'u0' } },
+                                                        { 'id' => '0', 'subPath' => ['company'], 'data' => { 'id' => '1' } }])
+        expect(deferred.size).to eq(queries_in { schema.execute('{ users { company { name } name company { id } } }') }.size)
       end
 
-      it 'is not a fragment nested in one that delivers it' do
-        all = payloads('{ user(id: 1) { ... @defer(label: "a") { name company { name } ... @defer(label: "b") { company { name } } } } }')
+      it 'resolves a shared object again for what a fragment adds where the app picked its own trace mode' do
+        all = payloads('{ users { company { name } ... @defer { name company { id } } } }', context: { trace_mode: :app_mode })
 
-        expect(pending(*all).pluck('label')).to eq(%w[a])
+        expect(all.last['incremental'].first).to eq('id' => '0', 'data' => { 'name' => 'u0', 'company' => { 'id' => '1' } })
       end
+
+      it 'is sent once when two fragments of a round share it' do
+        all = payloads('{ user(id: 1) { ... @defer(label: "a") { name loud } ... @defer(label: "b") { loud id } } }')
+
+        expect(all.last['incremental']).to eq([{ 'id' => '0', 'data' => { 'name' => 'u0', 'loud' => 'U0', 'id' => '1' } }])
+        expect(all.last['completed']).to eq([{ 'id' => '0' }, { 'id' => '1' }])
+        expect(loud_calls).to eq([1])
+      end
+    end
+
+    it 'defers a fragment once on an object that gathers it twice' do
+      all = payloads('{ user(id: 1) { ...F } user(id: 1) { ...F } } fragment F on User { ... @defer { name } }')
+
+      expect(all.first['pending']).to eq([{ 'id' => '0', 'path' => ['user'] }])
+      expect(all.last['incremental']).to eq([{ 'id' => '0', 'data' => { 'name' => 'u0' } }])
     end
 
     it 'does not skip an @include the fragment is under' do
@@ -359,6 +409,26 @@ RSpec.describe 'Deferring fields' do
 
       expect(payloads(query, variables: { 'count' => -1 }).first).to include(answer)
       expect(schema.execute(query, variables: { 'count' => -1 }).to_h).to eq(answer)
+    end
+
+    it 'streams the items with the selections of the streamed field only, not those of another field of the same name' do
+      all = payloads('{ users @stream(initialCount: 1) { id } x: users { name } }')
+
+      expect(all.last['incremental']).to eq([{ 'id' => '0', 'items' => [{ 'id' => '2' }, { 'id' => '3' }] }])
+    end
+
+    it 'merges the selections of every declaration of the streamed field' do
+      all = payloads('{ users @stream(initialCount: 1) { id } ... on Query { users { name } } }')
+
+      expect(all.last['incremental'].first['items']).to eq([{ 'id' => '2', 'name' => 'u1' }, { 'id' => '3', 'name' => 'u2' }])
+    end
+
+    it 'answers a list whole where a deferred fragment selects it too, and adds to its items in that fragment' do
+      all = payloads('{ users @stream(initialCount: 1) { id } ... @defer { users { name } } }')
+
+      expect(all.first['data']).to eq('users' => [{ 'id' => '1' }, { 'id' => '2' }, { 'id' => '3' }])
+      expect(all.first['pending']).to eq([{ 'id' => '0', 'path' => [] }])
+      expect(all.last['incremental']).to eq((0..2).map { |i| { 'id' => '0', 'subPath' => ['users', i], 'data' => { 'name' => "u#{i}" } } })
     end
 
     it 'streams the field that carries @stream, and no other' do
@@ -533,6 +603,22 @@ RSpec.describe 'Deferring fields' do
       it 'refuses it in a named fragment the subscription spreads' do
         expect(analysis('subscription { ...S } fragment S on Subscription { userCreated { ... @defer { name } } }')).to eq([message])
       end
+    end
+
+    it "judges the client's document when streamed, as when not" do
+      [
+        'mutation { createUser(name: "z") { id posts @stream { id } } ... @defer { createUser(name: "z") { id } } }',
+        '{ user(id: 1) { name ... @defer(label: "x") { name } ... @defer(label: "x") { id } } }'
+      ].each do |query|
+        expect(errors(query)).to eq(schema.execute(query).to_h['errors'].pluck('message'))
+      end
+      expect(LH::User.where(name: 'z')).to be_empty
+    end
+
+    it 'refuses a label two directives share anywhere in the document, not only in the operation that runs' do
+      query = 'query A { users { ... @defer(label: "x") { name } } } query B { users { ... @defer(label: "x") { id } } }'
+
+      expect(errors(query, operation_name: 'A')).to eq(['The label "x" is used by more than one @defer or @stream in the document.'])
     end
 
     it 'checks every query, however it runs: plain, unstreamed, and in a batch' do

@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'active_support/core_ext/object/deep_dup'
+
 # One operation, run in as many passes as @defer asks for.
 #
 #   run = Lighthouse::GraphQL::Incremental::Run.new(schema, query, variables: {}, context: {}, stream: true).start
@@ -7,18 +9,18 @@
 #   run.deferred?                # fragments are pending
 #   run.each_payload { |payload| ... }   # the initial payload, then one per round
 #
-# `start` parses the query, has Document stamp its @defer, and runs the first
-# pass on the stamped document: the whole document goes through graphql-ruby's
-# validation and analysis (complexity, depth, and Rules, which checks @defer and
-# @stream) once, as it would without @defer, and DeferDirective leaves the
-# deferred fragments out of the execution.
+# `start` parses the query once and runs the client's document as it came, as a
+# GraphQL::Query whose `query_string` is the client's: validation, analysis
+# (complexity, depth, and Rules, which checks @defer and @stream), listeners and
+# tracing see what they would without @defer. DeferDirective leaves the deferred
+# fragments out of the execution, and State keeps them.
 #
 # Then it goes in rounds, as PHP Lighthouse's Defer: each round runs every
-# fragment pending, each on the object it was found on (a GraphQL::Query::Partial),
-# all in one multiplex so the Dataloader batches across them, and is one payload;
-# the fragments they hold are announced in it, and make the next round. A field's
-# resolver stack, @throttle and @cache among them, runs once, in the pass that
-# resolves the field; a mutation does not run again (PHP Lighthouse runs the whole
+# fragment pending, on the object it was found on, as Plan cuts them into units
+# (GraphQL::Query::Partial), all in one multiplex so the Dataloader batches across
+# them, and is one payload; the fragments they hold are announced in it, and make
+# the next round. A field resolves once: what the response already holds is not
+# run again, and a mutation does not run again (PHP Lighthouse runs the whole
 # query again each round).
 #
 # PHP Lighthouse's limits, 0 for none: past Config.defer_max_nested_fields rounds,
@@ -31,6 +33,7 @@
 class Lighthouse::GraphQL::Incremental::Run
   State = Lighthouse::GraphQL::Incremental::State
   Serializer = Lighthouse::GraphQL::Incremental::Serializer
+  Document = Lighthouse::GraphQL::Incremental::Document
 
   attr_reader :result
 
@@ -78,48 +81,60 @@ class Lighthouse::GraphQL::Incremental::Run
 
   private
 
-  # The query is parsed once, here; one that does not parse goes to graphql-ruby as it
-  # came, which answers its error. Document reads only a document that uses the directives.
+  # One that does not parse goes to graphql-ruby as it came, which answers its error.
   def execute
-    document = parse
-    return @schema.execute(@query_string, **@options) unless document
-    return @schema.execute(document: document, **@options) unless @stream && Lighthouse::GraphQL::Incremental::Document.incremental?(document)
+    document = parse or return @schema.execute(@query_string, **@options)
 
-    prepared = Lighthouse::GraphQL::Incremental::Document.prepare(@schema, document)
-    return @schema.execute(document: document, **@options) if prepared.fragments.empty?
+    query = ::GraphQL::Query.new(@schema, document: document, **@options)
+    query.query_string = @query_string
+    @state = state(query, document) if @stream && Document.incremental?(document)
+    result = @schema.multiplex([query], max_complexity: nil, context: multiplex_context).first
+    return result unless @state
 
-    @state = State.new(prepared.fragments)
-    context = (@options[:context] || {}).merge(State::CONTEXT_KEY => @state)
-    result = @schema.execute(document: prepared.document, **@options, context: context)
-    announce(@state.drain(result.query), result.to_h['data'], [])
+    @tree = result.to_h['data'].deep_dup
+    announce(@state.drain(query), [])
     result
   end
 
   def parse
-    ::GraphQL.parse(@query_string, max_tokens: @schema.max_query_string_tokens)
+    ::GraphQL.parse(@query_string, max_tokens: @schema.max_query_string_tokens) if @query_string
   rescue ::GraphQL::ParseError
     nil
   end
 
-  # The next round: every pending fragment, run together.
+  def state(query, document)
+    operation = query.selected_operation or return nil
+    query.context[State::CONTEXT_KEY] = State.new(Document.new(@schema, document, operation))
+  end
+
+  # What Schema.execute hands its multiplex of the query's context, and the trace mode with
+  # Recorder when the response streams, unless the app picked one.
+  def multiplex_context
+    context = @options[:context] || {}
+    mode = context[:trace_mode] || (Lighthouse::GraphQL::Incremental::Recorder::MODE if @state && @schema.default_trace_mode == :default)
+    { backtrace: context[:backtrace], tracers: context[:tracers], trace: context[:trace], dataloader: context[:dataloader], trace_mode: mode }
+  end
+
+  # The next round: every pending fragment and list, run together.
   def next_payload
     @round += 1
     @state.deferring = deferring?
     @running = @queue
     @queue = []
-    partials = @running.map { |pending| partial(pending) }
-    results = run(partials)
+    plan = Lighthouse::GraphQL::Incremental::Plan.new(@result.query, @state, @tree)
+    units = plan.units(@running)
+    partials = units.map { |unit| partial(unit) }
+    payload = deliver(units, run(partials))
+    found(plan, units, partials)
+    Serializer.subsequent(**payload, pending: @announced, has_next: deferred?).tap { @running = [] }
+  end
+
+  # Announce the fragments the round found: Plan, and each unit's Partial (under a stream's
+  # items, their paths count from the first item the Partial ran).
+  def found(plan, units, partials)
     @announced = []
-    incremental = []
-    completed = []
-    extensions = {}
-    # Each Partial's own fragments, against its own data, path and offset.
-    @running.each_with_index do |pending, index|
-      deliver(pending, results[index], incremental, completed, extensions)
-      announce(@state.drain(partials[index]), results[index]['data'], pending.path, pending.offset.to_i)
-    end
-    Serializer.subsequent(incremental: incremental, completed: completed, pending: @announced, extensions: extensions, has_next: deferred?)
-              .tap { @running = [] }
+    announce(@state.drain(plan), [])
+    units.each_with_index { |unit, index| announce(@state.drain(partials[index]), unit.path, unit.stream? ? unit.owner.offset : 0) }
   end
 
   # May the fragments of this round defer the fragments they hold? Not past the limits:
@@ -133,12 +148,17 @@ class Lighthouse::GraphQL::Incremental::Run
 
   def clock = Process.clock_gettime(Process::CLOCK_MONOTONIC)
 
-  # The Partial that runs `pending`: its fragment on its object, or the items of a stream.
-  def partial(pending)
+  # The Partial that runs a unit: its selections on its object, or a stream's items (a list of
+  # scalars from its path, which has no selections).
+  def partial(unit)
     query = @result.query
-    fragment = pending.fragment
-    options = fragment.stream ? {} : { fragment_node: fragment.node, type: query.types.type(fragment.type_name) }
-    ::GraphQL::Query::Partial.new(object: pending.object, path: pending.path, query: query, **options)
+    if unit.stream? && unit.type.unwrap.kind.leaf?
+      ::GraphQL::Query::Partial.new(object: unit.object, path: unit.path, query: query)
+    else
+      selections = unit.stream? ? unit.owner.selections : unit.selections
+      fragment = ::GraphQL::Language::Nodes::InlineFragment.new(selections: selections)
+      ::GraphQL::Query::Partial.new(object: unit.object, path: unit.path, query: query, fragment_node: fragment, type: unit.type)
+    end
   end
 
   # The responses of the partials, run in one multiplex so the Dataloader batches across them.
@@ -148,22 +168,54 @@ class Lighthouse::GraphQL::Incremental::Run
     @schema.multiplex(partials, context: @result.query.context, max_complexity: nil).map(&:to_h)
   end
 
-  # A fragment's data goes in `incremental` (a stream's as `items`), with the errors and the
-  # extensions of its run (BuildExtensionsResponse, ManipulateResult); a null data (a non-null
-  # field failed beyond the fragment) leaves only its errors, in `completed`, and its
-  # extensions go on the payload's.
-  def deliver(pending, response, incremental, completed, payload_extensions)
-    data, errors, extensions = response.values_at('data', 'errors', 'extensions')
-    offset_errors(errors, pending) if pending.fragment.stream
-    if data.nil?
-      completed << { 'id' => pending.id, 'errors' => errors }.compact
-      payload_extensions.merge!(extensions) if extensions
-    else
-      key = pending.fragment.stream ? 'items' : 'data'
-      entry = { 'id' => pending.id, key => data, 'errors' => errors, 'extensions' => extensions }.compact
-      incremental << entry unless data.empty? && entry.size == 2
-      completed << { 'id' => pending.id }
+  # The payload's `incremental`, `completed` and `extensions` for the units' responses, which
+  # go in the response's data so far.
+  def deliver(units, results)
+    incremental = []
+    extensions = {}
+    failed = {}.compare_by_identity
+    units.each_with_index do |unit, index|
+      entry = entry(unit, results[index])
+      next incremental << entry if entry.key?('data') || entry.key?('items')
+
+      unit.pendings.each { |pending| failed[pending] = failed.fetch(pending, []) + entry['errors'].to_a }
+      extensions.merge!(entry['extensions'].to_h)
     end
+    { incremental: incremental.reject { |entry| empty?(entry) }, completed: completed(failed), extensions: extensions }
+  end
+
+  # Each fragment and list of the round is complete, with the errors of a unit that left no data.
+  def completed(failed)
+    @running.map { |pending| { 'id' => pending.id, 'errors' => failed[pending] }.compact }
+  end
+
+  # A unit's incremental entry (a stream's `items`, data below its fragment's path at its
+  # `subPath`), with the errors and the extensions of its run (BuildExtensionsResponse,
+  # ManipulateResult); with no data (a non-null field failed beyond the unit), its errors only.
+  def entry(unit, response)
+    data, errors, extensions = response.values_at('data', 'errors', 'extensions')
+    offset_errors(errors, unit.owner) if unit.stream?
+    return { 'errors' => errors, 'extensions' => extensions } if data.nil?
+
+    merge(unit, data.deep_dup)
+    sub_path = unit.sub_path unless unit.stream? || unit.sub_path.empty?
+    { 'id' => unit.owner.id, 'subPath' => sub_path, (unit.stream? ? 'items' : 'data') => data, 'errors' => errors,
+      'extensions' => extensions }.compact
+  end
+
+  def empty?(entry) = entry.size == 2 && (entry['data'] || entry['items']).empty?
+
+  # The response's data so far, with (a copy of) a unit's: a stream's items after the list's, a
+  # fragment's fields in its object.
+  def merge(unit, data)
+    target = unit.path.reduce(@tree) { |value, key| value.is_a?(Array) || value.is_a?(Hash) ? value[key] : nil }
+    unit.stream? ? target&.concat(data) : deep_merge(target, data)
+  end
+
+  def deep_merge(target, data)
+    return unless target.is_a?(Hash)
+
+    data.each { |key, value| target[key].is_a?(Hash) && value.is_a?(Hash) ? deep_merge(target[key], value) : target[key] = value }
   end
 
   # The paths of a stream's errors count its items from the first one run, the response's from the first.
@@ -174,14 +226,13 @@ class Lighthouse::GraphQL::Incremental::Run
     end
   end
 
-  # Give the fragments found since the last call their ids, and queue them. Those
-  # whose object an error nulled out of `data` (found from `base`) are dropped. `offset`:
-  # the index in the response's list of the first item of `data`, when it is a stream's.
-  def announce(found, data, base, offset = 0)
+  # Give the fragments found their ids, and queue them. Those whose object an error nulled
+  # out of the response are dropped. `base`, `offset`: the path of a stream's items, and the
+  # index in the response's list of the first one, which the paths found under them count from.
+  def announce(found, base, offset = 0)
     found.each do |pending|
-      next unless present?(data, pending.path.drop(base.size))
-
       pending.path = pending.path.dup.tap { |path| path[base.size] += offset } if offset.positive? && pending.path[base.size].is_a?(Integer)
+      next unless present?(pending.path)
 
       pending.id = @next_id.to_s
       @next_id += 1
@@ -190,8 +241,9 @@ class Lighthouse::GraphQL::Incremental::Run
     end
   end
 
-  # Does `path` lead to a value in `data`?
-  def present?(data, path)
+  # Does `path` lead to a value in the response's data so far?
+  def present?(path)
+    data = @tree
     path.each do |key|
       data = data.is_a?(Array) || data.is_a?(Hash) ? data[key] : nil
       return false if data.nil?

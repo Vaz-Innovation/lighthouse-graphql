@@ -51,6 +51,7 @@ module Lighthouse::GraphQL::Defer
     schema.directive(Lighthouse::GraphQL::Incremental::DeferDirective)
     schema.directive(Lighthouse::GraphQL::Incremental::StreamDirective)
     schema.query_analyzer(Lighthouse::GraphQL::Incremental::Rules)
+    schema.trace_with(Lighthouse::GraphQL::Incremental::Recorder, mode: Lighthouse::GraphQL::Incremental::Recorder::MODE)
     stream_lists(schema)
   end
 
