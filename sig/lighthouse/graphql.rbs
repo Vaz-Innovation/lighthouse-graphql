@@ -253,6 +253,11 @@ module Lighthouse
         def initialize: (_Stream stream) -> void
         # The payload holds the app's values (a Time, an object's as_json), encoded as render json: does.
         def write: (Hash[String, untyped] payload) -> void
+        # The part of a payload, encoded (the app's values' errors are raised here).
+        def part: (Hash[String, untyped] payload) -> String
+        # Writes an encoded part (the stream's errors are raised here).
+        def emit: (String part) -> void
+        def started?: () -> bool
         def finish: () -> void
       end
 

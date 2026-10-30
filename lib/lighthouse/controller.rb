@@ -129,17 +129,19 @@ module Lighthouse::GraphQL::Controller
   end
 
   # The payloads of `run`, one part each, written as they are ready.
+  # A part encodes before it is written, so an error of the app's values is not taken for the
+  # stream's. Until the first part is written, the response is not committed: an error then
+  # surfaces as it would on the JSON path (`execute` does not close the stream).
   def lighthouse_stream(run)
-    @lighthouse_streaming = true
     accept = request.headers['Accept']
     Lighthouse::GraphQL::Incremental::Multipart.headers(Lighthouse::GraphQL::Defer.content_type(accept)).each do |name, value|
       response.headers[name] = value
     end
     multipart = Lighthouse::GraphQL::Incremental::Multipart.new(response.stream)
     begin
-      run.each_payload { |payload| lighthouse_write { multipart.write(payload) } }
+      run.each_payload { |payload| lighthouse_write(multipart, multipart.part(payload)) }
     ensure
-      lighthouse_write { multipart.finish }
+      lighthouse_write(multipart, nil) if multipart.started?
     end
   rescue Gone
     nil
@@ -148,11 +150,12 @@ module Lighthouse::GraphQL::Controller
     raise
   end
 
-  # A write to the response's stream: a client that went away (ActionController::Live's
-  # ClientDisconnected, or the IOError of a closed stream) ends the response quietly. Any other
-  # error, an IOError of the app's among them, is not a write's.
-  def lighthouse_write
-    yield
+  # Writes a part (or, without one, the closing boundary) to the response's stream: a client
+  # that went away (ActionController::Live's ClientDisconnected, or the IOError of a closed
+  # stream) ends the response quietly.
+  def lighthouse_write(multipart, part)
+    part ? multipart.emit(part) : multipart.finish
+    @lighthouse_streaming = true
   rescue ::ActionController::Live::ClientDisconnected, ::IOError
     raise Gone
   end

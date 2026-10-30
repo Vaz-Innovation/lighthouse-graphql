@@ -157,15 +157,52 @@ RSpec.describe 'Deferring fields', type: :request do
     Rails.error.unsubscribe(subscriber)
   end
 
+  # A value of the app's that cannot be encoded as JSON.
+  def unencodable(error)
+    Object.new.tap { |value| value.define_singleton_method(:as_json) { |*| raise error } }
+  end
+
+  def reported_errors
+    reported = []
+    subscriber = Class.new { define_method(:report) { |error, **| reported << error } }.new
+    Rails.error.subscribe(subscriber)
+    yield
+    reported
+  ensure
+    Rails.error.unsubscribe(subscriber)
+  end
+
+  it 'answers an error as the JSON path does when the first part cannot be encoded, nothing being written yet' do
+    allow(Lighthouse::GraphQL::Incremental::Serializer).to receive(:initial).and_wrap_original do |original, *args, **options|
+      original.call(*args, **options).merge('extensions' => { 'bad' => unencodable(RuntimeError.new('cannot encode')) })
+    end
+
+    reported = reported_errors do
+      expect { stream(query) }.to raise_error(RuntimeError, 'cannot encode')
+    end
+
+    expect(reported.map(&:message)).to eq(['cannot encode'])
+  end
+
+  it 'reports an IOError of the app while encoding a later part, which is no client going away' do
+    allow(Lighthouse::GraphQL::Incremental::Serializer).to receive(:subsequent).and_wrap_original do |original, **payload|
+      original.call(**payload).merge('extensions' => { 'bad' => unencodable(EOFError.new('the app read past the end')) })
+    end
+
+    reported = reported_errors { stream(query) }
+
+    expect(reported.map(&:message)).to eq(['the app read past the end'])
+  end
+
   it 'ends the response quietly when the client goes away' do
     reported = []
     subscriber = Class.new { define_method(:report) { |error, **| reported << error } }.new
     Rails.error.subscribe(subscriber)
     writes = 0
-    allow_any_instance_of(Lighthouse::GraphQL::Incremental::Multipart).to receive(:write).and_wrap_original do |original, payload| # rubocop:disable RSpec/AnyInstance
+    allow_any_instance_of(Lighthouse::GraphQL::Incremental::Multipart).to receive(:emit).and_wrap_original do |original, part| # rubocop:disable RSpec/AnyInstance
       raise ActionController::Live::ClientDisconnected, 'client disconnected' if (writes += 1) > 1
 
-      original.call(payload)
+      original.call(part)
     end
 
     expect(stream(query).size).to eq(1)

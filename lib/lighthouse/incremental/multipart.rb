@@ -34,10 +34,22 @@ class Lighthouse::GraphQL::Incremental::Multipart
   end
 
   def write(payload)
-    lead = @started ? "\r\n" : "\r\n---\r\n"
-    @started = true
-    @stream.write("#{lead}#{PART_HEADERS}#{ActiveSupport::JSON.encode(payload)}\r\n---")
+    emit(part(payload))
   end
+
+  # The part of `payload`, encoded: an error raised here is the app's values'.
+  def part(payload)
+    "#{@started ? "\r\n" : "\r\n---\r\n"}#{PART_HEADERS}#{ActiveSupport::JSON.encode(payload)}\r\n---"
+  end
+
+  # Writes an encoded part: an error raised here is the stream's.
+  def emit(part)
+    @stream.write(part)
+    @started = true
+  end
+
+  # Has a part been written?
+  def started? = @started
 
   # The closing boundary. Closing the stream is the controller's, after the request events.
   def finish
