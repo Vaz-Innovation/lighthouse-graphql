@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require 'json'
+require 'active_support/json'
 require 'time'
 
 # Writes the payloads of an incremental response as the parts of a
@@ -10,7 +10,9 @@ require 'time'
 # The body is, as the RFC has it: `\r\n---\r\n`, a part's headers and JSON, and
 # so on for each part, then `\r\n-----\r\n`. Each write ends with the `---` that
 # opens the next part, so a client that reads up to the next boundary has the
-# part the moment it is written, not when the next one follows.
+# part the moment it is written, not when the next one follows. A part's JSON is
+# ActiveSupport's, as `render json:` writes a whole response: a Time, a BigDecimal
+# or an object's `as_json` come out the same whichever the client accepts.
 class Lighthouse::GraphQL::Incremental::Multipart
   CONTENT_TYPE = 'multipart/mixed; boundary="-"'
   PART_HEADERS = "Content-Type: application/json; charset=utf-8\r\n\r\n"
@@ -34,7 +36,7 @@ class Lighthouse::GraphQL::Incremental::Multipart
   def write(payload)
     lead = @started ? "\r\n" : "\r\n---\r\n"
     @started = true
-    @stream.write("#{lead}#{PART_HEADERS}#{JSON.generate(payload)}\r\n---")
+    @stream.write("#{lead}#{PART_HEADERS}#{ActiveSupport::JSON.encode(payload)}\r\n---")
   end
 
   # The closing boundary. Closing the stream is the controller's, after the request events.

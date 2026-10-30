@@ -568,6 +568,16 @@ RSpec.describe 'Deferring fields' do
       )
     end
 
+    it 'encodes a part as `render json:` encodes a response, so the Accept header does not change a value' do
+      stream = StringIO.new
+      payload = { 'data' => { 'at' => Time.utc(2026, 1, 2, 3, 4, 5), 'price' => BigDecimal('1.50') } }
+
+      described_class.new(stream).write(payload)
+
+      expect(stream.string).to include("\r\n\r\n#{ActiveSupport::JSON.encode(payload)}\r\n---")
+      expect(stream.string).to include('"at":"2026-01-02T03:04:05.000Z"', '"price":"1.5"')
+    end
+
     it 'sets the headers that keep proxies and Rack from buffering' do
       expect(described_class.headers).to include('Cache-Control' => 'no-cache', 'X-Accel-Buffering' => 'no',
                                                  'Content-Type' => 'multipart/mixed; boundary="-"')
