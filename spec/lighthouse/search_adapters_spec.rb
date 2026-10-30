@@ -154,6 +154,14 @@ RSpec.describe 'search adapters' do
       expect(adapter.searchable?(PgSearchPost)).to be(false)
     end
 
+    it "drops pg_search's primary-key tie-break, a node of its own in 2.4 and the end of the rank's literal in 2.3" do
+      order_of = ->(index) { adapter.scope(PgSearchPost.order(:author_id), Lighthouse::Search::Query.new(PgSearchPost, 'milk', index)).to_sql[/ORDER BY .*\z/] }
+
+      expect(order_of.call('ranked24')).to eq('ORDER BY "search_posts"."author_id" ASC, "pg_search_1"."rank" DESC')
+      expect(order_of.call('ranked23')).to eq('ORDER BY "search_posts"."author_id" ASC, pg_search_1.rank DESC')
+      expect(order_of.call('ranked23_within')).to eq('ORDER BY "search_posts"."author_id" ASC, pg_search_1.rank DESC, search_posts.title DESC')
+    end
+
     it "keeps what the model's search_results scope keeps" do
       PgSearchGuardedPost.create!(title: 'milk')
       PgSearchGuardedPost.create!(title: 'stale milk')

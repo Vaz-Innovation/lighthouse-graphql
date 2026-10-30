@@ -116,6 +116,13 @@ class PgSearchPost < ApplicationRecord
 
   def self.search(term) = where('title LIKE ?', "%#{term}%")
   def self.by_title(term) = where(title: term)
+
+  # The order pg_search 2.4 adds: the rank, then the primary key, two nodes.
+  def self.ranked24(term) = search(term).order(Arel::Table.new('pg_search_1')[:rank].desc).order(arel_table[:id].asc)
+
+  # pg_search 2.3's: one SQL literal, with `order_within_rank:` or the primary key after the rank.
+  def self.ranked23(term) = search(term).order(Arel.sql(%(pg_search_1.rank DESC, "search_posts"."id" ASC)))
+  def self.ranked23_within(term) = search(term).order(Arel.sql(%(pg_search_1.rank DESC, search_posts.title DESC)))
 end
 
 # A model's searchkick_search that loads its hits as Searchkick does

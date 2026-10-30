@@ -33,16 +33,29 @@ class Lighthouse::Search::PgSearch
     relation = Lighthouse::Search.results(relation)
     searched = relation.public_send(scope_name(query.index), query.term)
     added = searched.order_values.drop(relation.order_values.size)
-    return searched unless primary_key_order?(added.last, relation.klass)
-
-    searched.reorder(*relation.order_values, *added[0...-1])
+    ranked = without_key_tie_break(added, relation.klass)
+    ranked.equal?(added) ? searched : searched.reorder(*relation.order_values, *ranked)
   end
 
   private
 
   def scope_name(index) = (index || DEFAULT_SCOPE).to_sym
 
-  def primary_key_order?(order, model)
+  # pg_search's orders without its primary-key tie-break, which is a node of its
+  # own after the rank's in pg_search 2.4, and the end of one SQL literal in 2.3
+  # ("pg_search_1.rank DESC, \"posts\".\"id\" ASC"); the orders themselves when it
+  # has none (`order_within_rank:`).
+  def without_key_tie_break(orders, model)
+    last = orders.last
+    return orders[0...-1] if key_node?(last, model)
+
+    tie_break = ", #{model.quoted_table_name}.#{model.connection.quote_column_name(model.primary_key)} ASC"
+    return orders unless last.is_a?(String) && last.end_with?(tie_break)
+
+    [*orders[0...-1], ::Arel.sql(last.delete_suffix(tie_break))]
+  end
+
+  def key_node?(order, model)
     order.is_a?(::Arel::Nodes::Ascending) && order.expr == model.arel_table[model.primary_key]
   end
 end
