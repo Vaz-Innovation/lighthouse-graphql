@@ -88,6 +88,24 @@ module Lighthouse
     def manipulate_sdl: (String sdl) -> String
   end
 
+  module GraphQL
+    # The schema clients see, printed (`bin/rails lighthouse:print_schema`), and
+    # Config.schema_output's file, kept up to date in development.
+    module SchemaPrinter
+      FORMATS: Array[String]
+      FILENAMES: Hash[String, String]
+
+      def self?.print: (untyped schema, ?format: String | Symbol) -> String
+      def self?.app_schema: (?String? name) -> untyped
+      def self?.output: () -> Hash[Symbol, untyped]?
+      def self?.output_content: (?Hash[Symbol, untyped]? setting) -> String
+      # Writes unless the file holds `content` already; true when it wrote.
+      def self?.write: (path path, String content) -> bool
+      def self?.stale?: (?Hash[Symbol, untyped]? setting) -> bool
+      def self?.refresh: () -> bool
+    end
+  end
+
   # Writes the SDL an IDE needs next to the app's own: `bin/rails lighthouse:ide_helper`.
   module IdeHelper
     DIRECTIVES_FILE: String

@@ -348,18 +348,36 @@ VS Code. The files are derived from your schema, so the generator adds them to
 registering a directive. The IDE reads every `.graphql` file the glob matches, as
 one schema: it does not follow `#import`.
 
-To see the schema clients get, with every type Lighthouse generated and the
-fields rewritten (`users { data { … } }`), print it. The task writes the SDL to
-stdout and nothing else, so redirect it to keep it:
-
-```shell
-bin/rails lighthouse:print_schema                       # AppSchema
-SCHEMA=Admin::Schema bin/rails lighthouse:print_schema > generated.graphql
-```
-
 > The IDE reads fields as you wrote them: `users: [User!]! @paginate` still looks
 > like a list to it, although clients query `users { data { … } }`. Field
 > rewrites are not something an extra file can express.
+
+### The schema clients see
+
+Print it, as PHP Lighthouse's `lighthouse:print-schema` does: every type Lighthouse
+generated, the fields rewritten (`users { data { … } }`), and none of Lighthouse's
+directives, which instruct the server and are not part of the schema clients get
+(nor of introspection). The task writes the SDL to stdout and nothing else:
+
+```shell
+bin/rails lighthouse:print_schema                        # <App>Schema, else AppSchema
+SCHEMA=Admin::Schema bin/rails lighthouse:print_schema > generated.graphql
+FORMAT=json bin/rails lighthouse:print_schema            # the introspection result
+FORMAT=federation bin/rails lighthouse:print_schema      # a subgraph's SDL, with @key, ...
+bin/rails lighthouse:print_schema WRITE=1                # config.schema_output, else lighthouse-schema.graphql
+bin/rails lighthouse:print_schema WRITE=schema.graphql   # that file
+```
+
+graphql-ruby prints types, fields, arguments and enum values in alphabetical order,
+so the output is stable (PHP Lighthouse's `--sort`). `WRITE` leaves an unchanged
+file alone. For a codegen, let development keep the file up to date with
+[`schema_output`](configuration.md#schema-output), and check it in CI with
+`bin/rails lighthouse:schema_output:verify`.
+
+The schema is the one of the environment it is printed in: a field with
+`@show(env: ["development"])` is in development's and not in production's. Print
+the file a production client relies on with `RAILS_ENV=production` when the schema
+uses `@show` or `@hide`.
 
 ## Casing: camelCase ↔ snake_case
 

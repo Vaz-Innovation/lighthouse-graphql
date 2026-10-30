@@ -3,7 +3,8 @@
 # Hooks Lighthouse into a Rails host: exposes the `lighthouse:*` rake tasks,
 # with `config.watch_sdl` reloads the app when a .graphql file changes, and
 # with `config.ide_helper` (on in development when the app has a
-# graphql.config.yml) rewrites the IDE helper files on boot and every reload.
+# graphql.config.yml) rewrites the IDE helper files on boot and every reload,
+# and with `config.schema_output` the client schema's file, in development.
 # Generators (`rails g lighthouse:install`) are found through lib/generators.
 class Lighthouse::Railtie < Rails::Railtie
   rake_tasks do
@@ -18,6 +19,11 @@ class Lighthouse::Railtie < Rails::Railtie
 
   initializer 'lighthouse.ide_helper', after: :load_config_initializers do |app|
     app.reloader.to_prepare { Lighthouse::IdeHelper.refresh(output_dir: app.root) }
+  end
+
+  # config.schema_output: the client schema's file, kept up to date in development.
+  initializer 'lighthouse.schema_output', after: :load_config_initializers do |app|
+    app.reloader.to_prepare { Lighthouse::GraphQL::SchemaPrinter.refresh }
   end
 
   # Rails' reloader then treats a .graphql edit like a Ruby one: the app's

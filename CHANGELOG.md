@@ -6,6 +6,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **`config.schema_output` keeps the client schema in a file, in development**, for a codegen
+  to read, as NestJS's `autoSchemaFile`: rewritten on boot and on every reload, only when it
+  changed (atomically, so a watcher never reads half of it). A path (`.json` for the
+  introspection result), or `{ path:, schema: }`. `bin/rails lighthouse:schema_output:verify`
+  fails in CI when the committed file is out of date.
+- `lighthouse:print_schema` takes PHP Lighthouse's options: `FORMAT=json` (the introspection
+  result), `FORMAT=federation` (a subgraph's SDL), and `WRITE=1` / `WRITE=path` to write a
+  file (schema_output's, else `lighthouse-schema.graphql`). graphql-ruby already prints in
+  alphabetical order, so there is no `--sort`. With no `SCHEMA=`, it prints `<App>Schema`,
+  the name graphql-ruby's install gives, before trying `AppSchema`.
+
 ### Changed
 
 - **Clients no longer see Lighthouse's directives.** Introspection listed every directive

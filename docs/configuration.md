@@ -38,6 +38,23 @@ content is unchanged is left alone. `nil` (the default) turns it on in
 development when the app has a `graphql.config.yml`, which `lighthouse:install`
 writes. Set `true` or `false` to decide yourself.
 
+### `schema_output`
+
+A file development keeps the schema clients see in, for a codegen to read, as
+NestJS's `autoSchemaFile`: rewritten on boot and on every reload, and only when it
+changed, so a watcher runs only then. A path under the app's root, whose extension
+picks the format (`.json` for the introspection result, else SDL), or a Hash naming
+the schema class too (`<App>Schema`, graphql-ruby's install's name, by default):
+
+```ruby
+config.schema_output = 'schema.graphql'
+config.schema_output = { path: 'app/javascript/graphql/schema.json', schema: 'Admin::Schema' }
+```
+
+Commit the file and check it in CI with `bin/rails lighthouse:schema_output:verify`,
+which fails when it is out of date; `bin/rails lighthouse:print_schema WRITE=1`
+rewrites it. See [printing the schema](getting-started.md#the-schema-clients-see).
+
 ### `namespaces`
 
 Where each kind of class a schema names is looked up, by kind — they have

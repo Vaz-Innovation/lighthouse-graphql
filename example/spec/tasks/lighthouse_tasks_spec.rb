@@ -39,6 +39,25 @@ RSpec.describe 'lighthouse rake tasks', type: :task do
     expect { run('lighthouse:print_schema', 'SCHEMA' => 'AppSchema') }.not_to output(/scalar _\b|:\s*_\b/).to_stdout
   end
 
+  it 'lighthouse:print_schema prints what clients see: no Lighthouse directive, introspection JSON with FORMAT=json' do
+    applied_or_defined = /^\s+\w+(\(.*\))?: \S+ @\w+|^directive @(all|paginate)/
+    expect { run('lighthouse:print_schema', 'SCHEMA' => 'AppSchema') }.not_to output(applied_or_defined).to_stdout
+    expect { run('lighthouse:print_schema', 'SCHEMA' => 'AppSchema', 'FORMAT' => 'json') }.to output(/"__schema"/).to_stdout
+  end
+
+  it 'lighthouse:print_schema WRITE= writes the file, and schema_output:verify fails until it is up to date' do
+    path = File.join(dir, 'schema.graphql')
+    Lighthouse::Config.schema_output = { path: path, schema: 'AppSchema' }
+
+    expect { run('lighthouse:schema_output:verify') }.to raise_error(SystemExit).and output(/out of date/).to_stderr
+    expect { run('lighthouse:print_schema', 'WRITE' => '1') }.to output(/Wrote #{path}/).to_stdout
+    expect(File.read(path)).to include('type PostPaginator')
+    expect { run('lighthouse:print_schema', 'WRITE' => '1') }.to output(/is up to date/).to_stdout
+    expect { run('lighthouse:schema_output:verify') }.to output(/is up to date/).to_stdout
+  ensure
+    Lighthouse::Config.schema_output = nil
+  end
+
   it 'lighthouse:validate_schema dispatches ValidateSchema and accepts the example schema' do
     listener = Lighthouse::Events.listen(Lighthouse::Events::ValidateSchema, &:schema)
 

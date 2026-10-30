@@ -32,6 +32,7 @@ module Lighthouse
       soft_deletes
       queue_broadcasts broadcast_queue
       global_id
+      schema_output
     ].freeze
 
     class << self
@@ -39,6 +40,11 @@ module Lighthouse
                   :transactional_mutations, :schema_cache, :watch_sdl, :persisted_queries, :persisted_queries_store, :persisted_queries_only,
                   :queue_broadcasts,
                   :convert_empty_strings_to_null, :feature_checker, :feature_actor, :global_id
+
+      # A file development keeps the client schema in (SchemaPrinter): a path
+      # (under Rails.root; `.json` for the introspection result), or
+      # { path:, schema: 'AppSchema' }. nil (the default): none.
+      attr_accessor :schema_output
 
       # The schema's entrypoint, as PHP Lighthouse's `schema_path`: the one file
       # the schema is read from, importing the others (`#import user.graphql`,

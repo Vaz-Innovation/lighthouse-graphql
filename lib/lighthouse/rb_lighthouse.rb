@@ -53,6 +53,7 @@ require_relative 'namespaces'
   root_types
   ast_builder
   server_directives
+  schema_printer
   schema_generator
   schema_cache
   persisted_queries
