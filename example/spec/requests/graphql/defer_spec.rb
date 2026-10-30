@@ -142,6 +142,38 @@ RSpec.describe 'Deferring fields', type: :request do
     expect(later['hasNext']).to be(false)
   end
 
+  it "reports an error of the app's in a later round, and ends the stream, where it only drops a client that went away" do
+    reported = []
+    subscriber = Class.new { define_method(:report) { |error, **| reported << error } }.new
+    Rails.error.subscribe(subscriber)
+    allow_any_instance_of(Comment).to receive(:body).and_raise(EOFError, 'the app read past the end') # rubocop:disable RSpec/AnyInstance
+
+    later = stream(query).last
+
+    expect(later['completed'].first['errors']).to eq([{ 'message' => 'Internal server error' }])
+    expect(later['hasNext']).to be(false)
+    expect(reported.map(&:message)).to eq(['the app read past the end'])
+  ensure
+    Rails.error.unsubscribe(subscriber)
+  end
+
+  it 'ends the response quietly when the client goes away' do
+    reported = []
+    subscriber = Class.new { define_method(:report) { |error, **| reported << error } }.new
+    Rails.error.subscribe(subscriber)
+    writes = 0
+    allow_any_instance_of(Lighthouse::GraphQL::Incremental::Multipart).to receive(:write).and_wrap_original do |original, payload| # rubocop:disable RSpec/AnyInstance
+      raise ActionController::Live::ClientDisconnected, 'client disconnected' if (writes += 1) > 1
+
+      original.call(payload)
+    end
+
+    expect(stream(query).size).to eq(1)
+    expect(reported).to eq([])
+  ensure
+    Rails.error.unsubscribe(subscriber)
+  end
+
   it 'streams the items of a paginated list after the first ones' do
     initial, later = stream('{ posts(first: 10) { data @stream(initialCount: 1, label: "rest") { title } } }')
 

@@ -44,6 +44,9 @@ module Lighthouse::GraphQL::Controller
   # schema's rescue_from) catches it on its way out of the operation.
   class Performed < Exception; end # rubocop:disable Lint/InheritException
 
+  # The client of a streamed response went away: writing to its stream failed.
+  class Gone < StandardError; end
+
   include Lighthouse::GraphQL::Operations
 
   def execute
@@ -134,12 +137,30 @@ module Lighthouse::GraphQL::Controller
     end
     multipart = Lighthouse::GraphQL::Incremental::Multipart.new(response.stream)
     begin
-      run.each_payload { |payload| multipart.write(payload) }
+      run.each_payload { |payload| lighthouse_write { multipart.write(payload) } }
     ensure
-      multipart.finish
+      lighthouse_write { multipart.finish }
     end
-  rescue ::ActionController::Live::ClientDisconnected, ::IOError
+  rescue Gone
     nil
+  rescue StandardError => e
+    lighthouse_report(e)
+    raise
+  end
+
+  # A write to the response's stream: a client that went away (ActionController::Live's
+  # ClientDisconnected, or the IOError of a closed stream) ends the response quietly. Any other
+  # error, an IOError of the app's among them, is not a write's.
+  def lighthouse_write
+    yield
+  rescue ::ActionController::Live::ClientDisconnected, ::IOError
+    raise Gone
+  end
+
+  # An error raised once a streamed response is on its way: ActionController::Live only logs
+  # it, so it goes to Rails.error too, where the JSON path's would go (the executor reports it).
+  def lighthouse_report(error)
+    ::Rails.error.report(error, handled: false) if defined?(::Rails) && ::Rails.respond_to?(:error) && response.committed?
   end
 
   # In development, an error that is not one Rails answers, before the response is on its way.
