@@ -87,13 +87,17 @@ class Lighthouse::Search::Searchkick
 
   private
 
-  # The response's records in their hits' places, nil where one did not load.
+  # The response's records in their hits' places, nil where one did not load. A
+  # record is placed by its hit's index and id, as hits of two indices (Searchkick's
+  # `models:`, an `index_name:` list) may share an id.
   def entries(response)
     return response.to_a unless response.respond_to?(:with_hit) && response.respond_to?(:hits)
 
-    loaded = response.with_hit.to_h { |record, hit| [hit['_id'].to_s, record] }
-    response.hits.map { |hit| loaded[hit['_id'].to_s] }
+    loaded = response.with_hit.to_h { |record, hit| [hit_key(hit), record] }
+    response.hits.map { |hit| loaded[hit_key(hit)] }
   end
+
+  def hit_key(hit) = [hit['_index'], hit['_id'].to_s]
 
   # Does the search read the model's own index, whose settings the model tells?
   def own_index?(query) = query.index.nil? || query.index == query.model.searchkick_index&.name

@@ -58,6 +58,15 @@ RSpec.describe 'search adapters' do
       expect(searched.last[:where]).to eq(_and: [{ author_id: [1, 2], published: true }, { author_id: 3 }, { author_id: 4 }])
     end
 
+    it 'places each record at its own hit, when hits of two indices share an id' do
+      hits = [{ '_index' => 'posts', '_id' => '1' }, { '_index' => 'drafts', '_id' => '1' }]
+      draft = SearchkickPost.new(title: 'draft')
+      response = Struct.new(:hits, :total_count, :loaded) { def with_hit = [[loaded, hits[1]]] }.new(hits, 2, draft)
+      allow(SearchkickPost).to receive(:searchkick_search).and_return(response)
+
+      expect(adapter.page(query, offset: 0, limit: 2)).to eq([[nil, draft], 2])
+    end
+
     it 'searches the index within: names, and merges the where of a builder' do
       query = Lighthouse::Search::Query.new(SearchkickPost, 'milk', 'other_index')
       query.options[:where] = { published: true }
