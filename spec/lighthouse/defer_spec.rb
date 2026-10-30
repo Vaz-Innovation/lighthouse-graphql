@@ -989,9 +989,9 @@ RSpec.describe 'Deferring fields' do
       stream = StringIO.new
       multipart = described_class.new(stream)
 
-      multipart.write('a' => 1)
+      multipart.emit(multipart.part('a' => 1))
       expect(stream.string).to eq("\r\n---\r\nContent-Type: application/json; charset=utf-8\r\n\r\n{\"a\":1}\r\n---")
-      multipart.write('b' => 2)
+      multipart.emit(multipart.part('b' => 2))
       multipart.finish
 
       expect(stream.string).to eq(
@@ -1004,7 +1004,7 @@ RSpec.describe 'Deferring fields' do
       stream = StringIO.new
       payload = { 'data' => { 'at' => Time.utc(2026, 1, 2, 3, 4, 5), 'price' => BigDecimal('1.50') } }
 
-      described_class.new(stream).write(payload)
+      described_class.new(stream).then { |multipart| multipart.emit(multipart.part(payload)) }
 
       expect(stream.string).to include("\r\n\r\n#{ActiveSupport::JSON.encode(payload)}\r\n---")
       expect(stream.string).to include('"at":"2026-01-02T03:04:05.000Z"', '"price":"1.5"')

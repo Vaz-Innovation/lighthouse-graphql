@@ -33,10 +33,6 @@ class Lighthouse::GraphQL::Incremental::Multipart
     @started = false
   end
 
-  def write(payload)
-    emit(part(payload))
-  end
-
   # The part of `payload`, encoded: an error raised here is the app's values'.
   def part(payload)
     "#{@started ? "\r\n" : "\r\n---\r\n"}#{PART_HEADERS}#{ActiveSupport::JSON.encode(payload)}\r\n---"
