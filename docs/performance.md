@@ -292,8 +292,9 @@ that is not streamed costs it two method calls and a fiber-local read.
 
 The controller streams the response, as `multipart/mixed` parts (graphql-over-http's incremental
 delivery), when three things hold: the schema uses the plugin, the controller includes
-`ActionController::Live`, and the request's `Accept` header takes `multipart/mixed` (without the
-older format's `deferSpec` parameter). In every other case the whole response comes at once, the
+`ActionController::Live`, and the request's `Accept` header prefers `multipart/mixed` (without the
+older format's `deferSpec` parameter) to a JSON response: not at `q=0`, and ranked, by q and then by
+order as Rails ranks types, before `application/json` and `application/graphql-response+json`. In every other case the whole response comes at once, the
 deferred fragments in it, as the specification allows: a JSON client, `schema.execute`, a batch (a
 JSON array). A query that defers nothing is answered as JSON, whatever the client accepts. A part's
 JSON is encoded as `render json:` encodes any response.

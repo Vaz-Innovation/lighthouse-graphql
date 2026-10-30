@@ -28,6 +28,17 @@ module Lighthouse::GraphQL::Defer
   OLD_FORMAT = 'deferspec'
   # What a client names when it reads the specification draft's format.
   FORMAT = 'incrementalspec=v0.2'
+  JSON_TYPES = %w[application/json application/graphql-response+json].freeze
+
+  # A media range of an Accept header; `rank` orders them as preferred first.
+  Range = Struct.new(:type, :params, :q, :index) do
+    def rank = [-q, index]
+
+    # multipart/mixed, but in the older format.
+    def streams? = type == MULTIPART && params.none? { |param| param.start_with?(OLD_FORMAT) }
+    def json? = JSON_TYPES.include?(type)
+    def before?(other) = other.nil? || (rank <=> other.rank).negative?
+  end
 
   module_function
 
@@ -60,22 +71,38 @@ module Lighthouse::GraphQL::Defer
     schema.directives['defer'] == Lighthouse::GraphQL::Incremental::DeferDirective
   end
 
-  # Does the `Accept` header take a streamed response in this gem's format?
+  # Does the `Accept` header take a streamed response in this gem's format, and prefer it to JSON?
   def accepts?(accept)
-    ranges(accept).any?
+    !preferred(accept).nil?
   end
 
   # The Content-Type of the streamed response to `accept`: it names the format when the client did.
   def content_type(accept)
-    named = ranges(accept).any? { |params| params.include?(FORMAT) }
+    named = preferred(accept)&.params&.include?(FORMAT)
     named ? "#{Lighthouse::GraphQL::Incremental::Multipart::CONTENT_TYPE}; incrementalSpec=v0.2" : Lighthouse::GraphQL::Incremental::Multipart::CONTENT_TYPE
   end
 
-  # The parameters of each `multipart/mixed` range of the header, but those of the older format.
+  # The `multipart/mixed` range of the header the client prefers to a JSON response, if one:
+  # not at q=0, not in the older format, and ranked (q, then order, as Rails ranks them) no
+  # lower than application/json or application/graphql-response+json. Rails' Mime::Type.parse
+  # ranks the types, but drops their parameters (the format is one), so this reads them.
+  def preferred(accept)
+    ranges = ranges(accept).select { |range| range.q.positive? }
+    multipart = best(ranges, &:streams?)
+    multipart if multipart&.before?(best(ranges, &:json?))
+  end
+
+  # The preferred of the ranges the block selects.
+  def best(ranges, &block)
+    ranges.select(&block).min_by(&:rank)
+  end
+
+  # Each media range of the header: its type, its parameters (lowercase, but q) and its q.
   def ranges(accept)
-    accept.to_s.split(',').filter_map do |range|
+    accept.to_s.split(',').each_with_index.map do |range, index|
       type, *params = range.split(';').map { |part| part.strip.downcase }
-      params if type == MULTIPART && params.none? { |param| param.start_with?(OLD_FORMAT) }
+      q = params.find { |param| param.start_with?('q=') }
+      Range.new(type, params - [q], q ? q.delete_prefix('q=').to_f : 1.0, index)
     end
   end
 end

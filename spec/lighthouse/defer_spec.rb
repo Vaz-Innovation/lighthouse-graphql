@@ -626,6 +626,16 @@ RSpec.describe 'Deferring fields' do
       expect(described_class.accepts?(nil)).to be(false)
     end
 
+    it 'honours q-values: never multipart/mixed at q=0, nor below a JSON type the client prefers' do
+      expect(described_class.accepts?('application/json, multipart/mixed;q=0')).to be(false)
+      expect(described_class.accepts?('multipart/mixed;q=0.5, application/json')).to be(false)
+      expect(described_class.accepts?('multipart/mixed;q=0.5, application/graphql-response+json;q=0.8')).to be(false)
+      expect(described_class.accepts?('application/json;q=0.9, multipart/mixed;q=0.95')).to be(true)
+      expect(described_class.accepts?('multipart/mixed;incrementalSpec=v0.2, application/graphql-response+json, application/json;q=0.9')).to be(true)
+      expect(described_class.accepts?('application/json, multipart/mixed')).to be(false)
+      expect(described_class.accepts?('multipart/mixed;q=0')).to be(false)
+    end
+
     it 'names the format in the content type when the client did' do
       expect(described_class.content_type('multipart/mixed;incrementalSpec=v0.2')).to eq('multipart/mixed; boundary="-"; incrementalSpec=v0.2')
       expect(described_class.content_type('multipart/mixed')).to eq('multipart/mixed; boundary="-"')
