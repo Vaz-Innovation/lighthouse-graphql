@@ -376,7 +376,9 @@ RSpec.describe 'Deferring fields' do
     end
 
     it 'leaves a query that does not parse to graphql-ruby' do
-      expect(errors('{ users { ')).to include(a_string_matching(/end of file/))
+      parse_errors = schema.execute('{ users { ')['errors'].pluck('message')
+
+      expect(errors('{ users { ')).to eq(parse_errors)
     end
 
     it 'counts the deferred fragments in the complexity of the query' do
