@@ -30,7 +30,7 @@ class Lighthouse::Search::Searchkick
   DEEP_PAGING_WINDOW = 1_000_000_000
 
   def initialize
-    @indexed = {}
+    @per_model = {}
   end
 
   def searchable?(model, _index = nil)
@@ -58,9 +58,11 @@ class Lighthouse::Search::Searchkick
   def result_window(query)
     return nil unless own_index?(query)
 
-    options = ::ActiveSupport::HashWithIndifferentAccess.new(query.model.searchkick_options)
-    options[:max_result_window] || settings_window(options[:settings] || {}) ||
-      (options[:deep_paging] ? DEEP_PAGING_WINDOW : Lighthouse::Search::Result::MAX_WINDOW)
+    per_model(:result_window, query.model) do |model|
+      options = ::ActiveSupport::HashWithIndifferentAccess.new(model.searchkick_options)
+      options[:max_result_window] || settings_window(options[:settings] || {}) ||
+        (options[:deep_paging] ? DEEP_PAGING_WINDOW : Lighthouse::Search::Result::MAX_WINDOW)
+    end
   end
 
   private
@@ -132,18 +134,24 @@ class Lighthouse::Search::Searchkick
     raise ::GraphQL::ExecutionError, "#{model.name}.search_data does not index #{column}, which @trashed filters the search on."
   end
 
-  # What `search_data` holds, or nil when it cannot run on a blank record. Read
-  # once per model class: a class code reloading makes is read again.
+  # What `search_data` holds, or nil when it cannot run on a blank record, read
+  # once per model class.
   def indexed_columns(model)
-    model_class, columns = @indexed[model.name]
-    return columns if model_class.equal?(model)
-
-    columns = begin
+    per_model(:indexed_columns, model) do
       model.new.search_data.keys.map(&:to_s)
     rescue StandardError
       nil
     end
-    @indexed[model.name] = [model, columns]
-    columns
+  end
+
+  # What the block answers for the model, worked out once per model class: a
+  # class code reloading makes, under the same name, is worked out again.
+  def per_model(key, model)
+    model_class, value = @per_model[[key, model.name]]
+    return value if model_class.equal?(model)
+
+    value = yield(model)
+    @per_model[[key, model.name]] = [model, value]
+    value
   end
 end

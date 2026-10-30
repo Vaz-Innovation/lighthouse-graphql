@@ -22,6 +22,15 @@ module Lighthouse::Support::ArgumentWalk
     (argument.type.non_null? ? argument.type.of_type : argument.type).list?
   end
 
+  # Support::ArgumentWalk.definitions of a field's arguments, walked once per
+  # field when the schema is built (for its searches and its @canModel), and kept
+  # on the field: a schema built again on reload starts afresh.
+  def field_definitions(field_def)
+    return field_def.instance_variable_get(:@lighthouse_argument_walk) if field_def.instance_variable_defined?(:@lighthouse_argument_walk)
+
+    field_def.instance_variable_set(:@lighthouse_argument_walk, definitions(field_def.arguments).freeze)
+  end
+
   # [dot path ("filter.trashed", "inputs.*.status"), argument] for every argument
   # and input field, at any depth, each before the fields of its input type; `*`
   # steps into each of a list. An input type is not walked twice on one path.

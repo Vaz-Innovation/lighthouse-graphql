@@ -129,16 +129,16 @@ module Lighthouse::GraphQL::FieldResolverStack
   def argument_authorization_steps(type, field_def, opts)
     resolver = Lighthouse::GraphQL::DirectiveResolvers::CanModelDirectiveResolver
     order = Lighthouse::DirectiveRegistry.default.resolution_order(resolver.directive_name)
-    authorized_arguments(field_def.arguments).map do |path, dnode|
+    authorized_arguments(field_def).map do |path, dnode|
       [order, -> { resolver.new(field_def, type, dnode, opts.merge(argument: path)).define_resolver(type) }]
     end
   end
 
   # [dot path ("filter.trashed", "inputs.*.status"), @canModel node] for every
   # argument and input field carrying @canModel (Support::ArgumentWalk).
-  def authorized_arguments(arguments)
+  def authorized_arguments(field_def)
     walk = Lighthouse::Support::ArgumentWalk
-    walk.definitions(arguments).flat_map do |path, argument|
+    walk.field_definitions(field_def).flat_map do |path, argument|
       walk.directives(argument).select { |d| d.name == 'canModel' }.map { |dnode| [path, dnode] }
     end
   end

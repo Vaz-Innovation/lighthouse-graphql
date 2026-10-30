@@ -55,7 +55,7 @@ module Lighthouse::Search
     return field_def.instance_variable_get(:@lighthouse_searches) if field_def.instance_variable_defined?(:@lighthouse_searches)
 
     walk = Lighthouse::Support::ArgumentWalk
-    searches = walk.definitions(field_def.arguments).flat_map do |path, argument|
+    searches = walk.field_definitions(field_def).flat_map do |path, argument|
       walk.directives(argument).select { |d| d.name == 'search' }.map { |dnode| [path, dnode] }
     end
     field_def.instance_variable_set(:@lighthouse_searches, searches.freeze)

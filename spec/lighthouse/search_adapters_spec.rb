@@ -61,20 +61,32 @@ RSpec.describe 'search adapters' do
 
     describe 'the result window' do
       it "is the model's max_result_window, a billion with deep_paging, else the engines' default" do
-        expect(adapter.result_window(query)).to eq(10_000)
+        expect(described_class.new.result_window(query)).to eq(10_000)
         allow(SearchkickPost).to receive(:searchkick_options).and_return(deep_paging: true)
-        expect(adapter.result_window(query)).to eq(1_000_000_000)
+        expect(described_class.new.result_window(query)).to eq(1_000_000_000)
         allow(SearchkickPost).to receive(:searchkick_options).and_return(max_result_window: 50_000, deep_paging: true)
-        expect(adapter.result_window(query)).to eq(50_000)
+        expect(described_class.new.result_window(query)).to eq(50_000)
         allow(SearchkickPost).to receive(:searchkick_options).and_return(settings: { index: { max_result_window: 20_000 } })
-        expect(adapter.result_window(query)).to eq(20_000)
+        expect(described_class.new.result_window(query)).to eq(20_000)
+      end
+
+      it "reads the model's options once, and again for the class code reloading makes" do
+        reloaded = Class.new(SearchkickPost) { def self.name = 'SearchkickPost' }
+        allow(SearchkickPost).to receive(:searchkick_options).and_call_original
+        allow(reloaded).to receive(:searchkick_options).and_call_original
+
+        2.times { adapter.result_window(query) }
+        adapter.result_window(Lighthouse::Search::Query.new(reloaded, 'milk'))
+
+        expect(SearchkickPost).to have_received(:searchkick_options).once
+        expect(reloaded).to have_received(:searchkick_options).once
       end
 
       it 'reads the settings whatever their keys' do
         allow(SearchkickPost).to receive(:searchkick_options).and_return(settings: { 'index' => { 'max_result_window' => 50_000 } })
-        expect(adapter.result_window(query)).to eq(50_000)
+        expect(described_class.new.result_window(query)).to eq(50_000)
         allow(SearchkickPost).to receive(:searchkick_options).and_return('settings' => { 'index.max_result_window' => 30_000 })
-        expect(adapter.result_window(query)).to eq(30_000)
+        expect(described_class.new.result_window(query)).to eq(30_000)
       end
 
       it "is not known for an index within: names, which is not the model's: the engine's refusal stands" do

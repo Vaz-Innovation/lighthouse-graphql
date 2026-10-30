@@ -899,13 +899,13 @@ RSpec.describe '@search' do
       expect(Lighthouse::Support::ArgumentWalk).not_to have_received(:definitions)
     end
 
-    it 'walks the arguments of a searched field once for its searches when the schema is built, as for its @canModel' do
+    it 'walks the arguments of a searched field once when the schema is built, for its searches and its @canModel' do
       allow(Lighthouse::Support::ArgumentWalk).to receive(:definitions).and_call_original
 
       built = build_schema('type SearchPost { id: ID! } type Query { posts(search: String @search, id: ID @eq): [SearchPost!]! @all }')
 
       arguments = built.query.fields['posts'].arguments
-      expect(Lighthouse::Support::ArgumentWalk).to have_received(:definitions).with(arguments).twice
+      expect(Lighthouse::Support::ArgumentWalk).to have_received(:definitions).with(arguments).once
     end
 
     it 'ends the order with the primary key, after the orders that decide ties, once' do
