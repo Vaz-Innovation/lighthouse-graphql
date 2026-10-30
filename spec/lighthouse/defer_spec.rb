@@ -510,6 +510,33 @@ RSpec.describe 'Deferring fields' do
     end
   end
 
+  describe 'extensions' do
+    before do
+      Lighthouse::Events.listen(Lighthouse::Events::BuildExtensionsResponse) do |event|
+        data = event.result['data']
+        Lighthouse::Events::ExtensionsResponse.new('ran', data.is_a?(Array) ? 'items' : data&.keys || 'nothing')
+      end
+    end
+
+    it 'delivers the extensions of a fragment\'s run on its incremental entry, and the first pass\'s on the first payload' do
+      all = payloads('{ users { id ... @defer { name } } }')
+
+      expect(all.first['extensions']).to eq('ran' => ['users'])
+      expect(all.last['incremental'].pluck('extensions')).to eq([{ 'ran' => ['name'] }] * 3)
+    end
+
+    it 'delivers those of streamed items on their entry' do
+      expect(payloads('{ names @stream(initialCount: 1) }').last['incremental'].first['extensions']).to eq('ran' => 'items')
+    end
+
+    it 'delivers those of a fragment that leaves no data on the payload' do
+      later = payloads('{ users { id ... @defer { name required } } }').last
+
+      expect(later['incremental']).to be_nil
+      expect(later['extensions']).to eq('ran' => 'nothing')
+    end
+  end
+
   describe Lighthouse::GraphQL::Defer do
     it 'streams to a client that accepts multipart/mixed, in this gem\'s format' do
       expect(described_class.accepts?('multipart/mixed;incrementalSpec=v0.2,application/json')).to be(true)

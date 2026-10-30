@@ -94,12 +94,13 @@ class Lighthouse::GraphQL::Incremental::Run
     @announced = []
     incremental = []
     completed = []
+    extensions = {}
     # Each Partial's own fragments, against its own data, path and offset.
     group.each_with_index do |pending, index|
-      deliver(pending, results[index], incremental, completed)
+      deliver(pending, results[index], incremental, completed, extensions)
       announce(@state.drain(partials[index]), results[index]['data'], pending.path, pending.offset.to_i)
     end
-    Serializer.subsequent(incremental: incremental, completed: completed, pending: @announced, has_next: deferred?)
+    Serializer.subsequent(incremental: incremental, completed: completed, pending: @announced, extensions: extensions, has_next: deferred?)
   end
 
   # A Partial of `fragment` for each object of `group` (the items of a stream).
@@ -119,17 +120,20 @@ class Lighthouse::GraphQL::Incremental::Run
     @schema.multiplex(partials, context: @result.query.context, max_complexity: nil).map(&:to_h)
   end
 
-  # A fragment's data goes in `incremental` (a stream's as `items`); a null data (a
-  # non-null field failed beyond the fragment) leaves only its errors, in `completed`.
-  def deliver(pending, response, incremental, completed)
-    data = response['data']
-    errors = response['errors']
+  # A fragment's data goes in `incremental` (a stream's as `items`), with the errors and the
+  # extensions of its run (BuildExtensionsResponse, ManipulateResult); a null data (a non-null
+  # field failed beyond the fragment) leaves only its errors, in `completed`, and its
+  # extensions go on the payload's.
+  def deliver(pending, response, incremental, completed, payload_extensions)
+    data, errors, extensions = response.values_at('data', 'errors', 'extensions')
     offset_errors(errors, pending) if pending.fragment.stream
     if data.nil?
       completed << { 'id' => pending.id, 'errors' => errors }.compact
+      payload_extensions.merge!(extensions) if extensions
     else
       key = pending.fragment.stream ? 'items' : 'data'
-      incremental << { 'id' => pending.id, key => data, 'errors' => errors }.compact unless data.empty? && errors.nil?
+      entry = { 'id' => pending.id, key => data, 'errors' => errors, 'extensions' => extensions }.compact
+      incremental << entry unless data.empty? && entry.size == 2
       completed << { 'id' => pending.id }
     end
   end

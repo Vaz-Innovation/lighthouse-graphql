@@ -18,13 +18,14 @@ module Lighthouse::GraphQL::Incremental::Serializer
     result.to_h.merge('pending' => pending.map { |entry| pending_entry(entry) }, 'hasNext' => has_next)
   end
 
-  # `incremental`: Hashes with an `id` and `data` or `items` (and `errors`);
-  # `completed`: Hashes with an `id` (and `errors`).
-  def subsequent(incremental:, completed:, pending:, has_next:)
+  # `incremental`: Hashes with an `id` and `data` or `items` (and `errors`, `extensions`);
+  # `completed`: Hashes with an `id` (and `errors`); `extensions`: the payload's own.
+  def subsequent(incremental:, completed:, pending:, has_next:, extensions: {})
     payload = {}
     payload['pending'] = pending.map { |entry| pending_entry(entry) } unless pending.empty?
     payload['incremental'] = incremental unless incremental.empty?
     payload['completed'] = completed unless completed.empty?
+    payload['extensions'] = extensions unless extensions.empty?
     payload['hasNext'] = has_next
     payload
   end
