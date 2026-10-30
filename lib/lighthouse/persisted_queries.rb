@@ -54,8 +54,11 @@ module Lighthouse::GraphQL::PersistedQueries
   # `schema.execute` with the query the request names; a protocol error
   # comes back as a ready-to-render { "errors" => [...] } Hash. Dispatches
   # StartOperationOrOperations before and EndOperationOrOperations after.
+  # A protocol error raised as the query runs (a resolver asking `resolve`, say) is answered so too.
   def execute(schema, query:, extensions: nil, **options)
-    operation(query, extensions, options) { |text, ended| schema.execute(text, **options).tap { |result| ended.call(result) } }
+    operation(query, extensions, options) do |text, ended|
+      protocol { schema.execute(text, **options) }.tap { |result| ended.call(result) }
+    end
   end
 
   # `execute` for a response that may be streamed (Defer): yields the
@@ -66,15 +69,27 @@ module Lighthouse::GraphQL::PersistedQueries
   # that defers, with the whole response (Incremental::Run#response, the data and
   # errors of every round) once its last round has run, or, if the block streams
   # none, once the block is done.
+  #
+  # A protocol error raised as the first pass runs is answered as on the JSON path, nothing being
+  # sent yet; one raised in a later round fails the stream, as any error of a round does.
   def incremental(schema, query:, extensions: nil, **options)
     operation(query, extensions, options) do |text, ended|
-      run = Lighthouse::GraphQL::Incremental::Run.new(schema, text, **options).start(&ended)
+      run = protocol { Lighthouse::GraphQL::Incremental::Run.new(schema, text, **options).start(&ended) }
+      next run.tap { |error| ended.call(error) } if run.is_a?(Hash)
+
       begin
         yield run
       ensure
         run.finish
       end
     end
+  end
+
+  # What the block answers, or the Hash of the protocol Error it raises.
+  def protocol
+    yield
+  rescue Error => e
+    e.to_h
   end
 
   # What `execute` and `incremental` share: the block runs the query the request names
@@ -86,15 +101,10 @@ module Lighthouse::GraphQL::PersistedQueries
     operation = { query: query, variables: options[:variables], operation_name: options[:operation_name], extensions: extensions }
     Lighthouse::Events.dispatch(Lighthouse::Events::StartOperationOrOperations.new(operation))
     ended = ->(result) { Lighthouse::Events.dispatch(Lighthouse::Events::EndOperationOrOperations.new(result)) }
-    text = resolved(query, extensions) { |error| return error.to_h.tap { |hash| ended.call(hash) } }
-    yield text, ended
-  end
+    text = protocol { resolve(query, extensions) }
+    return text.tap { |error| ended.call(error) } if text.is_a?(Hash)
 
-  # The query text `resolve` answers; the block gets the protocol Error it raises instead.
-  def resolved(query, extensions)
-    resolve(query, extensions)
-  rescue Error => e
-    yield e
+    yield text, ended
   end
 
   # A batch (a JSON array in the request) through `schema.multiplex`; see Batch.

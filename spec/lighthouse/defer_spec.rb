@@ -25,6 +25,11 @@ class DeferSpecNothing
   def self.call(*) = nil
 end
 
+# A field whose run is refused as the protocol refuses a query (a resolver asking PersistedQueries).
+class DeferSpecUnlisted
+  def self.call(*) = raise(Lighthouse::GraphQL::PersistedQueries::Error.new(*Lighthouse::GraphQL::PersistedQueries::NOT_IN_LIST))
+end
+
 # Users, with a null between them.
 class DeferSpecGaps
   def self.call(*) = [LH::User.first, nil, LH::User.second]
@@ -47,6 +52,7 @@ RSpec.describe 'Deferring fields' do
         noted: String @throttle(maxAttempts: 0, with: "note_it") @field(resolver: "DeferSpecNames")
         gaps: [User] @field(resolver: "DeferSpecGaps")
         strictGaps: [User!] @field(resolver: "DeferSpecGaps")
+        unlisted: String @field(resolver: "DeferSpecUnlisted")
       }
       directive @mark on INLINE_FRAGMENT
       type Mutation {
@@ -1296,6 +1302,30 @@ RSpec.describe 'Deferring fields' do
       end
       expect { incremental('{ user(id: 1) { id ... @defer { name } } }', &streamed) }.to raise_error(error)
       expect(ended.size).to eq(2)
+    end
+
+    it 'answers a protocol error raised as the query runs as its Hash, and ends the operation once with it, as main did' do
+      result = Lighthouse::GraphQL::PersistedQueries.execute(schema, query: '{ unlisted }')
+
+      expect(result).to eq(Lighthouse::GraphQL::PersistedQueries::Error.new(*Lighthouse::GraphQL::PersistedQueries::NOT_IN_LIST).to_h)
+      expect(ended).to eq([result])
+    end
+
+    it 'answers one raised in the first pass of a streamed operation the same way, before anything is sent' do
+      result = incremental('{ unlisted ... @defer { users { name } } }') { raise 'not run' }
+
+      expect(result['errors'].first['extensions']).to eq('code' => 'PERSISTED_QUERY_NOT_IN_LIST')
+      expect(ended).to eq([result])
+    end
+
+    it 'fails the stream with one raised in a later round, as any error of a round, and ends the operation once' do
+      sent = []
+      expect do
+        incremental('{ users { id } ... @defer { unlisted } }') { |run| run.each_payload { |payload| sent << payload } }
+      end.to raise_error(Lighthouse::GraphQL::PersistedQueries::Error)
+
+      expect(sent.last).to eq('completed' => [{ 'id' => '0', 'errors' => [{ 'message' => 'Internal server error' }] }], 'hasNext' => false)
+      expect(ended.size).to eq(1)
     end
 
     it "ends schema.execute's operation once when a listener of its end raises a protocol error" do
