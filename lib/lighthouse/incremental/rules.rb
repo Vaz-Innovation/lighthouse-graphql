@@ -81,8 +81,9 @@ class Lighthouse::GraphQL::Incremental::Rules < GraphQL::Analysis::Analyzer
     seen = {}
     directives(query.document.definitions).filter_map do |directive|
       label = directive.arguments.find { |argument| argument.name == 'label' }&.value
-      next if label.nil?
-      next failure(directive, "The label of @#{directive.name} must be a String literal, not a variable.") unless label.is_a?(String)
+      variable = label.is_a?(::GraphQL::Language::Nodes::VariableIdentifier)
+      next failure(directive, "The label of @#{directive.name} must be a String literal, not a variable.") if variable
+      next unless label.is_a?(String) # none, or null: no label
       next failure(directive, "The label \"#{label}\" is used by more than one @defer or @stream in the document.") if seen.key?(label)
 
       seen[label] = true

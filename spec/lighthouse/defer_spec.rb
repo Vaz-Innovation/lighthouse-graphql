@@ -652,6 +652,14 @@ RSpec.describe 'Deferring fields' do
       expect(errors('{ users { ... @defer(label: "x") { name } ... @defer(label: "x") { id } } }')).to eq([message])
     end
 
+    it 'takes a label that is null, as no label' do
+      all = payloads('{ users { id ... @defer(label: null) { name } } }')
+
+      expect(all.first['errors']).to be_nil
+      expect(all.first['pending'].first).to eq('id' => '0', 'path' => ['users', 0])
+      expect(schema.execute('{ users { id ... @defer(label: null) { name } } }').to_h['errors']).to be_nil
+    end
+
     it 'refuses a label that is a variable' do
       message = 'The label of @defer must be a String literal, not a variable.'
 
