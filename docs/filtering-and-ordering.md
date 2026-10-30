@@ -502,6 +502,9 @@ a page that starts past it is an error the client reads:
 > The search reads no further than its first 10000 matches (the index.max_result_window of Comment), so
 > offset 10000 is past them. Narrow the search instead.
 
+`total` stays the true number of matches; `lastPage`, `hasMorePages` and `hasNextPage` count only the
+pages within the window, so no page is announced that would then be refused.
+
 Lighthouse takes the window from the model: `searchkick max_result_window: 50_000` (or `settings: {
 index: { max_result_window: 50_000 } }`, with symbol or string keys, nested or as
 `'index.max_result_window'`), a billion with `searchkick deep_paging: true`, else 10,000. An index

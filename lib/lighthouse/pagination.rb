@@ -153,6 +153,13 @@ module Lighthouse::GraphQL::Pagination
     def total
       @total ||= @list.count
     end
+
+    # How many records a page can reach: the total, but a search's only within
+    # its engine's result window (Search::Result#reachable). Pages are counted
+    # from it, so no page is announced that would then be refused.
+    def reachable
+      @reachable ||= @list.respond_to?(:reachable) ? @list.reachable : total
+    end
   end
 
   class Paginator < LazyPage
@@ -168,7 +175,7 @@ module Lighthouse::GraphQL::Pagination
 
     def info
       @info ||= begin
-        last_page = @per_page.zero? ? 0 : [(total.to_f / @per_page).ceil, 1].max
+        last_page = @per_page.zero? ? 0 : [(reachable.to_f / @per_page).ceil, 1].max
         positions = Lighthouse::GraphQL::Pagination.positions(@items, (@page - 1) * @per_page)
         Lighthouse::GraphQL::Pagination.item_range(@items, @page, @per_page, positions)
                                        .merge('hasMorePages' => @page < last_page, 'lastPage' => last_page, 'total' => total)
@@ -197,14 +204,14 @@ module Lighthouse::GraphQL::Pagination
       covered = Lighthouse::GraphQL::Pagination.covered(@items)
       past = Lighthouse::GraphQL::Pagination.encode_cursor(@offset + covered) unless covered.zero?
       @info ||= {
-        'hasNextPage' => @offset + covered < total,
+        'hasNextPage' => @offset + covered < reachable,
         'hasPreviousPage' => @offset.positive?,
         'startCursor' => cursors.first,
         'endCursor' => cursors.last || past,
         'total' => total,
         'count' => @items.size,
         'currentPage' => @first.zero? ? 1 : (@offset / @first) + 1,
-        'lastPage' => @first.zero? ? 0 : [(total.to_f / @first).ceil, 1].max
+        'lastPage' => @first.zero? ? 0 : [(reachable.to_f / @first).ceil, 1].max
       }
     end
 

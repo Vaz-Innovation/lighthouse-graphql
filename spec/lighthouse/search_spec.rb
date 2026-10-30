@@ -345,6 +345,28 @@ RSpec.describe '@search' do
       expect(engine.requests).to be_empty
     end
 
+    describe 'with @paginate, at the end of the result window' do
+      let(:engine) { FakeSearch::Engine.new([SearchPost], Array.new(10_001) { |index| SearchPost.new(title: "hit #{index + 1}") }) }
+      let(:schema) do
+        build_schema(<<~GRAPHQL)
+          type SearchPost { title: String! }
+          type Query {
+            paginator(search: String @search): [SearchPost!]! @paginate
+            connection(search: String @search): [SearchPost!]! @paginate(type: CONNECTION)
+          }
+        GRAPHQL
+      end
+
+      it 'announces no page past it, though the total counts every match' do
+        page = run(schema, '{ paginator(first: 10, page: 1000, search: "x") { paginatorInfo { total lastPage hasMorePages } } }')
+        after = Lighthouse::GraphQL::Pagination.encode_cursor(9990)
+        last = run(schema, %({ connection(first: 10, after: "#{after}", search: "x") { pageInfo { hasNextPage total lastPage } } }))
+
+        expect(page.dig('data', 'paginator', 'paginatorInfo')).to eq('total' => 10_001, 'lastPage' => 1000, 'hasMorePages' => false)
+        expect(last.dig('data', 'connection', 'pageInfo')).to eq('hasNextPage' => false, 'total' => 10_001, 'lastPage' => 1000)
+      end
+    end
+
     describe 'with @paginate, when hits do not load' do
       # Twenty hits; the 11th and the 20th did not load.
       let(:engine) do
