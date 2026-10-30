@@ -37,8 +37,7 @@ class Lighthouse::GraphQL::Incremental::Multipart
     @stream.write("#{lead}#{PART_HEADERS}#{JSON.generate(payload)}\r\n---")
   end
 
-  # The closing boundary. The stream is closed by ActionController::Live when the action
-  # ends, after the request events, whatever happened before.
+  # The closing boundary. Closing the stream is the controller's, after the request events.
   def finish
     @stream.write("--\r\n") if @started
   end

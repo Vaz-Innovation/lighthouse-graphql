@@ -91,6 +91,12 @@ RSpec.describe 'Deferring fields', type: :request do
     expect(response.parsed_body['errors'].first['message']).to include('label "a"')
   end
 
+  it 'closes the stream when the request is done, which is what ends the response for a real client' do
+    stream(query)
+
+    expect(controller.response.stream).to be_closed
+  end
+
   it 'dispatches the request events once, around the whole stream' do
     events = []
     Lighthouse::Events.listen(Lighthouse::Events::StartRequest) { (events << :start) && nil }

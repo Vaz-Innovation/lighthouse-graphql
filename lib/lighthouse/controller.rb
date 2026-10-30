@@ -59,6 +59,9 @@ module Lighthouse::GraphQL::Controller
     raise e unless lighthouse_render_development_error?(e)
 
     lighthouse_development_error(e)
+  ensure
+    # A streamed response ends when its stream is closed, after EndRequest.
+    response.stream.close if @lighthouse_streaming
   end
 
   private
@@ -130,6 +133,7 @@ module Lighthouse::GraphQL::Controller
 
   # The payloads of `run`, one part each, written as they are ready.
   def lighthouse_stream(run)
+    @lighthouse_streaming = true
     accept = request.headers['Accept']
     Lighthouse::GraphQL::Incremental::Multipart.headers(Lighthouse::GraphQL::Defer.content_type(accept)).each do |name, value|
       response.headers[name] = value
