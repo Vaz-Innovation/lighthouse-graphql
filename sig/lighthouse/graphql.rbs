@@ -205,12 +205,12 @@ module Lighthouse
       # The Content-Type of the streamed response to `accept`.
       def self?.content_type: (String? accept) -> String
       # Each media range of the header, and the multipart/mixed one the client prefers to JSON.
-      def self?.ranges: (String? accept) -> Array[Range]
-      def self?.preferred: (String? accept) -> Range?
-      def self?.best: (Array[Range] ranges) { (Range) -> bool } -> Range?
+      def self?.ranges: (String? accept) -> Array[MediaRange]
+      def self?.preferred: (String? accept) -> MediaRange?
+      def self?.best: (Array[MediaRange] ranges) { (MediaRange) -> bool } -> MediaRange?
 
       # A media range of an Accept header.
-      class Range
+      class MediaRange
         attr_reader type: String
         attr_reader params: Array[String]
         attr_reader q: Float
@@ -218,7 +218,7 @@ module Lighthouse
         def rank: () -> [Float, Integer]
         def streams?: () -> bool
         def json?: () -> bool
-        def before?: (Range? other) -> bool
+        def before?: (MediaRange? other) -> bool
       end
       # @stream cuts a list once its field has resolved: the extension goes on every list field.
       def self?.stream_lists: (schema schema) -> void

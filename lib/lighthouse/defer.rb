@@ -31,7 +31,7 @@ module Lighthouse::GraphQL::Defer
   JSON_TYPES = %w[application/json application/graphql-response+json].freeze
 
   # A media range of an Accept header; `rank` orders them as preferred first.
-  Range = Struct.new(:type, :params, :q, :index) do
+  MediaRange = Struct.new(:type, :params, :q, :index) do
     def rank = [-q, index]
 
     # multipart/mixed, but in the older format.
@@ -103,7 +103,7 @@ module Lighthouse::GraphQL::Defer
     accept.to_s.split(',').each_with_index.map do |range, index|
       type, *params = range.split(';').map { |part| part.strip.downcase }
       q = params.find { |param| param.start_with?('q=') }
-      Range.new(type, params - [q], q ? q.delete_prefix('q=').to_f : 1.0, index)
+      MediaRange.new(type, params - [q], q ? q.delete_prefix('q=').to_f : 1.0, index)
     end
   end
 end
