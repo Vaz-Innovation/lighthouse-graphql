@@ -206,7 +206,7 @@ module Lighthouse
 
       # Teaches Lighthouse which engine searches a model: an adapter (see Lighthouse::Search
       # for what it answers), such as `Lighthouse::Search::PgSearch.new` or
-      # `Lighthouse::Search::Searchkick.new(trashed_column: :archived_at)`, or the app's own.
+      # `Lighthouse::Search::Searchkick.new`, or the app's own.
       # Defaults to detecting Searchkick, then pg_search, per model (Search::Auto).
       attr_accessor :search
 

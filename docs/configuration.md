@@ -232,8 +232,8 @@ inspected: Searchkick if it calls `searchkick`, then pg_search if it includes `P
 ```ruby
 config.search = Lighthouse::Search::PgSearch.new
 
-# Searchkick, with the indexed column @trashed filters on (by default, the one config.soft_deletes tells):
-config.search = Lighthouse::Search::Searchkick.new(trashed_column: :archived_at)
+# Searchkick for every model (@trashed filters on the column config.soft_deletes tells):
+config.search = Lighthouse::Search::Searchkick.new
 
 # Any object answering `searchable?(model, index)` and `relational?`, and `scope(relation, query)`
 # (a relational one, in the database) or `page(query, offset:, limit:)` -> [records, total],

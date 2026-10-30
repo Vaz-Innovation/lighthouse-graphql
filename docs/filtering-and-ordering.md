@@ -481,8 +481,8 @@ deleted_at, which @trashed filters the search on.` The column is the one the dat
 ([`Config.soft_deletes`](configuration.md#soft-deletes)): paranoia's (`paranoia_column`, and its
 `sentinel_value` in place of null for the records that are not trashed), discard's (`discard_column`),
 a `Column.new(:archived_at)`'s, else `deleted_at`. An adapter of your own tells it with `column(model)`
-and `kept_value(model)`. `Config.search = Lighthouse::Search::Searchkick.new(trashed_column:
-:archived_at)` names a nullable column outright.
+and `kept_value(model)`. `Config.soft_deletes` is the one place to name it: the support check, the
+engine's filter and the records' load all read it, as the database filters do.
 
 | `trashed:` | In the engine | Loads the records |
 | --- | --- | --- |

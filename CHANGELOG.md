@@ -30,7 +30,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `Contracts::SearchBuilder` and `Lighthouse::Search::Query`, as Scout's `ScoutBuilderDirective`.
   `@trashed` filters on the soft-delete column the index holds, the one `Config.soft_deletes` filters
   the database on (with paranoia's sentinel value; adapters may tell it with `column(model)` and
-  `kept_value(model)`; `trashed_column:` names another), and `ONLY` / `WITH` load the trashed records
+  `kept_value(model)`; it is the one place to name it), and `ONLY` / `WITH` load the trashed records
   past the default scope that hides them (paranoia's, discard's).
   A model's `search_results` scope, when it has one, is what a search of it may return: Searchkick
   loads the records it finds through it (`scope_results:`), so a record a stale index still holds

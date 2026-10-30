@@ -59,8 +59,8 @@ module Lighthouse
       DEFAULT_TRASHED_COLUMN: String
       DEEP_PAGING_WINDOW: Integer
 
-      # `trashed_column`: the indexed column @trashed filters on; default deleted_at (discard's, paranoia's).
-      def initialize: (?trashed_column: (String | Symbol)?) -> void
+      # @trashed filters on the column Config.soft_deletes tells (Support::SoftDeletes.column).
+      def initialize: () -> void
 
       # The model's max_result_window, a billion with deep_paging, else 10,000; nil for another index `within:` names.
       def result_window: (Query query) -> Integer?

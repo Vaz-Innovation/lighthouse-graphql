@@ -112,10 +112,12 @@ RSpec.describe 'search adapters' do
         expect(where_of(:with)).to eq({})
       end
 
-      it 'filters on the column the adapter names' do
+      it 'filters on the column Config.soft_deletes names, the one source of it' do
         SearchkickPost.indexed = %w[archived_at]
+        Lighthouse::Config.soft_deletes = Lighthouse::Support::SoftDeletes::Column.new(:archived_at)
 
-        expect(where_of(:only, described_class.new(trashed_column: :archived_at))).to eq(archived_at: { not: nil })
+        expect(where_of(:only)).to eq(archived_at: { not: nil })
+        expect { described_class.new(trashed_column: :archived_at) }.to raise_error(ArgumentError)
       end
 
       it 'refuses a model that does not index the column' do

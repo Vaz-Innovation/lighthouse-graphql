@@ -11,8 +11,8 @@
 #
 # Searchkick indexes what the model's `search_data` says. For @trashed the
 # model must index its soft-delete column, the one Support::SoftDeletes filters
-# the database on (paranoia's, discard's, Config.soft_deletes', else `deleted_at`;
-# `trashed_column:` names another): ONLY keeps the records with a value in it
+# the database on (paranoia's, discard's, Config.soft_deletes', else `deleted_at`),
+# the one source of it: ONLY keeps the records with a value in it
 # (other than paranoia's sentinel), WITHOUT the ones without, and WITH both, if
 # the index holds trashed records at all.
 # Searchkick loads what it finds through the model, whose default scope may hide
@@ -29,8 +29,7 @@ class Lighthouse::Search::Searchkick
   # The result window of a model with `searchkick deep_paging: true`, as Searchkick sets it.
   DEEP_PAGING_WINDOW = 1_000_000_000
 
-  def initialize(trashed_column: nil)
-    @trashed_column = trashed_column&.to_s
+  def initialize
     @indexed = {}
   end
 
@@ -120,12 +119,10 @@ class Lighthouse::Search::Searchkick
   end
 
   # [the indexed column that marks trashed records, its value for the others]:
-  # `trashed_column:`, else the soft-delete adapter's (paranoia's, with its
-  # sentinel; discard's; Config.soft_deletes'), else deleted_at, as the database
-  # filters do.
+  # the soft-delete adapter's (paranoia's, with its sentinel; discard's;
+  # Config.soft_deletes'), which the database filters and the records load
+  # through too; deleted_at when an app's adapter does not tell.
   def trashed_column(model)
-    return [@trashed_column, nil] if @trashed_column
-
     [Lighthouse::Support::SoftDeletes.column(model) || DEFAULT_TRASHED_COLUMN, Lighthouse::Support::SoftDeletes.kept_value(model)]
   end
 
