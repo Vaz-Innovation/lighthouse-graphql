@@ -160,7 +160,8 @@ class SearchkickParanoidPost < ApplicationRecord
   acts_as_paranoid
   extend FakeSearch::Searchkicked
 
-  def self.search_where = { deleted_at: nil }
+  # Lighthouse filters the engine on the soft-delete column itself.
+  def self.search_where = {}
 end
 
 # paranoia with a sentinel: a kept record holds it in deleted_at, not null.
@@ -169,7 +170,7 @@ class SearchkickSentinelPost < ApplicationRecord
   acts_as_paranoid sentinel_value: DateTime.new(0)
   extend FakeSearch::Searchkicked
 
-  def self.search_where = { deleted_at: DateTime.new(0) }
+  def self.search_where = {}
 end
 
 class SearchkickDiscardPost < ApplicationRecord
@@ -179,7 +180,7 @@ class SearchkickDiscardPost < ApplicationRecord
 
   default_scope -> { kept }
 
-  def self.search_where = { discarded_at: nil }
+  def self.search_where = {}
 end
 
 class SearchkickHiddenPost < ApplicationRecord
@@ -188,7 +189,8 @@ class SearchkickHiddenPost < ApplicationRecord
 
   default_scope { where(deleted_at: nil) }
 
-  def self.search_where = { deleted_at: nil }
+  # Its scope's condition, unless deleted_at is the soft-delete column, which Lighthouse filters on itself.
+  def self.search_where = Lighthouse::Support::SoftDeletes.column(self) == 'deleted_at' ? {} : { deleted_at: nil }
 end
 
 # One whose `search_results` scope keeps what a search may return, whatever the index holds.

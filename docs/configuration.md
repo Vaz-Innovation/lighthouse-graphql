@@ -241,20 +241,24 @@ config.search = Lighthouse::Search::Searchkick.new
 
 # Any object answering `searchable?(model, index)` and `relational?`, and `scope(relation, query)`
 # (a relational one, in the database) or `page(query, offset:, limit:)` -> [records, total],
-# one entry per hit, nil for one it could not load; with an optional `result_window(query)` (how many
+# one entry per hit, nil for one it could not load, and every match counted; with an optional `result_window(query)` (how many
 # matches it pages through; 10,000 otherwise, nil when it cannot tell), `named?(model, index)` (does
 # `within:` name something of its own) and `model_error(model)` (why a model cannot be searched as it is)
 config.search = MySearch.new
 ```
 
 By default, a model that uses both gems is searched with Searchkick, unless `within:` names one of
-its pg_search scopes. `Lighthouse::Search::Searchkick` asks the engine for the exact total
-(`track_total_hits`), loads the records it finds through the model's `search_results` scope when it
-has one, and past the default scope that hides trashed records when `@trashed` asks for them, filters
-`@trashed` on the column `soft_deletes` tells, ANDs in the model's `search_where` (which a model whose
-default scope or `search_results` narrows its records must define), and reads the result window from
-the model's `max_result_window:` / `deep_paging:` (not for another index `within:` names). The adapter protocol is experimental. See [Full-text
-search](filtering-and-ordering.md#full-text-search).
+its pg_search scopes. `Lighthouse::Search::Searchkick` always asks the engine for the exact total
+(`track_total_hits`, which `body_options` may not set), loads the records it finds through the
+model's `search_results` scope when it has one, through `@trashed`'s filter and the `@eq` ones on a
+column of the model (so a stale index never answers a record that no longer matches), filters
+`@trashed` on the column `soft_deletes` tells (and filters out trashed records when the model's
+default scope hides them), ANDs in the model's `search_where` (which a model whose default scope or
+`search_results` narrows its records must define, leaving the soft-delete column out), and reads the
+result window from the index's settings on the engine, else from the model's `max_result_window:` /
+`deep_paging:`. It reads an index's mapping and settings at most once a minute (a failed read once in
+five seconds): `Lighthouse::Search::Searchkick.new(index: Lighthouse::Search::Searchkick::Index.new)`.
+The adapter protocol is experimental. See [Full-text search](filtering-and-ordering.md#full-text-search).
 
 ### `authenticated_user`, `policy_user`, `authorizer`
 

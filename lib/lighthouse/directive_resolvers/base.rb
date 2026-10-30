@@ -50,14 +50,14 @@ class Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
   # on an argument. `search`: SEARCHES.
   #
   # A filter that raises fails the field, never answering the rows it would have
-  # left out (strictly). A relational search's order ends with the primary key,
+  # left out (Support::Failures). A relational search's order ends with the primary key,
   # once every other order applies (apply_search).
   def apply_where_filters(relation, args, ctx = nil, search: nil)
     raise ArgumentError, "search: is nil, :model or :given, got #{search.inspect}" unless SEARCHES.include?(search)
     return relation unless relation.respond_to?(:where)
 
     relation = relation.all if relation.is_a?(Class) # a model class, as `enhance_builder(Post)` gives it
-    strictly(ctx) { filter(relation, args_hash(args), ctx, search) }
+    Lighthouse::Support::Failures.strictly(ctx) { filter(relation, args_hash(args), ctx, search) }
   end
 
   def constantize_model(name)
@@ -127,24 +127,6 @@ class Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
     raise Lighthouse::DefinitionError,
           "@search on #{@type_def.graphql_name}.#{@field_def.name}: #{result.adapter_name} answers outside the database, so it cannot " \
           "apply #{dropped.join(', ')} of the field; it does not search"
-  end
-
-  # The block's filters, failing the field when one raises, never answering the
-  # relation without them. A client's error is raised as it is. A schema error
-  # found only as the query runs (a field whose model the build could not tell)
-  # is reported (Config.on_error) and the client reads it. Any other (a
-  # builder's) is reported and raised as it is, so that the schema's rescue_from
-  # maps it, as any resolver's error; unmapped, it is graphql-ruby's.
-  def strictly(ctx)
-    yield
-  rescue ::GraphQL::ExecutionError
-    raise
-  rescue Lighthouse::DefinitionError => e
-    Lighthouse::Config.handle_error(e, ctx)
-    raise ::GraphQL::ExecutionError, e.message.end_with?('.') ? e.message : "#{e.message}."
-  rescue StandardError => e
-    Lighthouse::Config.handle_error(e, ctx)
-    raise
   end
 
   # One of arg_builders, on the relation.

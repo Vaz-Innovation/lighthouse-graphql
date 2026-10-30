@@ -264,7 +264,7 @@ module Lighthouse
     def scope: (relation relation, Search::Query query) -> relation
   end
 
-  # `page` answers one entry per hit, nil for a hit it could not load, and the total.
+  # `page` answers one entry per hit, nil for a hit it could not load, and the total: every match, counted.
   # It may answer `model_error(model)`: why a model cannot be searched as it is, which
   # Search::FieldCheck makes a schema error.
   # It may also answer `result_window(query)`: how many matches it pages through

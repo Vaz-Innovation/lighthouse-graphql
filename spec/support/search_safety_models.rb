@@ -89,11 +89,11 @@ class SafetyConditionalTenantPost < SafetyPlainPost
   default_scope { where(author_id: SafetyCurrent.tenant) if SafetyCurrent.tenant }
 end
 
-# Soft deletes on deleted_at under a default scope, and the engine's condition for it.
+# Soft deletes on deleted_at under a default scope, which Lighthouse filters the engine on itself.
 class SafetySoftPost < SafetyPlainPost
   default_scope { where(deleted_at: nil) }
 
-  def self.search_where = { deleted_at: nil }
+  def self.search_where = {}
 end
 
 # What a search may return, in the database and in the engine alike.

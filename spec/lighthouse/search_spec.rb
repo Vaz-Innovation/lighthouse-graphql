@@ -295,14 +295,44 @@ RSpec.describe '@search' do
       expect(engine.requests.last).to include(offset: 0, limit: Lighthouse::Search::Result::MAX_WINDOW)
     end
 
-    it 'reads @all without first 10,000 records at most, whatever the result window' do
+    it 'reads @all 10,000 records at most at once, whatever the result window or `first`' do
       allow(engine).to receive(:result_window).and_return(1_000_000_000)
       schema = build_schema('type SearchPost { title: String! } type Query { posts(first: Int, search: String @search): [SearchPost!]! @all }')
 
       run(schema, '{ posts(search: "great") { title } }')
       expect(engine.requests.last).to include(offset: 0, limit: 10_000)
       run(schema, '{ posts(search: "great", first: 50000) { title } }')
-      expect(engine.requests.last).to include(offset: 0, limit: 50_000)
+      expect(engine.requests.last).to include(offset: 0, limit: 10_000)
+    end
+
+    it "reads @all no more than an argument's @limit lets it answer, and says nothing it did not cut" do
+      schema = build_schema('type SearchPost { title: String! } type Query { posts(max: Int @limit, search: String @search): [SearchPost!]! @all }')
+      many = ->(original, *args, **options) { [original.call(*args, **options).first, 10_001] }
+      allow(engine).to receive(:page).and_wrap_original(&many)
+
+      result = run(schema, '{ posts(search: "great", max: 1) { title } }')
+
+      expect([titles(result), result['errors']]).to eq([['great title'], nil])
+      expect(engine.requests.last).to include(offset: 0, limit: 1)
+    end
+
+    it 'says when @all answers fewer matches than asked for, whatever cuts them: a read of 10,000, the result window' do
+      schema = build_schema(<<~GRAPHQL)
+        type SearchPost { title: String! }
+        type Query { posts(first: Int, offset: Int, search: String @search): [SearchPost!]! @all }
+      GRAPHQL
+      many = ->(original, *args, **options) { [original.call(*args, **options).first, 9_000] }
+      allow(engine).to receive(:page).and_wrap_original(&many)
+      allow(engine).to receive(:result_window).and_return(5_000)
+      messages = ->(query) { run(schema, query)['errors']&.pluck('message') }
+
+      expect(messages.call('{ posts(search: "great") { title } }')).to eq(
+        ['@all answered 2 of the 9000 matches the search finds from offset 0: a search reads 10000 at most at once, and no further than ' \
+         'its first 5000 matches (the index.max_result_window). Use @paginate, or `first` and `offset`, to read the others.']
+      )
+      expect(messages.call('{ posts(search: "great", first: 10, offset: 4995) { title } }').first)
+        .to start_with('@all answered 0 of the 4005 matches')
+      expect(engine.requests.last).to include(offset: 4995, limit: 5)
     end
 
     it 'says when @all without first leaves matches unread, next to the records it read' do
@@ -315,8 +345,8 @@ RSpec.describe '@search' do
 
       expect(titles(result)).to eq(['great title', 'Really great title'])
       expect(result['errors'].pluck('message')).to eq(
-        ['@all reads 10000 matches at most without `first`, and this search finds 10001: give the field `first` and `offset`, ' \
-         'or use @paginate, to read the others.']
+        ['@all answered 2 of the 10001 matches the search finds from offset 0: a search reads 10000 at most at once, and no further than ' \
+         'its first 20000 matches (the index.max_result_window). Use @paginate, or `first` and `offset`, to read the others.']
       )
       expect(run(schema, '{ posts(search: "great", first: 2) { title } }')['errors']).to be_nil
     end
@@ -343,6 +373,70 @@ RSpec.describe '@search' do
          'Narrow the search instead.']
       )
       expect(engine.requests).to be_empty
+    end
+
+    describe 'each search its own' do
+      let(:schema) do
+        build_schema(<<~GRAPHQL)
+          type SearchPost { title: String! }
+          type Query { posts(search: String @search): [SearchPost!]! @paginate @canQuery(ability: "view") }
+        GRAPHQL
+      end
+      let(:context) { {} }
+
+      before do
+        Lighthouse::Config.authorizer = ->(*) { true }
+        matching = lambda do |_original, query, offset:, limit:|
+          found = great.select { |post| post.title.start_with?(query.term) }
+          [found.drop(offset).first(limit), found.size]
+        end
+        allow(engine).to receive(:page).and_wrap_original(&matching)
+      end
+
+      def page_of(result) = [result.dig('data', 'posts', 'data').pluck('title'), result.dig('data', 'posts', 'paginatorInfo', 'total')]
+
+      it 'answers each query of a multiplex its own hits and total, though they share one context Hash' do
+        query = 'query($term: String) { posts(first: 10, search: $term) { data { title } paginatorInfo { total } } }'
+        results = schema.multiplex([{ query: query, variables: { 'term' => 'great' }, context: context },
+                                    { query: query, variables: { 'term' => 'Really' }, context: context }])
+
+        expect(results.map { |result| page_of(result.to_h) }).to eq([[['great title'], 1], [['Really great title'], 1]])
+      end
+
+      it 'searches again when a stored context runs again (a subscription), keeping no hits in it' do
+        query = 'query($term: String) { posts(first: 10, search: $term) { data { title } paginatorInfo { total } } }'
+        first = schema.execute(query, variables: { 'term' => 'great' }, context: context).to_h
+        again = schema.execute(query, variables: { 'term' => 'Really' }, context: context).to_h
+
+        expect([page_of(first), page_of(again)]).to eq([[['great title'], 1], [['Really great title'], 1]])
+        expect(context.values.grep(Hash).flat_map(&:values).grep(Lighthouse::Search::Result)).to be_empty
+      end
+    end
+
+    describe "the engine's errors, as a page asks for it" do
+      let(:schema) { build_schema('type SearchPost { title: String! } type Query { posts(search: String @search): [SearchPost!]! @paginate }') }
+      let(:reported) { [] }
+
+      before { Lighthouse::Config.on_error = ->(error, _context) { reported << error } }
+
+      it "reports the engine's error and raises it, for the schema's rescue_from, as a filter's" do
+        allow(engine).to receive(:page).and_raise(ArgumentError, 'the engine broke')
+        mapped = Class.new(schema) { rescue_from(ArgumentError) { |error| raise GraphQL::ExecutionError, "mapped: #{error.message}" } }
+
+        result = mapped.execute('{ posts(first: 1, search: "great") { data { title } } }').to_h
+
+        expect(result['errors'].pluck('message')).to eq(['mapped: the engine broke'])
+        expect(reported.map(&:message)).to eq(['the engine broke'])
+      end
+
+      it 'refuses a total that is not a count, with an error the client reads' do
+        allow(engine).to receive(:page).and_return([great, nil])
+
+        result = run(schema, '{ posts(first: 1, search: "great") { data { title } paginatorInfo { total } } }')
+
+        expect(result['errors'].pluck('message')).to eq(['@search: Engine answered nil for the total, not the count of every match.'])
+        expect(reported.map(&:class)).to eq([Lighthouse::DefinitionError])
+      end
     end
 
     describe 'with @paginate, at the end of the result window' do
@@ -618,17 +712,18 @@ RSpec.describe '@search' do
       # A post titled "secret" may not be viewed.
       before { Lighthouse::Config.authorizer = ->(_user, record, _ability) { record.title != 'secret' } }
 
-      it 'checks each record the search finds, then pages them from the same request, as PHP Lighthouse checks the hits of the Scout builder' do
+      it 'checks each record the search finds, in a request of its own, as PHP Lighthouse checks the hits of the Scout builder, then pages them' do
         result = run(schema, '{ posts(first: 1, page: 2, search: "great") { data { title } paginatorInfo { total } } }')
 
         expect(result).to eq('data' => { 'posts' => { 'data' => [{ 'title' => 'Really great title' }], 'paginatorInfo' => { 'total' => 2 } } })
-        expect(engine.requests.map { |request| request.slice(:offset, :limit) }).to eq([{ offset: 0, limit: Lighthouse::Search::Result::READ_LIMIT }])
+        expect(engine.requests.map { |request| request.slice(:offset, :limit) })
+          .to eq([{ offset: 0, limit: Lighthouse::Search::Result::READ_LIMIT }, { offset: 1, limit: 1 }])
       end
 
       it 'searches again for each field, and for each place of a field in the response' do
         run(schema, '{ a: posts(first: 1, search: "great") { data { title } } b: posts(first: 1, search: "great") { data { title } } }')
 
-        expect(engine.requests.size).to eq(2)
+        expect(engine.requests.size).to eq(4)
       end
 
       it 'denies the field when the search finds a record the user may not see, on any page' do
@@ -648,7 +743,7 @@ RSpec.describe '@search' do
 
         run(all, '{ posts(search: "great") { title } }')
 
-        expect(engine.requests.pluck(:limit)).to eq([10_000]) # the field reads what @canQuery read
+        expect(engine.requests.pluck(:limit)).to eq([10_000, 10_000]) # @canQuery's read, then the field's
       end
 
       it 'refuses a search with more matches than it can check that a page could reach, not those past the result window' do

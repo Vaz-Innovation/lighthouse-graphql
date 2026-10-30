@@ -35,18 +35,40 @@ RSpec.describe 'search adapters' do
 
       records, total = adapter.page(query, offset: 20, limit: 10)
       expect([records.map(&:title), total]).to eq([%w[a b], 7])
-      expect(SearchkickPost.searches).to eq(
+      expect(SearchkickPost.searches.map { |term, options| [term, options.except(:scope_results)] }).to eq(
         [['milk', { where: { author_id: 3 }, fields: ['title'], load: true, body_options: { track_total_hits: true }, offset: 20, limit: 10 }]]
       )
     end
 
-    it 'asks for the exact total, which Elasticsearch and OpenSearch 7+ stop counting at 10,000, unless the app says otherwise' do
-      adapter.page(query, offset: 0, limit: 1)
-      expect(searched.last[:body_options]).to eq(track_total_hits: true)
+    it 'loads the records through the conditions it can apply in the database too, so a stale index cannot answer one that no longer matches' do
+      query.where(:author_id, 3).where(:title, %w[a b]).where(:indexed_only, 1).where(:author_id, { gt: 1 })
+      query.trashed = :without
 
-      query.options[:body_options] = { track_total_hits: 50_000, min_score: 1 }
       adapter.page(query, offset: 0, limit: 1)
-      expect(searched.last[:body_options]).to eq(track_total_hits: 50_000, min_score: 1)
+
+      sql = searched.last[:scope_results].call(SearchkickPost).to_sql
+      expect(sql).to include('"search_posts"."author_id" = 3', %("search_posts"."title" IN ('a', 'b')), '"search_posts"."deleted_at" IS NULL')
+      expect(sql).not_to include('indexed_only')
+    end
+
+    it 'always asks for the exact total, which Elasticsearch and OpenSearch 7+ stop counting at 10,000, and the app cannot ask otherwise' do
+      query.options[:body_options] = { min_score: 1 }
+      adapter.page(query, offset: 0, limit: 1)
+      expect(searched.last[:body_options]).to eq(min_score: 1, track_total_hits: true)
+
+      [{ body_options: { track_total_hits: 50_000 } }, { body_options: { 'track_total_hits' => false } },
+       { track_total_hits: false }].each do |options|
+        query.options.replace(options)
+        expect { adapter.page(query, offset: 0, limit: 1) }.to raise_error(Lighthouse::DefinitionError, /body_options cannot set track_total_hits/)
+      end
+    end
+
+    it 'refuses a total the engine did not count to the end' do
+      response = Struct.new(:hits, :total_count, :response) { def with_hit = [] }
+                       .new([], 10_000, { 'hits' => { 'total' => { 'value' => 10_000, 'relation' => 'gte' } } })
+      allow(SearchkickPost).to receive(:searchkick_search).and_return(response)
+
+      expect { adapter.page(query, offset: 0, limit: 1) }.to raise_error(Lighthouse::DefinitionError, /counted gte 10000 matches, not every one/)
     end
 
     it "ANDs a builder's where and the @eq conditions on one column, whatever the keys' type, rather than overwrite" do
@@ -78,7 +100,39 @@ RSpec.describe 'search adapters' do
     end
 
     describe 'the result window' do
-      it "is the model's max_result_window, a billion with deep_paging, else the engines' default" do
+      let(:indices) { double('indices') } # rubocop:disable RSpec/VerifiedDoubles -- the engine client's, which the suite does not load
+
+      def settings_answer(&answer)
+        client = Struct.new(:indices).new(indices)
+        Searchkick.define_singleton_method(:client) { client }
+        allow(SearchkickPost).to receive(:searchkick_index).and_return(Struct.new(:name).new('search_posts'))
+        allow(indices).to receive(:get_settings, &answer)
+      end
+
+      def index_settings(*windows)
+        windows.each_with_index.to_h do |window, at|
+          ["search_posts_#{at}", { 'settings' => { 'index' => { 'max_result_window' => window }.compact } }]
+        end
+      end
+
+      it "is the index's max_result_window on the engine: the smallest of an alias's indices, else the engines' default" do
+        allow(SearchkickPost).to receive(:searchkick_options).and_return(max_result_window: 50_000)
+        settings_answer { index_settings('5000') }
+        expect(described_class.new.result_window(query)).to eq(5_000)
+        settings_answer { index_settings('20000', '3000') }
+        expect(described_class.new.result_window(query)).to eq(3_000)
+        settings_answer { index_settings(nil) }
+        expect(described_class.new.result_window(query)).to eq(10_000)
+      end
+
+      it 'reads the settings of the index within: names, else takes 10,000 for it when they cannot be read' do
+        settings_answer { |index:| index == 'other_index' ? index_settings('700') : raise('no such index') }
+        expect(adapter.result_window(Lighthouse::Search::Query.new(SearchkickPost, 'milk', 'other_index'))).to eq(700)
+        allow(SearchkickPost).to receive(:searchkick_options).and_return(max_result_window: 50_000)
+        expect(adapter.result_window(Lighthouse::Search::Query.new(SearchkickPost, 'milk', 'missing_index'))).to eq(10_000)
+      end
+
+      it "takes the model's max_result_window, a billion with deep_paging, else the engines' default, when the settings cannot be read" do
         expect(described_class.new.result_window(query)).to eq(10_000)
         allow(SearchkickPost).to receive(:searchkick_options).and_return(deep_paging: true)
         expect(described_class.new.result_window(query)).to eq(1_000_000_000)
@@ -86,29 +140,25 @@ RSpec.describe 'search adapters' do
         expect(described_class.new.result_window(query)).to eq(50_000)
         allow(SearchkickPost).to receive(:searchkick_options).and_return(settings: { index: { max_result_window: 20_000 } })
         expect(described_class.new.result_window(query)).to eq(20_000)
-      end
-
-      it "reads the model's options once, and again for the class code reloading makes" do
-        reloaded = Class.new(SearchkickPost) { def self.name = 'SearchkickPost' }
-        allow(SearchkickPost).to receive(:searchkick_options).and_call_original
-        allow(reloaded).to receive(:searchkick_options).and_call_original
-
-        2.times { adapter.result_window(query) }
-        adapter.result_window(Lighthouse::Search::Query.new(reloaded, 'milk'))
-
-        expect(SearchkickPost).to have_received(:searchkick_options).once
-        expect(reloaded).to have_received(:searchkick_options).once
-      end
-
-      it 'reads the settings whatever their keys' do
         allow(SearchkickPost).to receive(:searchkick_options).and_return(settings: { 'index' => { 'max_result_window' => 50_000 } })
         expect(described_class.new.result_window(query)).to eq(50_000)
         allow(SearchkickPost).to receive(:searchkick_options).and_return('settings' => { 'index.max_result_window' => 30_000 })
         expect(described_class.new.result_window(query)).to eq(30_000)
       end
 
-      it "is not known for an index within: names, which is not the model's: the engine's refusal stands" do
-        expect(adapter.result_window(Lighthouse::Search::Query.new(SearchkickPost, 'milk', 'other_index'))).to be_nil
+      it 'reads the settings once in INDEX_READ_TTL seconds, a failed read once in FAILED_READ_TTL, and again for a reloaded class' do
+        reloaded = Class.new(SearchkickPost) { def self.name = 'SearchkickPost' }
+        answers = [-> { raise 'no index yet' }, -> { index_settings('5000') }, -> { index_settings('4000') }, -> { index_settings('3000') }]
+        settings_answer { answers.shift.call }
+        allow(reloaded).to receive(:searchkick_index).and_return(Struct.new(:name).new('search_posts'))
+        now = 0
+        timed = described_class.new(index: Lighthouse::Search::Searchkick::Index.new(clock: -> { now }))
+
+        windows = [0, 4, 5, 30, 64, 65].map { |at| (now = at) && timed.result_window(query) }
+        windows << timed.result_window(Lighthouse::Search::Query.new(reloaded, 'milk'))
+
+        expect(windows).to eq([10_000, 10_000, 5_000, 5_000, 5_000, 4_000, 3_000])
+        expect(indices).to have_received(:get_settings).exactly(4).times
       end
 
       it "turns the engine's refusal of a page past it into an error the client reads" do
@@ -175,6 +225,33 @@ RSpec.describe 'search adapters' do
         expect(reads).to eq(SearchkickPost => 1, reloaded => 1)
       end
 
+      describe 'on a model whose default scope hides its trashed records' do
+        let(:query) { Lighthouse::Search::Query.new(SearchkickHiddenPost, 'milk') }
+
+        before { SearchkickHiddenPost.searches = [] }
+
+        it 'filters the engine on the records that are not trashed when @trashed does not say, as they alone load' do
+          wheres = [nil, :only, :with].map do |trashed|
+            query.trashed = trashed
+            adapter.page(query, offset: 0, limit: 1)
+            SearchkickHiddenPost.searches.last[:where]
+          end
+
+          expect(wheres).to eq([{ deleted_at: nil }, { deleted_at: { not: nil } }, {}])
+        end
+
+        it 'refuses a search_where that names the soft-delete column, at any depth, which could not yield to @trashed' do
+          [{ deleted_at: nil }, { _or: [{ author_id: 1 }, { 'deleted_at' => nil }] },
+           { _and: [{ _not: { deleted_at: { not: nil } } }] }].each do |where|
+            allow(SearchkickHiddenPost).to receive(:search_where).and_return(where)
+
+            expect { adapter.page(query, offset: 0, limit: 1) }
+              .to raise_error(Lighthouse::DefinitionError,
+                              /SearchkickHiddenPost.search_where names deleted_at, the column @trashed and Lighthouse filter/)
+          end
+        end
+      end
+
       describe 'when search_data cannot run on a blank record' do
         let(:mappings) { { 'search_posts_1' => { 'mappings' => { 'properties' => { 'title' => {}, 'deleted_at' => {} } } } } }
         let(:indices) { double('indices') } # rubocop:disable RSpec/VerifiedDoubles -- the engine client's, which the suite does not load
@@ -204,17 +281,22 @@ RSpec.describe 'search adapters' do
           expect { where_of(:only) }.to raise_error(GraphQL::ExecutionError, /SearchkickPost's index does not hold deleted_at/)
         end
 
-        it 'reads the mapping again when it could not, or when the one it read lacks the column: a reindex adds it' do
-          answers = [-> { raise 'no index yet' }, lambda {
-            mappings.dig('search_posts_1', 'mappings', 'properties').delete('deleted_at')
-            mappings
-          }, -> { mappings.deep_merge('search_posts_1' => { 'mappings' => { 'properties' => { 'deleted_at' => {} } } }) }]
+        it 'reads the mapping again once a read is INDEX_READ_TTL seconds old, a failed one FAILED_READ_TTL: a reindex adds or removes a column' do
+          without = -> { { 'search_posts_1' => { 'mappings' => { 'properties' => { 'title' => {} } } } } }
+          answers = [-> { raise 'no index yet' }, without, -> { mappings }, without]
           mapping_answers { answers.shift.call }
+          now = 0
+          timed = described_class.new(index: Lighthouse::Search::Searchkick::Index.new(clock: -> { now }))
+          outcome = lambda do |at|
+            now = at
+            where_of(:only, timed).then { 'filters' }
+          rescue GraphQL::ExecutionError => e
+            e.message[/cannot tell|does not hold/]
+          end
 
-          expect { where_of(:only) }.to raise_error(GraphQL::ExecutionError, /cannot tell/)
-          expect { where_of(:only) }.to raise_error(GraphQL::ExecutionError, /does not hold deleted_at/)
-          2.times { expect(where_of(:only)).to eq(deleted_at: { not: nil }) }
-          expect(indices).to have_received(:get_mapping).exactly(3).times
+          expect([0, 4, 5, 64, 65, 100, 125].map(&outcome))
+            .to eq(['cannot tell', 'cannot tell', 'does not hold', 'does not hold', 'filters', 'filters', 'does not hold'])
+          expect(indices).to have_received(:get_mapping).exactly(4).times
         end
 
         it 'refuses when it cannot tell, rather than filter on a column the index may not hold' do

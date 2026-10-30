@@ -15,12 +15,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (`Lighthouse::Search`), neither a dependency of Lighthouse: **Searchkick** (Elasticsearch /
   OpenSearch) answers with the records it found, in relevance order, for `@all`, `@paginate`
   (all three types; the total comes with the page, one request, and `first: 0` can count, which Scout
-  cannot) and a resolver of your own. The total is exact past the 10,000 matches the engines stop
-  counting at (`track_total_hits`), a search reads within the index's result window
-  (`max_result_window`, read from the model, whatever its settings' keys; left to the engine for
-  another index `within:` names): a page past it is an error the client reads, and `@all` without
-  `first` reads 10,000 records at most, even with `deep_paging`, with an error next to them when the
-  search finds more. A search counts only what it can load: a Searchkick model with a default scope
+  cannot) and a resolver of your own. The total is always exact past the 10,000 matches the engines
+  stop counting at (`track_total_hits`, which an app's `body_options` may not set, so that no page
+  serves a record `@canQuery` did not check), a search reads within the index's result window
+  (`index.max_result_window`, read from the engine, the index `within:` names too; from the model's
+  options, whatever their keys, when it cannot be read): a page past it is an error the client reads,
+  and `@all` reads what the client asks for (`first`, an argument's `@limit`, else every match),
+  10,000 records at most at once, even with `deep_paging`, with an error next to them when that
+  answers fewer than asked while more match. An index's mapping and settings are read at most once a
+  minute (a failed read once in five seconds). A search counts only what it can load: a Searchkick model with a default scope
   (any, as declared, since what one selects may depend on the request) or a `search_results` scope
   defines `search_where`, the engine's `where:` for the
   same records (a tenant's, a published flag's), which every search ANDs in; and pages follow the
@@ -38,19 +41,24 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   only cuts the result, is taken too.
   `@trashed` filters on the soft-delete column the index holds, the one `Config.soft_deletes` filters
   the database on (with paranoia's sentinel value; adapters may tell it with `column(model)` and
-  `kept_value(model)`; it is the one place to name it), and `ONLY` / `WITH` load the trashed records
-  past the default scope that hides them (paranoia's, discard's).
+  `kept_value(model)`; it is the one place to name it), and the records load through the database's
+  `@trashed` (`ONLY` / `WITH` past the default scope that hides them, paranoia's, discard's). The
+  column is Lighthouse's: a model whose default scope hides trashed records is filtered on it in the
+  engine when the client does not say, and its `search_where` leaves it out (naming it anywhere is an
+  error at the first search).
   A model's `search_results` scope, when it has one, is what a search of it may return: Searchkick
-  loads the records it finds through it (`scope_results:`), so a record a stale index still holds
-  is not returned. `@canQuery` on a searched field checks every record the search finds, as PHP
-  Lighthouse does (with Searchkick, 10,000 at most: a search that finds more a page could reach is
-  an error), and `resolve_info.enhance_builder` answers a `Lighthouse::Search::Result` for a
+  loads the records it finds through it (`scope_results:`), and through each `@eq` on a column of the
+  model, so a record a stale index still holds, or holds as it was, is not returned. Each field's
+  search is its own, nothing kept in the query's context. `@canQuery` on a searched field checks every record the search finds, as PHP
+  Lighthouse does (with Searchkick, in a request of its own, 10,000 at most: a search that finds more
+  a page could reach is an error), and `resolve_info.enhance_builder` answers a `Lighthouse::Search::Result` for a
   Searchkick search, as PHP Lighthouse answers Scout's builder, so a field your own class resolves
   can search through it; the relation it gets must select what the model's own does (`Post.all`,
   or `Post`), any other is refused. Each resolver class declares whether it applies a search and
   takes an engine's records (`applies_search?`, `takes_search_results?`; `Contracts::FieldResolver`
   says no by default, so a directive of your own opts in). A filter of a searched field that raises
-  fails the field, reported to `Config.on_error`, rather than answer what it would have left out.
+  fails the field, reported to `Config.on_error`, rather than answer what it would have left out; so
+  does the engine, whenever a page asks it.
   See [Full-text search](docs/filtering-and-ordering.md#full-text-search).
 
 ### Changed

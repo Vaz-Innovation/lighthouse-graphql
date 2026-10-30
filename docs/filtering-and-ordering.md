@@ -422,8 +422,8 @@ A query holds `model`, `term`, `index`, `wheres` (the `[column, value]` pairs of
 `order:`, `misspellings:`, `body_options:`, `scope_results:`, ...). Lighthouse adds `where:`, with
 yours, the model's `search_where`, every `@eq` and `@trashed` all holding: keys are read alike, symbols
 or strings, and conditions on one column (yours and an `@eq`'s, or two `@eq` of a list of inputs) are
-ANDed (`_and`), never overwritten. It adds `index_name:` (from `within:`), `load: true`, `body_options: {
-track_total_hits: true }` (yours win) and `scope_results:` (yours runs last).
+ANDed (`_and`), never overwritten. It adds `index_name:` (from `within:`), `load: true`, `track_total_hits:
+true` to your `body_options:` (which may not set it: see below) and `scope_results:` (yours runs last).
 
 **Which fields.** Whatever the engine, something must apply the search: a directive that runs the
 field's argument filters (`@all`, `@paginate`, `@find`, `@first`, `@count`, `@aggregate`, a
@@ -486,14 +486,18 @@ its `endCursor` is past them, so the client walks on). No record shows twice, an
 
 **The total is exact.** Elasticsearch and OpenSearch stop counting matches at 10,000 unless asked
 (`track_total_hits`), which made `total`, `lastPage` and `hasMorePages` wrong past it. Lighthouse asks
-on every search. Counting every match costs the engine more on very large result sets; an `@builder`
-on an argument can set `query.options[:body_options] = { track_total_hits: false }` (or a number) for a
-search where an estimate will do.
+on every search, and nothing turns it off: totals, the pages within the result window and `@canQuery`'s
+check of every hit (below) rely on every match being counted, and an estimate (`track_total_hits: false`,
+or a number, which stops at it) would let a page serve a record no check saw. An `@builder` whose
+`body_options` set `track_total_hits` is an error the client reads, reported to
+[`Config.on_error`](configuration.md#on_error), as is a response whose total is not exact.
 
-**Reads without `first`.** `@all` without `first` reads 10,000 records at most, in one request,
-whatever the result window. When the search finds more, the field answers those records with an error
-next to them: `@all reads 10000 matches at most without first, and this search finds 12345: give the
-field first and offset, or use @paginate, to read the others.`
+**Reads by `@all`.** `@all` reads what the client asks for: `first` records, as many as an argument's
+`@limit` (without `builder: true`) lets the field answer, or every match. One request reads 10,000
+records at most, and no further than the result window. When that answers fewer than asked while more
+match, the field answers those records with an error next to them: `@all answered 10000 of the 12345
+matches the search finds from offset 0: a search reads 10000 at most at once, and no further than its
+first 10000 matches (the index.max_result_window). Use @paginate, or first and offset, to read the others.`
 
 **The result window.** The engines page through the first 10,000 matches only (the index's
 `index.max_result_window`). Lighthouse reads no further: a page that runs past it is cut at its end, and
@@ -505,14 +509,16 @@ a page that starts past it is an error the client reads:
 `total` stays the true number of matches; `lastPage`, `hasMorePages` and `hasNextPage` count only the
 pages within the window, so no page is announced that would then be refused.
 
-Lighthouse takes the window from the model: `searchkick max_result_window: 50_000` (or `settings: {
-index: { max_result_window: 50_000 } }`, with symbol or string keys, nested or as
-`'index.max_result_window'`), a billion with `searchkick deep_paging: true`, else 10,000. An index
-`within:` names, other than the model's, has a window the model does not tell, so Lighthouse leaves it
-to the engine; a window set on the server alone is enforced by the engine too. Its refusal becomes the
-same error, without the number: `The search reads no further than the index.max_result_window of
-Comment. Narrow the search instead.` Raising the window lets clients page deeper at the engine's
-expense; Searchkick [advises against it](https://github.com/ankane/searchkick#deep-paging).
+Lighthouse reads the window from the engine: the `index.max_result_window` of the index the search reads
+(the model's, or the one `within:` names; the smallest of an alias's indices), 10,000 when it sets none.
+It is read once a minute per index at most, as the mapping is (below). When the settings cannot be read,
+it takes the window the model sets for its own index, `searchkick max_result_window: 50_000` (or `settings:
+{ index: { max_result_window: 50_000 } }`, with symbol or string keys, nested or as
+`'index.max_result_window'`), a billion with `searchkick deep_paging: true`, else 10,000, for any index.
+No request asks past it. If the engine still refuses a page as past its window (it changed within the
+minute), the refusal becomes the same error, without the number: `The search reads no further than the
+index.max_result_window of Comment. Narrow the search instead.` Raising the window lets clients page
+deeper at the engine's expense; Searchkick [advises against it](https://github.com/ankane/searchkick#deep-paging).
 
 ### Soft deletes in a search
 
@@ -522,9 +528,10 @@ With Searchkick, `@trashed` filters on the soft-delete column the index holds, s
 it (`deleted_at: deleted_at`), or `ONLY` and `WITHOUT` are an error (`WITH` filters nothing): `Comment's
 index does not hold deleted_at, which @trashed filters the search on: add it to search_data.` Lighthouse
 reads the columns from `search_data` on a blank record; when that raises (it reads an association), from
-the index's mapping on the engine, kept per model and read again when it lacks the column (a reindex may
-have added it) or could not be read; and when neither can be read, it refuses the search
-rather than filter on a column the index may not hold. (A column every document leaves null has no
+the index's mapping on the engine, read at most once a minute per model and index (a reindex may add or
+remove a column; a mapping that could not be read is tried again after five seconds), however many
+requests ask; and when neither can be read, it refuses the search rather than filter on a column the
+index may not hold. (A column every document leaves null has no
 mapping yet: let `search_data` run on a blank record.) The column is the one the database path filters on
 ([`Config.soft_deletes`](configuration.md#soft-deletes)): paranoia's (`paranoia_column`, and its
 `sentinel_value` in place of null for the records that are not trashed), discard's (`discard_column`),
@@ -534,18 +541,21 @@ engine's filter and the records' load all read it, as the database filters do.
 
 | `trashed:` | In the engine | Loads the records |
 | --- | --- | --- |
-| `ONLY` | a value in the column, other than paranoia's sentinel | past the default scope that hides trashed records |
+| `ONLY` | a value in the column, other than paranoia's sentinel | the trashed ones, past the default scope that hides them |
 | `WITH` | no filter | past that default scope |
-| `WITHOUT` | no value in the column, or the sentinel | through the model, as usual |
-| omitted | the model's `search_where` | through the model |
+| `WITHOUT` | no value in the column, or the sentinel | the ones not trashed |
+| omitted | as `WITHOUT` when the model's default scope hides trashed records, else no filter | through the model |
 
-A model whose default scope hides trashed records (paranoia's, discard's `kept` when the model adds it,
-or your own on the column) defines `search_where` with the same condition, `{ deleted_at: nil }`
-([below](#what-a-search-counts)); its condition on the soft-delete column gives way to `@trashed` when
-the client sends it. For `ONLY` and `WITH`, Lighthouse loads the records past that default scope with
-`Support::SoftDeletes.with_trashed`, through Searchkick's `scope_results:`, as Scout loads them
-`withTrashed()`. All of this needs trashed records in the index: a model that leaves
-them out (`should_index?` returning false once trashed) finds none with `ONLY`.
+The soft-delete column is Lighthouse's to filter on: a model whose default scope hides trashed records
+(paranoia's, discard's `kept` when the model adds it, or your own on the column) is filtered on it in
+the engine as `WITHOUT` when the client does not say, so its index must hold the column too. Its
+`search_where` ([below](#what-a-search-counts)) leaves the column out, `{}` when nothing else narrows: a
+`search_where` that names it anywhere (in `_and`, `_or`, `_not` too) is an error the client reads at the
+first search, reported to `Config.on_error`, as its condition could not give way to `@trashed`. Lighthouse
+loads the records with `Support::SoftDeletes.filter`, the database's `@trashed`, through Searchkick's
+`scope_results:`, as Scout loads them `withTrashed()`, so a record trashed or restored since the index
+read it is not answered for the wrong `trashed:`. All of this needs trashed records in the index: a
+model that leaves them out (`should_index?` returning false once trashed) finds none with `ONLY`.
 
 ### What a search counts
 
@@ -558,7 +568,8 @@ define **`search_where`**. Any default scope counts, as declared: what one selec
 request (`where(tenant_id: Current.tenant_id) if Current.tenant_id` narrows nothing when the schema is
 built, outside one), so Lighthouse does not judge it by what it selects. `search_where` is the engine's
 `where:` for the same records, from what `search_data` indexes (`{}` for a default scope that only
-orders). Every search of the model ANDs it in. Without it the
+orders, or only hides trashed records, which Lighthouse filters on itself: [above](#soft-deletes-in-a-search)).
+Every search of the model ANDs it in. Without it the
 model is a schema error (or, for a field whose model Lighthouse cannot tell, an error at the first
 search):
 
@@ -575,7 +586,11 @@ end
 `search_where` returns `{}` when the index holds no record the scopes would leave out (should_index?
 keeps them out). The scopes still apply as the hits load, a guard for an index not yet updated: a
 record the index holds after it should have left is never returned, and until the index is updated,
-the total counts it. That window, the time a reindex job takes, is the only one where a count includes
+the total counts it. So do the filters the engine applied that the database can apply too: `@trashed`'s,
+and each `@eq` (or `query.where`) on a column of the model with a plain value or list; a record the index
+still holds as it was (its author changed since) is not answered for a filter it no longer matches. A
+condition only the index holds (a field `search_data` computes, an engine operator such as `{ gt: 3 }`)
+is the index's alone. That window, the time a reindex job takes, is the only one where a count includes
 a record the client cannot load; filter on an indexed column in `search_where` to keep counts exact
 even then, for what the index itself says.
 
@@ -605,10 +620,10 @@ It is the model's, the same for every client: what depends on the user belongs i
 
 `@canQuery` checks the policy against each record the field's query would return. When the client
 searches, those are the records the search finds: **all of them, not only the page** the field
-returns, as PHP Lighthouse checks the hits of the Scout builder. With Searchkick that is one engine
-request, of 10,000 records at most, each loaded and checked, from which the field then answers its page
-without asking the engine again (each field, and each place of it in the response, searches once). A
-search that finds more within the result window (a page cannot reach past it) is an error, `@canQuery
+returns, as PHP Lighthouse checks the hits of the Scout builder. With Searchkick that is an engine
+request of its own, of 10,000 records at most, each loaded and checked; the field then asks the engine
+for its page, as any search, so nothing is kept between fields, queries or requests (a multiplex, a
+stored subscription context). A search that finds more within the result window (a page cannot reach past it) is an error, `@canQuery
 checks every record the search finds, at most 10000, and this one finds 12345. Narrow the search.`,
 passed to the client or replaced as `action:` says, as any failed check. With pg_search, the scope's
 records, all of them. Its `model:` must be searchable, and with Searchkick its `scopes:` are a schema
@@ -651,8 +666,9 @@ includes `PgSearch::Model`. [`Config.search`](configuration.md#search) replaces 
 (`Lighthouse::Search::PgSearch.new`, `Lighthouse::Search::Searchkick.new`) or your own. An adapter
 answers `searchable?(model, index)`, `relational?` and either `scope(relation, query)` (a relational one,
 like pg_search) or `page(query, offset:, limit:)` returning `[entries, total]`, one entry per engine
-hit (the record, or nil for one it could not load), and optionally `result_window(query)` (10,000 when
-it does not, nil when it cannot tell), `named?(model, index)` (does `within:` name something of its own
+hit (the record, or nil for one it could not load) and the total, every match counted (an Integer: anything
+else is an error the client reads), and optionally `result_window(query)` (10,000 when it does not, nil when
+it cannot tell), `named?(model, index)` (does `within:` name something of its own
 on the model: picked first when it does) and `model_error(model)` (why a model cannot be searched as it
 is: a schema error). This protocol is experimental.
 
@@ -678,8 +694,11 @@ is: a schema error). This protocol is experimental.
 | A Searchkick model with a default scope or `search_results`, without `search_where` | the engine counts what does not load | schema error |
 | A nested `@paginate` whose record pages an association its type's model lacks | `ScoutException` at run time | client error |
 | A filter raises (on any field) | the error | the error, reported to `Config.on_error`, for the schema's `rescue_from` |
+| The engine raises, as the field resolves or as a page asks for it | the error | the same |
 | A search the field's own directives would narrow, on a field whose model the build could not tell | directives dropped silently | client error, reported |
-| `@all` without `first` on more than 10,000 matches | Scout's `get()` answers its driver's default | the first 10,000, with an error next to them |
+| `@all` answers fewer than asked while more match (10,000 at once, the result window) | Scout's `get()` answers its driver's default | those records, with an error next to them |
+| `body_options` setting `track_total_hits`, or a total the engine did not count to the end | an estimate | client error, reported |
+| A `search_where` naming the soft-delete column | (no such hook) | client error, reported |
 
 ## Complex where conditions
 

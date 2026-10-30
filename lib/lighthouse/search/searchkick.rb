@@ -5,7 +5,13 @@
 # Active Record records in relevance order, so nested fields and the Dataloader
 # work on them as usual. One request returns a page and the total, which is
 # exact: Elasticsearch and OpenSearch 7+ stop counting at 10,000 unless asked
-# (`track_total_hits`), so Lighthouse asks, unless the app's `body_options:` say otherwise.
+# (`track_total_hits`), so Lighthouse always asks, and an app's `body_options:`
+# may not ask otherwise: totals, pages and @canQuery's check of every hit rely on it.
+#
+# The records load through the database with the filters the engine applied
+# that it can apply too (@trashed's, and @eq's on a column of the model), so an
+# index that lags the database may leave a record out, never answer one that no
+# longer matches.
 #
 # `within:` names the index (`index_name:`), the model's own by default.
 #
@@ -29,9 +35,10 @@ class Lighthouse::Search::Searchkick
   # The result window of a model with `searchkick deep_paging: true`, as Searchkick sets it.
   DEEP_PAGING_WINDOW = 1_000_000_000
 
-  def initialize
+  # `index`: what the engine tells of an index (Searchkick::Index), read and kept.
+  def initialize(index: Lighthouse::Search::Searchkick::Index.new)
     @per_model = {}
-    @mappings = {}
+    @index = index
   end
 
   def searchable?(model, _index = nil)
@@ -44,6 +51,7 @@ class Lighthouse::Search::Searchkick
   # record, or nil for a hit that did not load; the total that match].
   def page(query, offset:, limit:)
     response = query.model.searchkick_search(query.term, **search_options(query), offset: offset, limit: limit)
+    exact_total!(query, response)
     [entries(response), response.total_count]
   rescue StandardError => e
     raise unless past_window?(e)
@@ -52,19 +60,15 @@ class Lighthouse::Search::Searchkick
     raise ::GraphQL::ExecutionError, "The search reads no further than the index.max_result_window of #{query.model.name}. Narrow the search instead."
   end
 
-  # How many of the matches the model's index pages through (Search::Result): its
-  # `max_result_window:` (in `searchkick` or its index `settings:`, whatever their
-  # keys), a billion with `deep_paging: true`, else the engines' default, 10,000.
-  # nil for another index `within:` names, whose settings the model does not
-  # tell: the engine's own refusal stands (#page).
+  # How many of the matches the index the search reads pages through
+  # (Search::Result): its index.max_result_window, read from the engine
+  # (Searchkick::Index). When the settings cannot be read, the model's own index
+  # takes the window its options set (`max_result_window:`, in `searchkick` or
+  # its index `settings:`, whatever their keys; a billion with `deep_paging:
+  # true`), and any index the engines' default, 10,000.
   def result_window(query)
-    return nil unless own_index?(query)
-
-    per_model(:result_window, query.model) do |model|
-      options = ::ActiveSupport::HashWithIndifferentAccess.new(model.searchkick_options)
-      options[:max_result_window] || settings_window(options[:settings] || {}) ||
-        (options[:deep_paging] ? DEEP_PAGING_WINDOW : Lighthouse::Search::Result::MAX_WINDOW)
-    end
+    @index.result_window(query.model, index_name(query)) ||
+      (own_index?(query) && options_window(query.model)) || Lighthouse::Search::Result::MAX_WINDOW
   end
 
   # Why the model cannot be searched as it is, or nil: a default scope (a
@@ -99,61 +103,106 @@ class Lighthouse::Search::Searchkick
 
   def hit_key(hit) = [hit['_index'], hit['_id'].to_s]
 
+  # The total must be every match: a total the engine stopped counting at
+  # (`"relation": "gte"`) would let a page, or @canQuery's check, miss records.
+  def exact_total!(query, response)
+    raw = response.response if response.respond_to?(:response)
+    total = raw.to_h.dig('hits', 'total') if raw.respond_to?(:to_h)
+    return unless total.is_a?(Hash) && total['relation'] && total['relation'] != 'eq'
+
+    raise Lighthouse::DefinitionError,
+          "@search on #{query.model.name}: the engine counted #{total['relation']} #{total['value']} matches, not every one, " \
+          'which totals, pages and @canQuery need (track_total_hits)'
+  end
+
   # Does the search read the model's own index, whose settings the model tells?
   def own_index?(query) = query.index.nil? || query.index == query.model.searchkick_index&.name
 
-  # The window the index `settings:` set, nested or flat.
-  def settings_window(settings) = settings.dig(:index, :max_result_window) || settings[:'index.max_result_window']
+  def index_name(query) = query.index || query.model.searchkick_index&.name
+
+  # The window the model's options set, or nil.
+  def options_window(model)
+    options = ::ActiveSupport::HashWithIndifferentAccess.new(model.searchkick_options)
+    settings = options[:settings] || {}
+    options[:max_result_window] || settings.dig(:index, :max_result_window) || settings[:'index.max_result_window'] ||
+      (DEEP_PAGING_WINDOW if options[:deep_paging])
+  end
 
   def past_window?(error)
     defined?(::Searchkick::InvalidQueryError) && error.is_a?(::Searchkick::InvalidQueryError) && error.message.include?('max_result_window')
   end
 
   def search_options(query)
-    searchable!(query.model)
     options = query.options.dup
     wheres = query.wheres.map { |column, value| { column => value } }
     options[:where] = all_of(options[:where], engine_where(query), *wheres, trashed_filter(query))
     options[:index_name] = query.index if query.index
     options[:load] = true unless options.key?(:load)
-    options[:body_options] = { track_total_hits: true }.merge(options[:body_options] || {})
+    options[:body_options] = counting(options)
     loading = results_scope(query, options[:scope_results])
     options[:scope_results] = loading if loading
     options
   end
 
-  # What Searchkick loads the records it found through (`scope_results:`): past
-  # the default scope that hides trashed ones when @trashed asks for them, the
-  # model's `search_results` scope, then the app's own; nil for the model alone.
+  # The app's body_options, and track_total_hits: true, which they may not set.
+  def counting(options)
+    body = (options[:body_options] || {}).to_h.transform_keys(&:to_sym)
+    if body.key?(:track_total_hits) || options.key?(:track_total_hits)
+      raise Lighthouse::DefinitionError,
+            '@search: Lighthouse asks the engine to count every match (track_total_hits: true), which totals, pages and ' \
+            "@canQuery's check of every hit rely on: body_options cannot set track_total_hits"
+    end
+    body.merge(track_total_hits: true)
+  end
+
+  # What Searchkick loads the records it found through (`scope_results:`): the
+  # filters the engine applied that the database can apply too (@trashed's, the
+  # @eq ones on a column of the model, with a plain value), so a record the index
+  # holds as it was no longer matches; the model's `search_results` scope, then
+  # the app's own; nil for the model alone.
   def results_scope(query, own)
-    trashed = %i[only with].include?(query.trashed)
+    wheres = database_wheres(query)
     guarded = Lighthouse::Search.results_scope?(query.model)
-    return own unless trashed || guarded
+    return own unless query.trashed || guarded || wheres.any?
 
     lambda do |records|
       records = records.all
-      records = Lighthouse::Support::SoftDeletes.with_trashed(records) if trashed
+      records = Lighthouse::Support::SoftDeletes.filter(records, query.trashed.to_s) if query.trashed
+      records = wheres.reduce(records) { |narrowed, (column, value)| narrowed.where(column => value) }
       records = Lighthouse::Search.results(records)
       own ? own.call(records) : records
     end
   end
 
-  # A search of a model that cannot be searched as it is (model_error) is the
-  # schema's error, when Search::FieldCheck could not tell the field's model.
-  def searchable!(model)
-    error = per_model(:model_error, model) { model_error(model) }
-    raise Lighthouse::DefinitionError, "@search: #{error}." if error
+  # The engine conditions the database applies alike: a column of the model, and a
+  # value (a list of them) that is no engine operator (`{ gt: 3 }`).
+  def database_wheres(query)
+    columns = query.model.column_names
+    query.wheres.select do |column, value|
+      columns.include?(column) && Array(value).none?(Hash)
+    end
   end
 
   # The model's search_where, the engine's `where:` for what its default scope and
-  # search_results keep; its condition on the soft-delete column yields to @trashed.
+  # search_results keep, which must leave the soft-delete column to Lighthouse
+  # (trashed_filter): a condition on it in search_where could not yield to @trashed.
   def engine_where(query)
     model = query.model
     where = (model.search_where if model.respond_to?(:search_where)).to_h
-    return where unless query.trashed
+    column = Lighthouse::Support::SoftDeletes.supported?(model) && trashed_column(model).first.to_s
+    return where unless column && names?(where, column)
 
-    column = trashed_column(model).first.to_s
-    where.reject { |key, _value| key.to_s == column }
+    raise Lighthouse::DefinitionError,
+          "#{model.name}.search_where names #{column}, the column @trashed and Lighthouse filter trashed records on: leave it out"
+  end
+
+  # Does the engine condition name `column`, at any depth (`_and`, `_or`, `_not`)?
+  def names?(condition, column)
+    case condition
+    when Hash then condition.any? { |key, value| key.to_s == column || names?(value, column) }
+    when Array then condition.any? { |each| names?(each, column) }
+    else false
+    end
   end
 
   # The conditions as one Searchkick `where:`, all of which hold: the app's
@@ -166,14 +215,21 @@ class Lighthouse::Search::Searchkick
     keys.uniq.size == keys.size ? conditions.reduce({}, :merge) : { _and: conditions }
   end
 
+  # @trashed's condition; without one, the records that are not trashed when the
+  # model's default scope hides the others (paranoia's), as they would not load.
   def trashed_filter(query)
-    return {} unless query.trashed
-
-    return {} if query.trashed == :with # no filter: the index need not hold the column
+    trashed = query.trashed || (:without if hides_trashed?(query.model))
+    return {} if trashed.nil? || trashed == :with # no filter: the index need not hold the column
 
     column, kept = trashed_column(query.model)
     require_indexed!(query, column)
-    query.trashed == :only ? { column.to_sym => { not: kept } } : { column.to_sym => kept }
+    trashed == :only ? { column.to_sym => { not: kept } } : { column.to_sym => kept }
+  end
+
+  # Does the model's default scope leave its trashed records out?
+  def hides_trashed?(model)
+    Lighthouse::Support::SoftDeletes.supported?(model) &&
+      !Lighthouse::Support::Relations.same_records?(model.all, Lighthouse::Support::SoftDeletes.with_trashed(model.all))
   end
 
   # [the indexed column that marks trashed records, its value for the others]:
@@ -188,7 +244,7 @@ class Lighthouse::Search::Searchkick
   # It fails closed: when the columns cannot be told, the search is refused too.
   def require_indexed!(query, column)
     model = query.model
-    indexed = indexed_columns(model) || mapped_columns(model, query.index, column)
+    indexed = indexed_columns(model) || @index.fields(model, index_name(query))
     unless indexed
       raise ::GraphQL::ExecutionError,
             "@trashed cannot tell whether #{model.name}'s index holds #{column}, which it filters the search on: " \
@@ -207,28 +263,6 @@ class Lighthouse::Search::Searchkick
     rescue StandardError
       nil
     end
-  end
-
-  # The fields the index the search reads holds, from its mapping on the engine;
-  # nil when it cannot be read (no index yet). A mapping read is kept per model
-  # class and index, and read again when it lacks `column`, which a reindex may
-  # have added since; a failed read is not kept. A field every document leaves
-  # null has no mapping yet.
-  def mapped_columns(model, index, column)
-    key = [model.name, index]
-    kept_class, columns = @mappings[key]
-    return columns if kept_class.equal?(model) && columns.include?(column.to_s)
-
-    columns = read_mapping(model, index)
-    @mappings[key] = [model, columns] if columns
-    columns
-  end
-
-  def read_mapping(model, index)
-    name = index || model.searchkick_index.name
-    ::Searchkick.client.indices.get_mapping(index: name).to_h.values.flat_map { |mapping| mapping.dig('mappings', 'properties')&.keys || [] }
-  rescue StandardError
-    nil
   end
 
   # What the block answers for the model, worked out once per model class: a

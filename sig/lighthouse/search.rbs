@@ -43,15 +43,15 @@ module Lighthouse
 
       attr_reader query: Query
 
-      def initialize: (_EngineSearchAdapter adapter, Query query) -> void
+      def initialize: (_EngineSearchAdapter adapter, Query query, ?context: untyped) -> void
       def window: (Integer offset, Integer limit) -> Array[_Record]
       def count: () -> Integer
       READ_LIMIT: Integer
 
       def records: (?first: Integer?, ?offset: Integer?) -> Array[_Record]
-      # Every record a page can reach, for @canQuery: READ_LIMIT at most, else a GraphQL::ExecutionError.
+      # Every record a page can reach, for @canQuery, in a request of its own: READ_LIMIT at most, else a GraphQL::ExecutionError.
       def every_record: () -> Array[_Record]
-      # Did the last read without `first` leave matches unread? How many can a page reach?
+      # Did the last `records` answer fewer than asked while more match? How many can a page reach?
       def truncated?: () -> bool
       def reachable: () -> Integer
       # How many of the matches the engine pages through: the adapter's `result_window(query)`, else MAX_WINDOW; nil when the adapter cannot tell.
@@ -66,13 +66,25 @@ module Lighthouse
       DEEP_PAGING_WINDOW: Integer
 
       # @trashed filters on the column Config.soft_deletes tells (Support::SoftDeletes.column).
-      def initialize: () -> void
+      # `index`: what the engine tells of an index, read and kept.
+      def initialize: (?index: Searchkick::Index) -> void
 
       # Why the model cannot be searched as it is (a narrowing default scope or search_results, without search_where), or nil.
       def model_error: (Class model) -> String?
 
-      # The model's max_result_window, a billion with deep_paging, else 10,000; nil for another index `within:` names.
-      def result_window: (Query query) -> Integer?
+      # The index's max_result_window, read from the engine; else the model's options', else 10,000.
+      def result_window: (Query query) -> Integer
+
+      # An index's mapping and max_result_window, read from the engine once per INDEX_READ_TTL seconds (a failed read FAILED_READ_TTL).
+      class Index
+        INDEX_READ_TTL: Integer
+        FAILED_READ_TTL: Integer
+
+        # `clock`: seconds, monotonic.
+        def initialize: (?clock: ^() -> Numeric) -> void
+        def fields: (Class model, String? name) -> Array[String]?
+        def result_window: (Class model, String? name) -> Integer?
+      end
     end
 
     # pg_search (PostgreSQL full-text search), in the database.

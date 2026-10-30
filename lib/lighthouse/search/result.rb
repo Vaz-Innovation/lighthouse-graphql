@@ -4,12 +4,19 @@
 # and its total, in relevance order. It is the list @paginate pages
 # (Pagination::List), and @all reads whole. The engine is asked once per page,
 # whose response holds the total too, so a page costs one request even when
-# the client selects `paginatorInfo`.
+# the client selects `paginatorInfo`. Each field's search is its own Result, and
+# asks the engine itself: one is never shared between fields or requests.
+#
+# The total is exact, every match counted (Search::Searchkick asks for it): pages,
+# truncation and @canQuery's check of every hit rely on it.
 #
 # An engine pages no further than its result window (Elasticsearch's and
 # OpenSearch's index.max_result_window): a window that runs past it is cut at
 # its end, and one that starts past it is a client error. When the adapter does
 # not know the window (`result_window` nil), the engine refuses on its own.
+#
+# The engine's requests fail as the field's filters do (Support::Failures),
+# whenever they run: an engine's error is reported to Config.on_error.
 class Lighthouse::Search::Result
   include Lighthouse::GraphQL::Pagination::List
 
@@ -17,14 +24,15 @@ class Lighthouse::Search::Result
   # Elasticsearch's and OpenSearch's default index.max_result_window.
   MAX_WINDOW = 10_000
 
-  # The most records a read without `first` asks for, whatever the window (a
-  # billion with Searchkick's `deep_paging`): @all without `first`, and the
-  # records @canQuery checks.
+  # The most records one read asks for, whatever the window (a billion with
+  # Searchkick's `deep_paging`): @all, and the records @canQuery checks.
   READ_LIMIT = 10_000
 
-  def initialize(adapter, query)
+  # `context`: the query's, to which the engine's errors are reported.
+  def initialize(adapter, query, context: nil)
     @adapter = adapter
     @query = query
+    @context = context
   end
 
   attr_reader :query
@@ -41,37 +49,41 @@ class Lighthouse::Search::Result
     return [] if limit.zero?
 
     limit = within_window(offset, limit)
-    entries = fetched(offset, limit) || fetch(offset, limit)
+    entries = request(offset, limit)
     loaded = entries.each_index.reject { |index| entries[index].nil? }
     Lighthouse::GraphQL::Pagination::Window.new(entries.compact, loaded.map { |index| offset + index }, entries.size)
   end
 
   # How many records match: the total the last page came with, else a request for no records.
   def count
-    @count ||= @adapter.page(@query, offset: 0, limit: 0).last
+    request(0, 0) unless @count
+    @count
   end
 
-  # What @all returns: `first` records from `offset`, else READ_LIMIT of them at
-  # most (`truncated?` tells when that left matches unread); within the result
-  # window either way.
+  # What @all returns: `first` records from `offset` (every one when nil), of
+  # which one read takes READ_LIMIT at most, within the result window.
+  # `truncated?` tells when that answered fewer than asked while more match.
   def records(first: nil, offset: nil)
     offset ||= 0
-    found = window(offset, first || READ_LIMIT)
-    @truncated = first.nil? && reachable > offset + Lighthouse::GraphQL::Pagination.covered(found)
+    found = window(offset, [first || READ_LIMIT, READ_LIMIT].min)
+    read = Lighthouse::GraphQL::Pagination.covered(found)
+    @truncated = (first.nil? || read < first) && count > offset + read
     found
   end
 
-  # Did the last read without `first` leave matches a page could reach unread?
+  # Did the last `records` answer fewer matches than asked for, while more match
+  # (READ_LIMIT, the result window)?
   def truncated? = @truncated == true
 
   # How many matches a page can reach: the total, within the result window.
   def reachable = result_window ? [count, result_window].min : count
 
   # Every record the search finds that a page can reach, for @canQuery to check:
-  # one request, of READ_LIMIT records at most. A search that finds more within
-  # the result window is a client error, as a page could reach a record not checked.
+  # one request of its own, of READ_LIMIT records at most. A search that finds
+  # more within the result window is a client error, as a page could reach a
+  # record not checked.
   def every_record
-    found = records
+    found = window(0, READ_LIMIT)
     return found if reachable <= READ_LIMIT
 
     raise ::GraphQL::ExecutionError,
@@ -82,26 +94,24 @@ class Lighthouse::Search::Result
   def result_window
     return @result_window if defined?(@result_window)
 
-    @result_window = @adapter.respond_to?(:result_window) ? @adapter.result_window(@query) : MAX_WINDOW
+    @result_window = Lighthouse::Support::Failures.strictly(@context) do
+      @adapter.respond_to?(:result_window) ? @adapter.result_window(@query) : MAX_WINDOW
+    end
   end
 
   private
 
-  # The engine's entries at `offset`, `limit` of them, kept for a later window.
-  def fetch(offset, limit)
-    entries, @count = @adapter.page(@query, offset: offset, limit: limit)
-    @fetched = [offset, entries, entries.size < limit]
-    entries
-  end
+  # The engine's entries at `offset`, `limit` of them; its total, which must be a count.
+  def request(offset, limit)
+    Lighthouse::Support::Failures.strictly(@context) do
+      entries, total = @adapter.page(@query, offset: offset, limit: limit)
+      unless total.is_a?(Integer)
+        raise Lighthouse::DefinitionError, "@search: #{adapter_name} answered #{total.inspect} for the total, not the count of every match"
+      end
 
-  # The entries at `offset`, `limit` of them, from an earlier request that holds
-  # them (or held every hit from its offset on), as @canQuery's read of every hit
-  # holds the page the field then answers; nil when none does.
-  def fetched(offset, limit)
-    start, entries, every = @fetched
-    return nil unless start && offset >= start && (offset + limit <= start + entries.size || every)
-
-    entries[(offset - start), limit] || []
+      @count = total
+      entries
+    end
   end
 
   def within_window(offset, limit)

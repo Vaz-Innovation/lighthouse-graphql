@@ -663,17 +663,21 @@ each engine up.
   `@trashed` and `@builder` on an argument narrow it (as Scout's `@eq` / `@trashed` /
   `@builder`); they work at any depth of input objects. It serves `@all`, `@paginate` of the
   model's whole table, and a resolver of your own (`resolve_info.enhance_builder` answers a
-  `Lighthouse::Search::Result`, for the model's own relation only), with an exact total, within the index's result window (10,000
-  matches by default; a page past it is an error the client reads). `@all` without `first`
-  reads 10,000 records at most.
+  `Lighthouse::Search::Result`, for the model's own relation only), with an exact total, within the index's result window (read
+  from the engine, 10,000 matches by default; a page past it is an error the client reads). `@all` reads what
+  the client asks for (`first`, an argument's `@limit`, else every match), 10,000 records at most at once,
+  with an error next to them when that answers fewer than asked. The records load through the
+  filters the database can apply too (`@trashed`'s, `@eq` on a column), so a stale index never
+  answers one that no longer matches.
 
 A model's `search_results` scope, when it has one, is what a search of it may return:
 Searchkick loads the records it finds through it, so a record the index still holds after it
 should have left is not returned. A search counts only what it can load: a Searchkick model
 with a default scope (any, as declared) or `search_results` defines `search_where`, the
-engine's `where:` for the same records, or the schema does not build; pages follow the
+engine's `where:` for the same records, leaving out the soft-delete column Lighthouse filters on
+itself, or the schema does not build; pages follow the
 engine's positions, so a hit that does not load is never shown twice nor skips another. `@canQuery` on the field checks every record the search
-finds, as PHP Lighthouse does (with Searchkick, 10,000 at most: more is an error).
+finds, as PHP Lighthouse does (with Searchkick, in a request of its own, 10,000 at most: more is an error).
 
 Two `@search` arguments sent together, and (Searchkick) an argument whose directive an
 engine cannot apply (`@neq`, `@orderBy`, `@whereConditions`, ...), are errors.

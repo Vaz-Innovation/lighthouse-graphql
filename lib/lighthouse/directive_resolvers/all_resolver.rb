@@ -47,17 +47,29 @@ class Lighthouse::GraphQL::DirectiveResolvers::AllDirectiveResolver < Lighthouse
     relation
   end
 
-  # The records a search found: without `first`, Search::Result::READ_LIMIT of them
-  # at most, and an error next to them when that leaves matches unread.
+  # The records a search found: as many as the client asks for (`first`, an
+  # argument's @limit, which cuts them after), else every one; and an error next
+  # to them when fewer came back while more match (Search::Result::READ_LIMIT
+  # in one read, the result window).
   def search_records(result, args, ctx)
-    records = result.records(first: args[:first], offset: args[:offset])
-    if result.truncated? && ctx.respond_to?(:add_error)
-      ctx.add_error(::GraphQL::ExecutionError.new(
-                      "@all reads #{Lighthouse::Search::Result::READ_LIMIT} matches at most without `first`, and this search finds " \
-                      "#{result.reachable}: give the field `first` and `offset`, or use @paginate, to read the others."
-                    ))
-    end
+    wanted = [args[:first], limit_of(args)].compact.min
+    records = result.records(first: wanted, offset: args[:offset])
+    ctx.add_error(::GraphQL::ExecutionError.new(truncation(result, records, args[:offset] || 0))) if result.truncated? && ctx.respond_to?(:add_error)
     records
+  end
+
+  # The client's @limit (without `builder: true`), when it is one LimitResolver can cut to.
+  def limit_of(args)
+    keyword = Lighthouse::GraphQL::DirectiveResolvers::LimitResolver.keyword(@field_def)
+    limit = args[keyword] if keyword
+    limit if limit.is_a?(Integer) && !limit.negative?
+  end
+
+  def truncation(result, records, offset)
+    read = Lighthouse::GraphQL::Pagination.covered(records)
+    window = ", and no further than its first #{result.result_window} matches (the index.max_result_window)" if result.result_window
+    "@all answered #{read} of the #{result.count - offset} matches the search finds from offset #{offset}: a search reads " \
+      "#{Lighthouse::Search::Result::READ_LIMIT} at most at once#{window}. Use @paginate, or `first` and `offset`, to read the others."
   end
 
   def extract_model_name

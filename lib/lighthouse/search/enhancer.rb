@@ -75,22 +75,13 @@ class Lighthouse::Search::Enhancer
     whole_index!(adapter) if @search == :given
     reject_incompatible
     query = @arguments.reject { |argument| search?(argument) }.reduce(query) { |narrowed, argument| narrow(narrowed, argument) }
-    shared_result(adapter, query)
-  end
-
-  # One Result for the field, its place in the response and its model, in the
-  # request: the hits @canQuery reads to check them serve the page the field
-  # then answers, without asking the engine again.
-  def shared_result(adapter, query)
-    return Lighthouse::Search::Result.new(adapter, query) unless @context.respond_to?(:[]=) && @context.respond_to?(:[])
-
-    results = (@context[:lighthouse_search_results] ||= {})
-    results[[@field, @context[:current_path], query.model]] ||= Lighthouse::Search::Result.new(adapter, query)
+    Lighthouse::Search::Result.new(adapter, query, context: @context)
   end
 
   # A model the adapter cannot search as it is (Searchkick's model_error: a default
   # scope without search_where) is the schema's error, found here, as the field's
-  # filters run, for a field whose model the build could not tell.
+  # filters run, for a field whose model the build could not tell. The one check
+  # as a search runs; Search::FieldCheck's is the build's.
   def searchable!(adapter, model)
     error = adapter.model_error(model) if adapter.respond_to?(:model_error)
     raise Lighthouse::DefinitionError, "@search: #{error}." if error

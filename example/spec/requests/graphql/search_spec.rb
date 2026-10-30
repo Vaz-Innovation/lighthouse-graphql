@@ -233,6 +233,12 @@ RSpec.describe 'GraphQL @search', type: :request do
         expect(result.dig('data', 'paged')).to eq('data' => [], 'paginatorInfo' => { 'total' => 3 })
       end
 
+      it 'never answers a post whose author changed since the index read it for the author it had' do
+        Searchkick.callbacks(false) { SearchedPost.find_by!(title: 'Great title').update!(author: other) }
+
+        expect(titles(run(schema, %({ posts(search: "great", authorId: #{author.id}) { title } })))).to eq(['Really great great title'])
+      end
+
       describe 'an index of 10,001 documents within: names' do
         let(:index) { 'lighthouse_example_many_posts' }
         let(:many) do
@@ -268,13 +274,49 @@ RSpec.describe 'GraphQL @search', type: :request do
             .to eq(['@canQuery checks every record the search finds, at most 10000, and this one finds 10001. Narrow the search.'])
         end
 
-        it "pages as far as the index's own window, which Lighthouse cannot know, and leaves the refusal past it to the engine" do
+        it "pages as far as the index's own window, which Lighthouse reads from the engine" do
           deep = run(many, '{ many(first: 1, page: 10001, search: "*") { paginatorInfo { total } } }')
           past = run(many, '{ many(first: 10, page: 2001, search: "*") { paginatorInfo { total } } }')
 
           expect(deep).to eq('data' => { 'many' => { 'paginatorInfo' => { 'total' => 10_001 } } })
-          expect(past['errors'].pluck('message'))
-            .to eq(['The search reads no further than the index.max_result_window of SearchedPost. Narrow the search instead.'])
+          expect(past['errors'].pluck('message')).to eq(
+            ['The search reads no further than its first 20000 matches (the index.max_result_window of SearchedPost), so offset 20000 is past ' \
+             'them. Narrow the search instead.']
+          )
+        end
+      end
+
+      describe "an index whose own window is smaller than the engines' default" do
+        let(:index) { 'lighthouse_example_narrow_posts' }
+        let(:narrow) do
+          schema_from(<<~GRAPHQL)
+            type SearchedPost { id: ID! }
+            type Query {
+              listed(search: String @search(within: "#{index}")): [SearchedPost!]! @all
+              checked(search: String @search(within: "#{index}")): [SearchedPost!]! @paginate @canQuery(ability: "update")
+            }
+          GRAPHQL
+        end
+
+        # Indexed through the client, with ids no row has: what a page finds does not load, only the total counts.
+        before do
+          client = Searchkick.client
+          client.indices.delete(index: index) if client.indices.exists(index: index)
+          client.indices.create(index: index, body: { settings: { index: { max_result_window: 50 } } })
+          client.bulk(index: index, refresh: true, body: Array.new(60) { |id| [{ index: { _id: 1_000_000 + id } }, { title: 'narrow' }] }.flatten)
+        end
+
+        after { Searchkick.client.indices.delete(index: index) }
+
+        it 'reads no further than it, for @all and the records @canQuery checks, and says what @all left unread' do
+          listed = run(narrow, '{ listed(search: "*") { id } }')
+          checked = run(narrow, '{ checked(first: 1, search: "*") { paginatorInfo { total } } }', { current_user: author })
+
+          expect(listed['errors'].pluck('message')).to eq(
+            ['@all answered 50 of the 60 matches the search finds from offset 0: a search reads 10000 at most at once, and no further than ' \
+             'its first 50 matches (the index.max_result_window). Use @paginate, or `first` and `offset`, to read the others.']
+          )
+          expect(checked).to eq('data' => { 'checked' => { 'paginatorInfo' => { 'total' => 60 } } })
         end
       end
 
@@ -328,8 +370,12 @@ RSpec.describe 'GraphQL @search', type: :request do
         expect(titles(run(schema, format(query, "filters: [{ authorId: #{author.id} }, { authorId: #{other.id} }]")), 'authored')).to eq([])
       end
 
-      it "reads the fields an index holds from the engine's mapping, which @trashed falls back on" do
-        expect(Lighthouse::Search::Searchkick.new.send(:read_mapping, SearchedPost, nil)).to include('title', 'author_id', 'published')
+      it "reads the fields an index holds from the engine's mapping, which @trashed falls back on, and its result window from its settings" do
+        index = Lighthouse::Search::Searchkick::Index.new
+        name = SearchedPost.searchkick_index.name
+
+        expect(index.fields(SearchedPost, name)).to include('title', 'author_id', 'published')
+        expect(index.result_window(SearchedPost, name)).to eq(10_000)
       end
 
       it 'refuses what an engine cannot apply' do
@@ -338,14 +384,14 @@ RSpec.describe 'GraphQL @search', type: :request do
         expect(result['errors'].pluck('message')).to eq(['Found arg builder arguments that do not work with @search: @neq on title.'])
       end
 
-      it 'checks @canQuery against every post the search finds, not only the page, then pages them from the same request' do
+      it 'checks @canQuery against every post the search finds, not only the page, in a request of its own' do
         query = '{ editable(first: 1, search: "great"%s) { data { title } } }'
         result = nil
 
         expect(run(schema, format(query, ''), { current_user: author })['errors'].pluck('message')).to eq(['This action is unauthorized.'])
         requests = requests_in { result = run(schema, format(query, ", authorId: #{author.id}"), { current_user: author }) }
         expect(result.dig('data', 'editable', 'data')).to eq([{ 'title' => 'Really great great title' }])
-        expect(requests).to eq(1)
+        expect(requests).to eq(2) # @canQuery's, then the page's
       end
 
       it 'refuses, when the schema is built, what PHP Lighthouse drops silently' do
