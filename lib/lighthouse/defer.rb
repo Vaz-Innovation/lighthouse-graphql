@@ -41,21 +41,17 @@ module Lighthouse::GraphQL::Defer
     stream_lists(schema)
   end
 
-  # @stream cuts a list once its field has resolved: the extension goes on every list field.
+  # @stream cuts a list once its field has resolved: the extension goes on every list field
+  # (a client may stream any), and costs a field that is not streamed next to nothing.
   def stream_lists(schema)
     extension = Lighthouse::GraphQL::Incremental::StreamExtension
     schema.types.each_value do |type|
       next unless type.kind.object? || type.kind.interface?
 
       type.fields.each_value do |field|
-        field.extension(extension) if list?(field.type) && field.extensions.none?(extension)
+        field.extension(extension) if field.type.list? && field.extensions.none?(extension)
       end
     end
-  end
-
-  def list?(type)
-    type = type.of_type if type.non_null?
-    type.list?
   end
 
   def enabled?(schema)

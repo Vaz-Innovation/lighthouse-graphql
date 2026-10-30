@@ -4,10 +4,15 @@
 # field, it asks for the first `initialCount` items at once and the rest after
 # the response.
 #
-# The directive only declares the arguments; StreamExtension, which Defer.use puts
-# on the schema's list fields, does the work: a field resolver returns the whole
-# list, and the extension cuts it where the directive says.
+# StreamExtension, which Defer.use puts on the schema's list fields, does the
+# work: a field resolver returns the whole list, and the extension cuts it where
+# the directive says. graphql-ruby calls `resolve` around the resolution of a
+# field that carries the directive, and of no other: it hands the directive's
+# arguments to that field's extension through the fiber-local MARK, which the
+# extension takes before the field's resolver runs.
 class Lighthouse::GraphQL::Incremental::StreamDirective < GraphQL::Schema::Directive
+  MARK = :lighthouse_stream
+
   graphql_name 'stream'
   description 'Deliver the items of a list after the first `initialCount`, when the client accepts a streamed response (experimental).'
   locations GraphQL::Schema::Directive::FIELD
@@ -18,4 +23,18 @@ class Lighthouse::GraphQL::Incremental::StreamDirective < GraphQL::Schema::Direc
                                            description: 'Names the stream in the streamed response. Unique in the document, and not a variable.'
   argument :initial_count, GraphQL::Types::Int, required: true, default_value: 0,
                                                 description: 'How many items come with the first response.'
+
+  class << self
+    def resolve(_object, arguments, context)
+      return yield if arguments[:if] == false
+
+      previous = Thread.current[MARK]
+      Thread.current[MARK] = [context[:current_field], arguments]
+      begin
+        yield
+      ensure
+        Thread.current[MARK] = previous
+      end
+    end
+  end
 end

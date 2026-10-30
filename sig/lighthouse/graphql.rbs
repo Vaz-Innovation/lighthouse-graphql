@@ -203,7 +203,6 @@ module Lighthouse
       def self?.ranges: (String? accept) -> Array[Array[String]]
       # @stream cuts a list once its field has resolved: the extension goes on every list field.
       def self?.stream_lists: (schema schema) -> void
-      def self?.list?: (untyped type) -> bool
     end
 
     module Incremental

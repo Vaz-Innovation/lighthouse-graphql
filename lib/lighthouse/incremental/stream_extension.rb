@@ -1,43 +1,44 @@
 # frozen_string_literal: true
 
 # The graphql-ruby field extension behind @stream (Defer.use adds it to the
-# schema's list fields). It reads the field's @stream, stamped by Document, once
-# the resolver has answered: with an Incremental::State in the context, it
+# schema's list fields). Once the resolver has answered, it cuts the list the
+# field's @stream asks to cut: with an Incremental::State in the context, it
 # returns the first `initialCount` items, and keeps the rest in the State to
 # follow (Run). The field's resolver, directives included, runs once, for the
 # whole list; the items' own selections run for the items that stay, here, and for
 # those that follow, in the pass that delivers them.
+#
+# A field without @stream pays for the extension's two calls and one fiber-local
+# read, and nothing more: StreamDirective, which graphql-ruby only runs around a
+# field that carries it, leaves the directive's arguments in StreamDirective::MARK
+# for the field's extension to take, so no field needs its AST node (an `extras`
+# that would copy the arguments of every list field resolved).
 class Lighthouse::GraphQL::Incremental::StreamExtension < GraphQL::Schema::FieldExtension
   State = Lighthouse::GraphQL::Incremental::State
+  MARK = Lighthouse::GraphQL::Incremental::StreamDirective::MARK
   NEGATIVE = 'The initialCount of @stream must not be negative.'
 
-  extras [:ast_node]
-
-  # The field's AST node goes on as the memo, for `after_resolve`.
+  # The arguments of the field's @stream, if StreamDirective marked this field, go on as the memo.
   def resolve(object:, arguments:, **)
-    yield(object, arguments, arguments[:ast_node])
+    mark = Thread.current[MARK]
+    return yield(object, arguments) unless mark && mark.first.equal?(field)
+
+    Thread.current[MARK] = nil
+    yield(object, arguments, mark.last)
   end
 
   # A negative initialCount is a field error (the draft's CompleteValue), whether the
   # response is streamed or not.
   def after_resolve(value:, context:, memo:, **)
-    arguments = list?(value) && stream(memo, context)
-    return value unless arguments
-    return ::GraphQL::ExecutionError.new(NEGATIVE) if arguments[:initial_count].negative?
+    return value unless memo && list?(value)
+    return ::GraphQL::ExecutionError.new(NEGATIVE) if memo[:initial_count].negative?
 
     state = context[State::CONTEXT_KEY]
-    id = State.stamped_id(arguments[:label])
-    state && id ? cut(value.to_a, id, arguments[:initial_count], state, context) : value
+    id = State.stamped_id(memo[:label])
+    state && id ? cut(value.to_a, id, memo[:initial_count], state, context) : value
   end
 
   private
-
-  # The arguments of the field's @stream, unless it has none or it is off.
-  def stream(ast_node, context)
-    directive = ast_node.directives.find { |node| node.name == 'stream' } or return nil
-    arguments = context.query.arguments_for(directive, Lighthouse::GraphQL::Incremental::StreamDirective)
-    arguments unless arguments[:if] == false
-  end
 
   # A list the resolver answered; nil (a nullable list's null) answers to `to_a` too, and stays null.
   def list?(value)

@@ -91,7 +91,7 @@ class Lighthouse::GraphQL::Incremental::Document
   # The field's @stream, if it has one, stamped; it must be on a list.
   def stamp_stream(definition, directives)
     stream = directives.find { |directive| directive.name == 'stream' } or return directives
-    error(stream, 'The @stream directive must be used on a list field.') if definition && !Lighthouse::GraphQL::Defer.list?(definition.type)
+    error(stream, 'The @stream directive must be used on a list field.') if definition && !definition.type.list?
 
     id = @fragments.size
     @fragments << Lighthouse::GraphQL::Incremental::State::Fragment.new(id: id, label: label_of(stream), stream: true)

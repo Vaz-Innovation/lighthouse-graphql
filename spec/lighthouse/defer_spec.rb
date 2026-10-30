@@ -317,6 +317,21 @@ RSpec.describe 'Deferring fields' do
       expect(schema.execute(query, variables: { 'count' => -1 }).to_h).to eq(answer)
     end
 
+    it 'streams the field that carries @stream, and no other' do
+      all = payloads('{ names @stream(initialCount: 1) someNames shelf { title } }')
+
+      expect(all.first['data']).to eq('names' => %w[ann], 'someNames' => %w[ann bob cat dan],
+                                      'shelf' => [{ 'title' => 'Dune' }, { 'title' => 'Alien' }, { 'title' => 'Emma' }])
+      expect(all.last['incremental']).to eq([{ 'id' => '0', 'items' => %w[bob cat dan] }])
+    end
+
+    it 'adds no extras to the list fields it extends, which would cost every list resolved' do
+      field = schema.get_field('Query', 'users')
+
+      expect(field.extensions.map(&:class)).to include(Lighthouse::GraphQL::Incremental::StreamExtension)
+      expect(field.extras).to be_empty
+    end
+
     it 'answers null for a nullable list that resolves to null, as without @stream' do
       expect(payloads('{ maybe @stream(initialCount: 1) }')).to eq([{ 'data' => { 'maybe' => nil }, 'pending' => [], 'hasNext' => false }])
     end
