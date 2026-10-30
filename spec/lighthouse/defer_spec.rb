@@ -420,6 +420,18 @@ RSpec.describe 'Deferring fields' do
         end
       end
 
+      it 'adds to the objects of a named fragment spread at several places in the deferred one' do
+        query = <<~GRAPHQL
+          { a: user(id: 1) { company { id } } b: user(id: 2) { company { id } } c: users { company { id } }
+            ... @defer { a: user(id: 1) { ...F } b: user(id: 2) { ... on User { ...F } } c: users { ...F } } }
+          fragment F on User { company { name } }
+        GRAPHQL
+        all = payloads(query)
+
+        expect(all.last['completed']).to eq([{ 'id' => '0' }])
+        expect(assembled(all)).to eq(schema.execute(query.gsub(' @defer', '')).to_h['data'])
+      end
+
       it 'is sent once when two fragments of a round share it' do
         all = payloads('{ user(id: 1) { ... @defer(label: "a") { name loud } ... @defer(label: "b") { loud id } } }')
 

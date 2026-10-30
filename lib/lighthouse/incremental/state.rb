@@ -159,20 +159,22 @@ class Lighthouse::GraphQL::Incremental::State
 
   # The fragment's object fields, walked once a request.
   def relative(fragment)
-    (@relative ||= {}.compare_by_identity)[fragment] ||= object_fields(document.selections(fragment), [], Set.new)
+    (@relative ||= {}.compare_by_identity)[fragment] ||= object_fields(document.selections(fragment), [], [])
   end
 
-  def object_fields(selections, prefix, seen)
+  # `spreads`: the named fragments around the walk, which a cycle would spread again. A fragment
+  # spread at several places is walked at each.
+  def object_fields(selections, prefix, spreads)
     selections.flat_map do |selection|
       case selection
       when ::GraphQL::Language::Nodes::Field
         next [] if selection.selections.empty?
 
         own = prefix + [selection.alias || selection.name]
-        [own] + object_fields(selection.selections, own, seen)
+        [own] + object_fields(selection.selections, own, spreads)
       when ::GraphQL::Language::Nodes::FragmentSpread
-        seen.add?(selection.name) ? object_fields(document.selections(selection), prefix, seen) : []
-      else object_fields(selection.selections, prefix, seen)
+        spreads.include?(selection.name) ? [] : object_fields(document.selections(selection), prefix, spreads + [selection.name])
+      else object_fields(selection.selections, prefix, spreads)
       end
     end
   end
