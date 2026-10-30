@@ -101,17 +101,12 @@ module Lighthouse
       # ready-to-render Hash. The operation ends once the run is done, or the block.
       def self?.incremental: [T] (schema schema, query: String?, ?extensions: extensions?, ?variables: Hash[String, untyped]?,
                                   ?operation_name: String?, ?context: Hash[Symbol, untyped], **untyped options) { (Incremental::Run run) -> T } -> (T | Hash[String, json])
-      # What execute and incremental share: the block runs the query text the request names,
-      # between the operation events; a protocol error comes back as its Hash.
-      def self?.operation: [T] (String? query, extensions? extensions, Hash[Symbol, untyped] options) { (String? text, ^(_Result result) -> void ended) -> T } -> (T | Hash[String, json])
       # A batch: `schema.multiplex` with the query each operation (a Hash of
       # query, extensions, variables, operation_name, context) names. One result
       # per operation, in order; a protocol error is a ready-to-render Hash.
       def self?.multiplex: (schema schema, Array[Hash[Symbol | String, untyped]] operations, **untyped options) -> Array[_Result]
       # The query text to run for a request's `query` and `extensions`.
       def self?.resolve: (String? query, extensions? extensions) -> String?
-      # What the block answers, or the Hash of the protocol Error it raises.
-      def self?.protocol: [T] () { () -> T } -> (T | Hash[String, json])
       def self?.enabled?: () -> bool
       def self?.digest: (String query) -> String
       # Store a query ahead of time (e.g. from a deploy task); returns its hash.

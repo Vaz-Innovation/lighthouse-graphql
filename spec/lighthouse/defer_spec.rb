@@ -1293,6 +1293,12 @@ RSpec.describe 'Deferring fields' do
       expect(ended.last.to_h).to eq('data' => { 'users' => [{ 'id' => '1' }, { 'id' => '2' }, { 'id' => '3' }] })
     end
 
+    it 'keeps what execute and incremental share to itself' do
+      expect(Lighthouse::GraphQL::PersistedQueries.private_methods).to include(:operation, :protocol)
+      expect(Lighthouse::GraphQL::PersistedQueries).not_to respond_to(:operation)
+      expect(Lighthouse::GraphQL::PersistedQueries).not_to respond_to(:protocol)
+    end
+
     it 'ends one whose client left before its first part with nothing, as nothing was sent' do
       gone = Class.new(Lighthouse::GraphQL::Incremental::Gone)
       leaves = ->(_payload) { raise gone }

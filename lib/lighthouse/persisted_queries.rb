@@ -107,6 +107,8 @@ module Lighthouse::GraphQL::PersistedQueries
     yield text, ended
   end
 
+  private_class_method :protocol, :operation
+
   # A batch (a JSON array in the request) through `schema.multiplex`; see Batch.
   def multiplex(schema, operations, **options)
     Lighthouse::GraphQL::PersistedQueries::Batch.run(schema, operations, **options)
