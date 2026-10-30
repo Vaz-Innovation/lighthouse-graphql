@@ -8,6 +8,7 @@ RSpec.describe 'GraphQL authentication and authorization', type: :request do
       body = graphql('{ me { id } }')
 
       expect(error_messages(body)).to eq(['Unauthenticated.'])
+      expect(body.dig('errors', 0, 'extensions')).to eq('code' => 'UNAUTHENTICATED')
       expect(body['data']).to be_nil
     end
 

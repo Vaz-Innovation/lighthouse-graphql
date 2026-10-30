@@ -3,8 +3,9 @@
 require_relative 'base'
 
 # @guard — require an authenticated user before the field resolves.
-# Wraps the field's resolver; raises "Unauthenticated." when no user is
-# present (per Config.authenticated_user). Mirrors PHP Lighthouse's @guard.
+# Wraps the field's resolver; raises "Unauthenticated." (AuthenticationError,
+# extensions.code UNAUTHENTICATED) when no user is present (per
+# Config.authenticated_user). Mirrors PHP Lighthouse's @guard.
 class Lighthouse::GraphQL::DirectiveResolvers::GuardDirectiveResolver < Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
   def self.directive_name = 'guard'
 
@@ -24,7 +25,7 @@ class Lighthouse::GraphQL::DirectiveResolvers::GuardDirectiveResolver < Lighthou
     inner = Lighthouse::GraphQL::DirectiveResolvers::Resolution.capture(target_type_class, method_name, @field_def, field_name)
 
     wrapper = lambda do |obj, arguments, ctx|
-      raise(::GraphQL::ExecutionError, 'Unauthenticated.') unless Lighthouse::Support::Authorization.authenticated?(ctx)
+      raise Lighthouse::AuthenticationError unless Lighthouse::Support::Authorization.authenticated?(ctx)
 
       inner.call(obj, arguments, ctx)
     end

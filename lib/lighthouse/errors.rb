@@ -6,10 +6,24 @@ module Lighthouse
   # missing @validator class. A server bug, so not a client-facing error.
   class DefinitionError < StandardError; end
 
-  # Raised by the @can* family when the policy denies the ability.
+  # Raised by @guard and @auth when no user is signed in. PHP Lighthouse's
+  # message; `extensions.code` is Apollo's UNAUTHENTICATED, so a client can
+  # tell it apart without matching the text (send the user to sign in).
+  class AuthenticationError < ::GraphQL::ExecutionError
+    CODE = 'UNAUTHENTICATED'
+
+    def initialize(message = 'Unauthenticated.', extensions: {}, **options)
+      super(message, extensions: { 'code' => CODE }.merge(extensions), **options)
+    end
+  end
+
+  # Raised by the @can* family when the policy denies the ability, with
+  # Apollo's FORBIDDEN as `extensions.code`.
   class AuthorizationError < ::GraphQL::ExecutionError
-    def initialize(message = 'This action is unauthorized.', **options)
-      super
+    CODE = 'FORBIDDEN'
+
+    def initialize(message = 'This action is unauthorized.', extensions: {}, **options)
+      super(message, extensions: { 'code' => CODE }.merge(extensions), **options)
     end
   end
 

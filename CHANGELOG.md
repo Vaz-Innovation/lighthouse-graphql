@@ -6,6 +6,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **`Unauthenticated.` and `This action is unauthorized.` carry an `extensions.code`** (#5):
+  `UNAUTHENTICATED` from `@guard` and `@auth` (the new `Lighthouse::AuthenticationError`), and
+  `FORBIDDEN` from the `@can*` directives (`Lighthouse::AuthorizationError`), as Apollo names
+  them, so a client can react without matching the message. PHP Lighthouse's have no code.
+
 ## [0.8.0] - 2026-10-29
 
 ### Added

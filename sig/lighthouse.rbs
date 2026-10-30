@@ -201,9 +201,19 @@ module Lighthouse
   end
 
   # A GraphQL::ExecutionError (declared from StandardError, which it descends
-  # from, as graphql-ruby ships no RBS): the @can* family denied the ability.
+  # from, as graphql-ruby ships no RBS): the @can* family denied the ability
+  # (extensions.code FORBIDDEN).
   class AuthorizationError < StandardError
-    def initialize: (?String message, **untyped options) -> void
+    CODE: String
+
+    def initialize: (?String message, ?extensions: Hash[String, untyped], **untyped options) -> void
+  end
+
+  # A GraphQL::ExecutionError: @guard or @auth found no signed-in user (extensions.code UNAUTHENTICATED).
+  class AuthenticationError < StandardError
+    CODE: String
+
+    def initialize: (?String message, ?extensions: Hash[String, untyped], **untyped options) -> void
   end
 
   # A GraphQL::ExecutionError: invalid arguments, keyed by argument path

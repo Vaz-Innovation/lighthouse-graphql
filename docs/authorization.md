@@ -33,8 +33,9 @@ three-argument authorizer keeps working for checks without them.
 
 ## `@guard` — require authentication
 
-Raises `Unauthenticated.` when there is no user. It runs before everything else
-on the field.
+Raises `Unauthenticated.` when there is no user, with `extensions.code`
+`UNAUTHENTICATED`, Apollo's code, so a client can send the user to sign in without
+matching the message. It runs before everything else on the field.
 
 ```graphql
 type Query {
@@ -133,6 +134,16 @@ post(id: ID!): Post @canFind(ability: "show", find: "id", action: EXCEPTION_NOT_
 
 `action` applies to the directive's own checks only. Errors from the resolver
 itself are untouched.
+
+`This action is unauthorized.` carries `extensions.code` `FORBIDDEN`, as Apollo
+names it (`@guard`'s `Unauthenticated.` carries `UNAUTHENTICATED`):
+
+```json
+{ "message": "This action is unauthorized.", "path": ["post"], "extensions": { "code": "FORBIDDEN" } }
+```
+
+PHP Lighthouse's errors have no code. Raise `Lighthouse::AuthenticationError` and
+`Lighthouse::AuthorizationError` from your own resolvers to answer the same.
 
 ### Who may use an argument
 

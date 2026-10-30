@@ -18,7 +18,7 @@ class Lighthouse::GraphQL::DirectiveResolvers::AuthDirectiveResolver < Lighthous
 
     install(target_type_class, lambda do |obj, arguments, ctx|
       user = ctx && (ctx[:current_user] || ctx['current_user'])
-      raise(::GraphQL::ExecutionError, 'Unauthenticated.') unless user
+      raise Lighthouse::AuthenticationError unless user
 
       inner.call(obj, arguments, ctx)
     end)

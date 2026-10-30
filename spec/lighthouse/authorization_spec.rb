@@ -112,6 +112,15 @@ RSpec.describe 'Authorization directives (@guard and the @can* family)' do
       expect(messages(result)).to eq(['Unauthenticated.'])
     end
 
+    it 'gives the error the code UNAUTHENTICATED, and a denial the code FORBIDDEN, as Apollo does (#5)' do
+      codes = ->(result) { result['errors'].map { |error| error.dig('extensions', 'code') } }
+
+      expect(codes.call(run('{ secret }'))).to eq(['UNAUTHENTICATED'])
+      expect(codes.call(run("{ foundPost(id: #{draft.id}) { title } }", reader))).to eq(['FORBIDDEN'])
+      expect(codes.call(run('{ concealedPost(id: 999) { title } }', admin))).to eq(['FORBIDDEN'])
+      expect(codes.call(run('{ foundPost(id: 999) { title } }', admin))).to eq([nil])
+    end
+
     it 'allows an authenticated request' do
       expect(run('{ secret }', reader)).to eq('data' => { 'secret' => 'ok' })
     end
