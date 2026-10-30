@@ -15,6 +15,12 @@ class Lighthouse::Search::Enhancer
   # An argument directive of the field: its AST nodes, the builder class (or :builder), the client's value.
   Argument = Struct.new(:node, :directive, :builder, :value, :present)
 
+  # Can a search engine apply the argument directive (its builder class, or :builder)?
+  # Search::FieldCheck asks too, of the arguments with a default value.
+  def self.compatible?(builder)
+    builder == :builder || builder.include?(Lighthouse::Contracts::SearchBuilder)
+  end
+
   def initialize(arguments, relation, results:, context:)
     @arguments = arguments
     @relation = relation
@@ -98,9 +104,7 @@ class Lighthouse::Search::Enhancer
           "Found arg builder arguments that do not work with @search: @#{incompatible.directive.name} on #{incompatible.node.name}."
   end
 
-  def compatible?(builder)
-    builder == :builder || builder.include?(Lighthouse::Contracts::SearchBuilder)
-  end
+  def compatible?(builder) = self.class.compatible?(builder)
 
   def narrow(query, argument)
     if argument.builder == :builder

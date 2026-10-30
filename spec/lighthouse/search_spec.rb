@@ -629,6 +629,27 @@ RSpec.describe '@search' do
         end.to raise_error(Lighthouse::DefinitionError, /SearchPost.relatedCount\(search\): .*needs @all, @paginate/)
       end
 
+      it 'refuses a default value a directive the engine cannot apply would apply to every search, as an argument or an input field' do
+        {
+          'posts(search: String @search, orderBy: [OrderByClause!] = [{ column: "title", order: ASC }] @orderBy): [SearchPost!]! @all' =>
+            '@orderBy on orderBy',
+          'posts(search: String @search, minId: Int = 1 @where(operator: ">", key: "id")): [SearchPost!]! @all' => '@where on minId',
+          'posts(search: String @search, filter: PostsFilter): [SearchPost!]! @all' => '@neq on filter.title'
+        }.each do |field, refused|
+          expect { build_schema("type SearchPost { id: ID! } input PostsFilter { title: String = \"x\" @neq } type Query { #{field} }") }
+            .to raise_error(Lighthouse::DefinitionError, /Engine cannot apply #{Regexp.escape(refused)}, whose default value/)
+        end
+      end
+
+      it 'accepts a default value for a directive the engine applies, and leaves the defaults alone with a relational adapter' do
+        sdl = 'type SearchPost { id: ID! } ' \
+              'type Query { posts(search: String @search, authorId: Int = 1 @eq(key: "author_id"), minId: Int = 1 %s): [SearchPost!]! @all }'
+
+        expect { build_schema(format(sdl, '')) }.not_to raise_error
+        search_with(FakeSearch::Relational.new([SearchPost]))
+        expect { build_schema(format(sdl, '@where(operator: ">", key: "id")')) }.not_to raise_error
+      end
+
       it 'accepts @all and @paginate on a root field' do
         expect do
           build_posts('a(search: String @search): [SearchPost!]! @all b(search: String @search): [SearchPost!]! @paginate')
