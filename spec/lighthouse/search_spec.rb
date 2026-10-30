@@ -281,6 +281,38 @@ RSpec.describe '@search' do
       end
     end
 
+    describe 'loading what Searchkick finds' do
+      before do
+        stub_const('Searchkick', Module.new)
+        search_with(Lighthouse::Search::Searchkick.new)
+        SearchPost.delete_all
+      end
+
+      {
+        'paranoia' => [SearchkickParanoidPost, :deleted_at],
+        'discard' => [SearchkickDiscardPost, :discarded_at],
+        'a deleted_at column under a default scope' => [SearchkickHiddenPost, :deleted_at]
+      }.each do |strategy, (model, column)|
+        it "loads the trashed records @trashed asks for, past the default scope that hides them, with #{strategy}" do
+          kept = model.create!(title: 'kept')
+          trashed = model.create!('title' => 'trashed', column => Time.current)
+          schema = build_schema(<<~GRAPHQL)
+            type #{model.name} { title: String! }
+            type Query { posts(search: String @search): [#{model.name}!]! @paginate @softDeletes }
+          GRAPHQL
+          titles_of = lambda do |trashed_value|
+            page = run(schema, "{ posts(first: 10, search: \"x\", trashed: #{trashed_value}) { data { title } paginatorInfo { total } } }")
+            [page.dig('data', 'posts', 'data').pluck('title'), page.dig('data', 'posts', 'paginatorInfo', 'total')]
+          end
+
+          expect(titles_of.call('ONLY')).to eq([['trashed'], 1])
+          expect(titles_of.call('WITH')).to eq([%w[kept trashed], 2])
+          expect(titles_of.call('WITHOUT')).to eq([['kept'], 1])
+          expect([kept, trashed].map { |record| model.unscoped.exists?(record.id) }).to eq([true, true])
+        end
+      end
+    end
+
     describe 'with @canQuery' do
       let(:schema) do
         build_schema(<<~GRAPHQL)

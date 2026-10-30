@@ -1,5 +1,8 @@
 # frozen_string_literal: true
 
+require 'paranoia'
+require 'discard'
+
 # The models and engines of the @search specs. The engines are fakes, as PHP
 # Lighthouse's own suite fakes Laravel Scout's (tests/TestsScoutEngine): the
 # real ones run in example/ against OpenSearch and PostgreSQL.
@@ -9,6 +12,7 @@ ActiveRecord::Schema.define do
     t.string :body
     t.integer :author_id
     t.datetime :deleted_at
+    t.datetime :discarded_at
   end
 end
 
@@ -111,4 +115,46 @@ class PgSearchPost < ApplicationRecord
 
   def self.search(term) = where('title LIKE ?', "%#{term}%")
   def self.by_title(term) = where(title: term)
+end
+
+# A model's searchkick_search that loads its hits as Searchkick does
+# (Searchkick::Results#results_query): through the model and its default scope,
+# then `scope_results:`. The index holds every row, trashed ones too, filtered by
+# `where:`; a `{ not: nil }` filter keeps the rows with a value in the column.
+module FakeSearch::Searchkicked
+  attr_accessor :searches
+
+  def searchkick_index = nil
+
+  def searchkick_search(_term, **options)
+    (self.searches ||= []) << options
+    hits = unscoped.order(:id)
+    (options[:where] || {}).each { |column, value| hits = value.is_a?(Hash) ? hits.where.not(column => nil) : hits.where(column => value) }
+    ids = hits.offset(options[:offset]).limit(options[:limit]).pluck(:id)
+    records = options[:scope_results] ? options[:scope_results].call(self) : self
+    FakeSearch::Response.new(records.where(id: ids).sort_by { |record| ids.index(record.id) }, hits.count)
+  end
+end
+
+# Searchkick models with soft deletes, whose default scope hides the trashed ones
+# (paranoia's, discard's when the model asks for it, and a hand-written one).
+class SearchkickParanoidPost < ApplicationRecord
+  self.table_name = 'search_posts'
+  acts_as_paranoid
+  extend FakeSearch::Searchkicked
+end
+
+class SearchkickDiscardPost < ApplicationRecord
+  self.table_name = 'search_posts'
+  include Discard::Model
+  extend FakeSearch::Searchkicked
+
+  default_scope -> { kept }
+end
+
+class SearchkickHiddenPost < ApplicationRecord
+  self.table_name = 'search_posts'
+  extend FakeSearch::Searchkicked
+
+  default_scope { where(deleted_at: nil) }
 end
