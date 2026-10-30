@@ -68,15 +68,24 @@ class Lighthouse::Search::Enhancer
   # Search::FieldCheck lets through search the model's own relation.
   def whole_index!(adapter)
     model = @relation.klass
-    return if conditions(@relation) == conditions(model.all)
+    return if unnarrowed?(@relation, model.all)
 
     raise Lighthouse::DefinitionError,
           "@search with #{adapter.class.name.demodulize} searches the whole index of #{model.name}: it cannot apply the conditions " \
-          "of the relation it was given (#{conditions(@relation)}). Search #{model.name}.all, and narrow the search with the field's arguments."
+          "of the relation it was given. Search #{model.name}.all, and narrow the search with the field's arguments."
   end
 
-  # What the relation selects, whatever its order.
-  def conditions(relation) = relation.unscope(:order, :select).to_sql
+  # The parts of a relation that narrow what it selects, besides its conditions.
+  NARROWING = %i[joins_values left_outer_joins_values group_values limit_value offset_value].freeze
+
+  # Does the relation select what the model's own does? Compared by structure,
+  # without compiling SQL, on every search: as many conditions as the model's
+  # default scope adds (whose values may read the clock), and nothing else.
+  def unnarrowed?(relation, base)
+    relation.where_clause.send(:predicates).size == base.where_clause.send(:predicates).size &&
+      relation.from_clause.empty? && relation.having_clause.empty? &&
+      NARROWING.all? { |part| relation.public_send(part) == base.public_send(part) }
+  end
 
   # The directives of an argument the client sent that a search engine cannot apply.
   def reject_incompatible

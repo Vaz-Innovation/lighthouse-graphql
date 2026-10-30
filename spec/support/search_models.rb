@@ -196,3 +196,10 @@ end
 class BothSearchPost < PgSearchPost
   extend FakeSearch::Searchkicked
 end
+
+# A default scope that reads the clock: its SQL differs every time it is built.
+class SearchTimedPost < ApplicationRecord
+  self.table_name = 'search_posts'
+
+  default_scope { where('deleted_at IS NULL OR deleted_at > ?', Time.current) }
+end

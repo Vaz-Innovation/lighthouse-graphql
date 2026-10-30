@@ -481,6 +481,15 @@ RSpec.describe '@search' do
         expect(engine.requests.last).to include(offset: 0, limit: 1)
       end
 
+      it "searches a model whose default scope reads the clock, and compiles no SQL to tell the model's relation" do
+        timed = FakeSearch::Engine.new([SearchTimedPost], great)
+        search_with(timed)
+        schema = build_schema('type SearchTimedPost { title: String! } type Query { posts(search: String @search): [SearchTimedPost!]! @all }')
+        expect_any_instance_of(ActiveRecord::Relation).not_to receive(:to_sql) # rubocop:disable RSpec/AnyInstance
+
+        expect(titles(run(schema, '{ posts(search: "great") { title } }'))).to eq(['great title', 'Really great title'])
+      end
+
       it 'refuses a relation narrowed beforehand, whose conditions the engine would drop' do
         expect { run(schema, '{ narrowed(search: "great") { title } }') }
           .to raise_error(Lighthouse::DefinitionError, /searches the whole index of SearchPost: it cannot apply the conditions of the relation/)
