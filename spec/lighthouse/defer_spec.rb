@@ -318,6 +318,25 @@ RSpec.describe 'Deferring fields' do
         expect(all.last['incremental'].first).to eq('id' => '0', 'data' => { 'name' => 'u0', 'company' => { 'id' => '1' } })
       end
 
+      describe 'where the app picked its own trace mode' do
+        def fallback(query) = payloads(query, context: { trace_mode: :app_mode })
+
+        it 'does not resolve a shared object again when the fragment adds nothing to it' do
+          query = '{ user(id: 1) { company { name } ... @defer { company { name } } } }'
+          all = nil
+          deferred = queries_in { all = fallback(query) }
+
+          expect(all.last).to eq(completed_only('0'))
+          expect(deferred.size).to eq(queries_in { schema.execute('{ user(id: 1) { company { name } } }') }.size)
+        end
+
+        it 'gives each item of a list what the fragment adds to it, whatever the first item holds' do
+          all = fallback('{ shelf { ... on Book { title } } ... @defer { shelf { title } } }')
+
+          expect(assembled(all)).to eq('shelf' => [{ 'title' => 'Dune' }, { 'title' => 'Alien' }, { 'title' => 'Emma' }])
+        end
+      end
+
       it 'is sent once when two fragments of a round share it' do
         all = payloads('{ user(id: 1) { ... @defer(label: "a") { name loud } ... @defer(label: "b") { loud id } } }')
 

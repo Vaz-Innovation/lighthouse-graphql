@@ -118,14 +118,21 @@ class Lighthouse::GraphQL::Incremental::Plan
     []
   end
 
-  # Where the response's object can no longer be had: the field, again, for the selections it adds.
+  # Where the response's object can no longer be had: the field, again, for the selections it adds,
+  # but those every object of it the response holds holds already (in a list, an item of one type
+  # may lack what another holds); none when nothing is left to add.
   def again(fields, held)
-    held = held.find { |item| item.is_a?(Hash) } if held.is_a?(Array)
-    fields.map { |field| field.merge(selections: field.selections.reject { |selection| held?(selection, held) }) }
+    items = (held.is_a?(Array) ? held : [held]).grep(Hash)
+    return [] if items.empty?
+
+    fields.filter_map do |field|
+      selections = field.selections.reject { |selection| items.all? { |item| held?(selection, item) } }
+      field.merge(selections: selections) unless selections.empty?
+    end
   end
 
   def held?(selection, held)
-    selection.is_a?(Nodes::Field) && selection.selections.empty? && held.is_a?(Hash) && held.key?(selection.alias || selection.name)
+    selection.is_a?(Nodes::Field) && selection.selections.empty? && held.key?(selection.alias || selection.name)
   end
 
   # The units of the selections `fields` add to the object (or each object of the list) the
