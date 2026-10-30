@@ -152,6 +152,16 @@ config.persisted_queries_manifest = Rails.root.join('persisted-queries.json')  #
 config.persisted_queries_only = Rails.env.production?  # run nothing else
 ```
 
+### `defer_max_pending`
+
+The most deferred fragments one request may leave pending ([`@defer`](performance.md#deferring-fields-experimental),
+experimental). Past it, a fragment runs in the first response, as the specification allows a
+server to do. Default `100`.
+
+```ruby
+config.defer_max_pending = 200
+```
+
 ### `convert_empty_strings_to_null`
 
 Makes every field behave as if it carried

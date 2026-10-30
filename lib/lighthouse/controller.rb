@@ -52,13 +52,11 @@ module Lighthouse::GraphQL::Controller
       if operations.is_a?(Array)
         render json: lighthouse_batch(operations.map { |operation| lighthouse_hash(operation) })
       else
-        result = lighthouse_operation(operations)
-        Lighthouse::GraphQL::CacheControl.apply(response, result)
-        render json: result
+        lighthouse_respond(operations)
       end
     end
   rescue StandardError => e
-    raise e unless defined?(::Rails) && ::Rails.env.development? && !rails_response?(e)
+    raise e unless lighthouse_render_development_error?(e)
 
     lighthouse_development_error(e)
   end
@@ -93,6 +91,62 @@ module Lighthouse::GraphQL::Controller
         operation_name: operation[:operationName], context: lighthouse_context }
     end
     Lighthouse::GraphQL::PersistedQueries.multiplex(graphql_schema, operations)
+  end
+
+  # One operation: answered whole, or streamed (Defer) when it asks for it.
+  def lighthouse_respond(operation)
+    return lighthouse_incremental(operation) if lighthouse_incremental?
+
+    result = lighthouse_operation(operation)
+    Lighthouse::GraphQL::CacheControl.apply(response, result)
+    render json: result
+  end
+
+  # Does this request take a streamed response (Defer): the schema uses the
+  # plugin, the controller includes ActionController::Live, and the client
+  # accepts `multipart/mixed`?
+  def lighthouse_incremental?
+    defined?(::ActionController::Live) && is_a?(::ActionController::Live) &&
+      Lighthouse::GraphQL::Defer.accepts?(request.headers['Accept']) && Lighthouse::GraphQL::Defer.enabled?(graphql_schema)
+  end
+
+  # Runs the operation as Incremental::Run does, and renders it whole when no
+  # fragment is deferred, else streams the payloads as `multipart/mixed` parts
+  # (not cacheable, whatever @cacheControl says).
+  def lighthouse_incremental(operation)
+    operation = operation.with_indifferent_access if operation.is_a?(Hash)
+    run = Lighthouse::GraphQL::PersistedQueries.incremental(
+      graphql_schema,
+      query: operation[:query], extensions: operation[:extensions],
+      variables: graphql_variables(operation[:variables]), operation_name: operation[:operationName], context: lighthouse_context
+    )
+    return render json: run if run.is_a?(Hash)
+
+    return lighthouse_stream(run) if run.deferred?
+
+    Lighthouse::GraphQL::CacheControl.apply(response, run.result)
+    render json: run.result
+  end
+
+  # The payloads of `run`, one part each, written as they are ready.
+  def lighthouse_stream(run)
+    accept = request.headers['Accept']
+    Lighthouse::GraphQL::Incremental::Multipart.headers(Lighthouse::GraphQL::Defer.content_type(accept)).each do |name, value|
+      response.headers[name] = value
+    end
+    multipart = Lighthouse::GraphQL::Incremental::Multipart.new(response.stream)
+    begin
+      run.each_payload { |payload| multipart.write(payload) }
+    ensure
+      multipart.finish
+    end
+  rescue ::ActionController::Live::ClientDisconnected, ::IOError
+    nil
+  end
+
+  # In development, an error that is not one Rails answers, before the response is on its way.
+  def lighthouse_render_development_error?(error)
+    defined?(::Rails) && ::Rails.env.development? && !rails_response?(error) && !response.committed?
   end
 
   # An error Rails answers with a status of its own (config.action_dispatch.rescue_responses):

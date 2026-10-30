@@ -355,6 +355,15 @@ type Mutation {
 }
 ```
 
+### `@defer`
+
+Experimental. On a fragment: its fields arrive after the rest of the response, streamed as
+`multipart/mixed` to a client that accepts it. Not in the SDL: the schema's `use
+Lighthouse::GraphQL::Defer` adds it, and clients write it in their queries, as the
+[specification draft](https://github.com/graphql/graphql-spec/pull/1110) has it
+(`directive @defer(if: Boolean! = true, label: String) on FRAGMENT_SPREAD | INLINE_FRAGMENT`).
+Guide: [performance.md](performance.md#deferring-fields-experimental).
+
 ### `@hide` and `@show`
 
 Leave a field out of the schema by environment (`Rails.env`): `@hide(env:)` removes

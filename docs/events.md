@@ -95,6 +95,10 @@ it builds, so they fire however the query was started: the controller,
 With no listener, and no `ActiveSupport::Notifications` subscriber, they cost
 one lookup per request.
 
+A fragment deferred with [`@defer`](performance.md#deferring-fields-experimental) runs in a
+multiplex of its own after the first response: the events fire again for each object it runs on,
+with the operation's `query`, `variables` and `operation_name`, and the result of that fragment.
+
 `StartExecution#query` is the parsed `GraphQL::Language::Nodes::Document`, and
 `operation_name` the one the client gave. Both events carry the `GraphQL::Query` as
 `graphql_query`, and `EndExecution` its `operation_name` (the operation that ran,

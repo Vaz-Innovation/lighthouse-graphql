@@ -68,6 +68,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   fails the field, reported to `Config.on_error`, rather than answer what it would have left out; so
   does the engine, whenever a page asks it.
   See [Full-text search](docs/filtering-and-ordering.md#full-text-search).
+- **`@defer` (experimental).** `use Lighthouse::GraphQL::Defer` in the schema class adds the
+  directive as the specification draft has it (graphql-spec PR #1110: on fragments, with
+  `if` and `label`, answered as `pending` / `incremental` / `completed` / `hasNext`), and a
+  controller that includes `ActionController::Live` streams it as `multipart/mixed` to a client
+  that accepts it. The first pass leaves the deferred fragments out; each one then runs on the
+  objects the first pass loaded, once, through `GraphQL::Query::Partial`, so a field's
+  directives run once, a mutation does not run again, and the Dataloader still batches across a
+  list. Fragments nest, and may sit under a mutation's root field. The whole document goes
+  through validation and complexity analysis first. Other clients get one ordinary response.
+  New setting: `defer_max_pending`. Needs graphql-ruby 2.5.21. See
+  [performance.md](docs/performance.md#deferring-fields-experimental). PHP Lighthouse's
+  field-level `@defer`, which runs the query again for each round, is not what this is.
 
 ### Changed
 

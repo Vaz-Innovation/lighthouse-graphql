@@ -67,6 +67,23 @@ module Lighthouse::GraphQL::PersistedQueries
     result
   end
 
+  # `execute` for a response that may be streamed (Defer): the Incremental::Run
+  # of the query, started (its first pass has run), or the ready-to-render Hash
+  # of a protocol error. Dispatches the same events as `execute`, the end one
+  # with the first pass's result.
+  def incremental(schema, query:, extensions: nil, **options)
+    operation = { query: query, variables: options[:variables], operation_name: options[:operation_name], extensions: extensions }
+    Lighthouse::Events.dispatch(Lighthouse::Events::StartOperationOrOperations.new(operation))
+    result =
+      begin
+        Lighthouse::GraphQL::Incremental::Run.new(schema, resolve(query, extensions), **options).start
+      rescue Error => e
+        e.to_h
+      end
+    Lighthouse::Events.dispatch(Lighthouse::Events::EndOperationOrOperations.new(result.is_a?(Hash) ? result : result.result))
+    result
+  end
+
   # A batch (a JSON array in the request) through `schema.multiplex`; see Batch.
   def multiplex(schema, operations, **options)
     Lighthouse::GraphQL::PersistedQueries::Batch.run(schema, operations, **options)
