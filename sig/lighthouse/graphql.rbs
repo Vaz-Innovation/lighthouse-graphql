@@ -220,8 +220,6 @@ module Lighthouse
         def json?: () -> bool
         def before?: (MediaRange? other) -> bool
       end
-      # @stream cuts a list once its field has resolved: the extension goes on every list field.
-      def self?.stream_lists: (schema schema) -> void
     end
 
     module Incremental

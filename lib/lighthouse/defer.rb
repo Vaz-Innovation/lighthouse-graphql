@@ -51,21 +51,8 @@ module Lighthouse::GraphQL::Defer
     schema.directive(Lighthouse::GraphQL::Incremental::DeferDirective)
     schema.directive(Lighthouse::GraphQL::Incremental::StreamDirective)
     schema.query_analyzer(Lighthouse::GraphQL::Incremental::Rules)
+    schema.trace_with(Lighthouse::GraphQL::Incremental::StreamTrace)
     schema.trace_with(Lighthouse::GraphQL::Incremental::Recorder, mode: Lighthouse::GraphQL::Incremental::Recorder::MODE)
-    stream_lists(schema)
-  end
-
-  # @stream cuts a list once its field has resolved: the extension goes on every list field
-  # (a client may stream any), and costs a field that is not streamed next to nothing.
-  def stream_lists(schema)
-    extension = Lighthouse::GraphQL::Incremental::StreamExtension
-    schema.types.each_value do |type|
-      next unless type.kind.object? || type.kind.interface?
-
-      type.fields.each_value do |field|
-        field.extension(extension) if field.type.list? && field.extensions.none?(extension)
-      end
-    end
   end
 
   def enabled?(schema)

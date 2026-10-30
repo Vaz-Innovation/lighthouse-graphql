@@ -306,8 +306,10 @@ is answered whole.
 `@stream` needs a list field (a validation error otherwise), follows the rules of `@defer` for
 `label`, mutations ("The @stream directive cannot be used on a root mutation field.") and
 subscriptions, and a negative `initialCount` is a field error: the field is `null`, with the error at
-its path. The plugin puts a graphql-ruby field extension on every list field to cut them; a field
-that is not streamed costs it two method calls and a fiber-local read.
+its path. The plugin adds a graphql-ruby trace module to the schema that uses it (and no other
+schema built on the same types), which cuts the lists of every field of that schema, whenever the
+field was defined, and changes no field; a field that is not streamed costs it a method call and a
+fiber-local read.
 
 ### Transport
 

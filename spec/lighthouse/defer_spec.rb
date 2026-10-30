@@ -539,11 +539,24 @@ RSpec.describe 'Deferring fields' do
       expect(all.last['incremental']).to eq([{ 'id' => '0', 'items' => %w[bob cat dan] }])
     end
 
-    it 'adds no extras to the list fields it extends, which would cost every list resolved' do
-      field = schema.get_field('Query', 'users')
+    it 'changes no field: the schema that uses the plugin streams, and no other built on the same types' do
+      base = build_schema(sdl, dataloader: true)
+      streaming = Class.new(base) { use Lighthouse::GraphQL::Defer }
+      field = base.get_field('Query', 'users')
 
-      expect(field.extensions.map(&:class)).to include(Lighthouse::GraphQL::Incremental::StreamExtension)
-      expect(field.extras).to be_empty
+      expect([field.extensions, field.extras]).to eq([[], []])
+      expect(streaming.trace_modules_for(:default)).to include(Lighthouse::GraphQL::Incremental::StreamTrace)
+      expect(base.trace_modules_for(:default)).not_to include(Lighthouse::GraphQL::Incremental::StreamTrace)
+    end
+
+    it 'streams a list field defined after the schema used the plugin' do
+      schema.query.field(:later_names, [String], null: false)
+      schema.query.define_method(:later_names) { %w[x y z] }
+
+      all = payloads('{ laterNames @stream(initialCount: 1) }')
+
+      expect(all.first['data']).to eq('laterNames' => %w[x])
+      expect(all.last['incremental']).to eq([{ 'id' => '0', 'items' => %w[y z] }])
     end
 
     it 'answers null for a nullable list that resolves to null, as without @stream' do

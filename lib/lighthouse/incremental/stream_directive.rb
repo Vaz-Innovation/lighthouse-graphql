@@ -4,12 +4,12 @@
 # field, it asks for the first `initialCount` items at once and the rest after
 # the response.
 #
-# StreamExtension, which Defer.use puts on the schema's list fields, does the
-# work: a field resolver returns the whole list, and the extension cuts it where
-# the directive says. graphql-ruby calls `resolve` around the resolution of a
-# field that carries the directive, and of no other: it hands the directive's
-# arguments to that field's extension through the fiber-local MARK, which the
-# extension takes before the field's resolver runs.
+# StreamTrace, the trace module Defer.use adds to the schema, does the work: a
+# field resolver returns the whole list, and StreamTrace cuts it where the
+# directive says. graphql-ruby calls `resolve` around the resolution of a field
+# that carries the directive, and of no other: it hands the directive's arguments
+# to that field's `execute_field` through the fiber-local MARK, which StreamTrace
+# takes before the field's resolver runs.
 class Lighthouse::GraphQL::Incremental::StreamDirective < GraphQL::Schema::Directive
   MARK = :lighthouse_stream
 

@@ -68,7 +68,7 @@ require_relative 'namespaces'
   incremental/state
   incremental/defer_directive
   incremental/stream_directive
-  incremental/stream_extension
+  incremental/stream_trace
   incremental/document
   incremental/rules
   incremental/plan

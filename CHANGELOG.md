@@ -91,8 +91,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   which lists the differences.
 - **`@stream` (experimental)**, with `@defer` (PHP Lighthouse has none): `users @stream(initialCount: 2)
   { name }` answers the first items at once and the rest in a later part (`items`, the draft's
-  format). A graphql-ruby field extension on the schema's list fields cuts the list after its
-  resolver ran, once; a field that is not streamed costs it next to nothing. The later items run
+  format). A graphql-ruby trace module on the schema that uses the plugin cuts the list after its
+  resolver ran, once, on any of its fields; a field that is not streamed costs it next to nothing. The later items run
   what the field's declarations select, together, so the Dataloader still batches. Items may carry
   `@defer`. A negative `initialCount` is a field error.
 
