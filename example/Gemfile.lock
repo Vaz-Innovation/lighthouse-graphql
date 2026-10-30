@@ -1,7 +1,7 @@
 PATH
   remote: ..
   specs:
-    lighthouse-graphql (0.8.1)
+    lighthouse-graphql (0.8.2)
       activesupport (>= 6.0)
       graphql (~> 2.5)
 
