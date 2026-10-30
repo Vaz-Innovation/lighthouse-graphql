@@ -51,23 +51,26 @@ class Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
 
     relation = relation.all if relation.is_a?(Class) # a model class, as `enhance_builder(Post)` gives it
     args_h = args_hash(args)
-    builders = arg_builders(args_h) if searching?
-    searched = apply_search(relation, builders, ctx, search)
-    return searched if searched.is_a?(Lighthouse::Search::Result)
-
-    filtered = apply_query_filters(searched, args_h, ctx, builders)
-    searched.equal?(relation) ? filtered : Lighthouse::GraphQL::Pagination.stable_order(filtered)
+    searching? ? searched_and_filtered(relation, args_h, ctx, search) : filtered(relation, args_h, ctx)
   end
 
   # Compose argument-builder directives (@eq, @neq, @in, @notIn, @like,
   # @where, @orderBy, @whereConditions, @whereHasConditions) onto the relation, in SDL argument order, for each
   # field argument that carries one and that the client supplied a value
   # for — and for the fields of the input objects the client sent, at any depth.
+  # A builder that raises is reported (Config.on_error), and the relation goes on
+  # with the builders before it, as it always has.
   def apply_arg_builders(relation, args_h, ctx = nil)
     return relation unless relation.respond_to?(:where)
     return relation unless @field_def.ast_node
 
-    apply_builders(relation, arg_builders(args_h), ctx)
+    arg_builders(args_h).each { |built| relation = apply_built(relation, built, ctx) }
+    relation
+  rescue ::GraphQL::ExecutionError
+    raise
+  rescue StandardError => e
+    Lighthouse::Config.handle_error(e)
+    relation
   end
 
   def constantize_model(name)
@@ -112,11 +115,11 @@ class Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
 
   def args_hash(args) = args.respond_to?(:to_h) ? args.to_h : (args || {})
 
-  # The field's arguments and own query directives, on the relation: what is left
-  # after the search, if any. `builders`: the field's arg_builders, when the search walked them.
-  def apply_query_filters(relation, args_h, ctx, builders = nil)
-    filtered = builders ? apply_builders(relation, builders, ctx) : apply_arg_builders(relation, args_h, ctx)
-    apply_field_builders(filtered, args_h, ctx)
+  # The field's arguments and own query directives, on a field without @search.
+  # A filter that raises is reported (Config.on_error) and the query goes on
+  # without the filters: kept as it was before @search, for those fields.
+  def filtered(relation, args_h, ctx)
+    apply_field_builders(apply_arg_builders(relation, args_h, ctx), args_h, ctx)
   rescue ::GraphQL::ExecutionError
     raise
   rescue StandardError => e
@@ -124,18 +127,29 @@ class Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
     relation
   end
 
-  # The argument builders (arg_builders) on the relation, in order.
-  def apply_builders(relation, builders, ctx)
-    builders.each do |values, node, dnode, builder_class|
-      relation = apply_arg_builder(relation, values, ctx, [[node.name], node, dnode, builder_class])
-    end
+  # The search, then the field's arguments and own query directives, on a field
+  # with @search. Nothing is swallowed: a filter that raises fails the field,
+  # once Config.on_error has heard of it, rather than answer what it would have
+  # left out. A relational search's order ends with the primary key, once every
+  # other order applies (apply_search).
+  def searched_and_filtered(relation, args_h, ctx, search)
+    builders = arg_builders(args_h)
+    searched = apply_search(relation, builders, ctx, search)
+    return searched if searched.is_a?(Lighthouse::Search::Result)
 
-    relation
-  rescue ::GraphQL::ExecutionError
+    filtered = builders.reduce(searched) { |acc, built| apply_built(acc, built, ctx, strict: true) }
+    filtered = apply_field_builders(filtered, args_h, ctx, strict: true)
+    searched.equal?(relation) ? filtered : Lighthouse::GraphQL::Pagination.stable_order(filtered)
+  rescue ::GraphQL::ExecutionError, Lighthouse::DefinitionError
     raise
   rescue StandardError => e
-    Lighthouse::Config.handle_error(e)
-    relation
+    Lighthouse::Config.handle_error(e, ctx)
+    raise ::GraphQL::ExecutionError, "Could not apply the filters of #{@type_def.graphql_name}.#{@field_def.name}."
+  end
+
+  # One of arg_builders, on the relation.
+  def apply_built(relation, (values, node, dnode, builder_class), ctx, strict: false)
+    apply_arg_builder(relation, values, ctx, [[node.name], node, dnode, builder_class], strict: strict)
   end
 
   # The relation searched, when the client sent a string for an argument with @search
@@ -144,10 +158,8 @@ class Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
   # key once every other order applies (apply_where_filters), so the matches that
   # rank, and sort, alike come back in one order, whatever the field resolves with.
   # `builders`: the field's arg_builders, walked once for the search and the
-  # filters after it; nil when the field has no @search.
+  # filters after it.
   def apply_search(relation, builders, ctx, search)
-    return relation unless builders
-
     arguments = builders.map do |values, node, dnode, builder_class|
       path = [node.name]
       Lighthouse::Search::Enhancer::Argument.new(node, dnode, builder_class, dig_arg(values, path), arg_present?(values, path))
@@ -162,18 +174,18 @@ class Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
 
   # The field's own query directives (@builder, @whereAuth, @orderBy(column:)),
   # in SDL order, after the arguments', as PHP Lighthouse's enhanceBuilder applies them.
-  def apply_field_builders(relation, args_h = {}, ctx = nil)
-    Lighthouse::GraphQL::DirectiveResolvers::BuilderApplier.apply(relation, @field_def.ast_node, args_h, ctx, self)
+  def apply_field_builders(relation, args_h = {}, ctx = nil, strict: false)
+    Lighthouse::GraphQL::DirectiveResolvers::BuilderApplier.apply(relation, @field_def.ast_node, args_h, ctx, strict: strict)
   end
 
   # Every (argument, directive, builder class) on the field, in SDL order.
   # One argument directive: @builder whenever the client sent the argument,
   # null included (as PHP Lighthouse's); the others when its value is not null.
-  def apply_arg_builder(relation, args_h, ctx, (path, arg_node, dnode, builder_class))
+  def apply_arg_builder(relation, args_h, ctx, (path, arg_node, dnode, builder_class), strict: false)
     if builder_class == :builder
       return relation unless arg_present?(args_h, path)
 
-      return Lighthouse::GraphQL::DirectiveResolvers::BuilderApplier.apply_argument(relation, dnode, dig_arg(args_h, path), ctx)
+      return Lighthouse::GraphQL::DirectiveResolvers::BuilderApplier.apply_argument(relation, dnode, dig_arg(args_h, path), ctx, strict: strict)
     end
 
     value = dig_arg(args_h, path)

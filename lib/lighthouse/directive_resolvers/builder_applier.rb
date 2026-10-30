@@ -52,13 +52,15 @@ class Lighthouse::GraphQL::DirectiveResolvers::BuilderApplier
 
   DEFINITIONS = { 'builder' => DEFINITION, 'whereAuth' => WHERE_AUTH_DEFINITION }.freeze
 
-  def self.apply(relation, field_def_ast_node, args, ctx, resolver_instance)
+  # `strict`: a builder that raises fails the query (a field with @search), rather
+  # than be reported and skipped, as it is elsewhere (call_builder).
+  def self.apply(relation, field_def_ast_node, args, ctx, strict: false)
     return relation unless field_def_ast_node&.directives
 
     registry = Lighthouse::DirectiveRegistry.default
     field_def_ast_node.directives.reduce(relation) do |acc, directive_node|
       case directive_node.name
-      when 'builder' then apply_directive(acc, directive_node, args, ctx, resolver_instance)
+      when 'builder' then apply_directive(acc, directive_node, args, ctx, strict: strict)
       when 'whereAuth' then where_auth(acc, directive_node, ctx)
       else field_builder(registry, acc, field_def_ast_node, directive_node)
       end
@@ -92,17 +94,20 @@ class Lighthouse::GraphQL::DirectiveResolvers::BuilderApplier
     relation.where(model.primary_key => owned.select(model.arel_table[model.primary_key]))
   end
 
-  def self.apply_directive(relation, directive_node, args, ctx, _resolver_instance)
+  def self.apply_directive(relation, directive_node, args, ctx, strict: false)
     value = directive_node.arguments&.any? { |a| a.name == 'value' } ? extract_directive_arg(directive_node, 'value') : args
-    call_builder(relation, directive_node, value, ctx)
+    call_builder(relation, directive_node, value, ctx, strict: strict)
   end
 
   # @builder on an argument the client sent: the method gets its value.
-  def self.apply_argument(relation, directive_node, value, ctx)
-    call_builder(relation, directive_node, value, ctx)
+  def self.apply_argument(relation, directive_node, value, ctx, strict: false)
+    call_builder(relation, directive_node, value, ctx, strict: strict)
   end
 
-  def self.call_builder(relation, directive_node, value, ctx)
+  # A builder that raises is reported (Config.on_error) and skipped, the query
+  # going on without it, as it always has; with `strict`, the error goes on to
+  # the caller instead.
+  def self.call_builder(relation, directive_node, value, ctx, strict: false)
     builder_class, method_name = reference(directive_node)
     return relation unless builder_class
 
@@ -116,6 +121,8 @@ class Lighthouse::GraphQL::DirectiveResolvers::BuilderApplier
     # relation, or a builder that enforces tenancy could be bypassed.
     raise
   rescue StandardError => e
+    raise if strict
+
     Lighthouse::Config.handle_error(e)
     relation
   end

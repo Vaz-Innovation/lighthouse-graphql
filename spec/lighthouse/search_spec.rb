@@ -66,6 +66,10 @@ class SearchSpecSearchingDirective < SearchSpecOwnDirective
   def self.takes_search_results?(*) = true
 end
 
+class Builders::SearchSpecBroken
+  def self.call(_target, _value, _context) = raise('the builder broke')
+end
+
 class Builders::SearchSpecOptions
   def self.call(query, value, _context)
     query.options[:fields] = [value]
@@ -208,6 +212,19 @@ RSpec.describe '@search' do
       expect(result.dig('data', 'posts').size).to eq(2)
       expect(engine.query.wheres).to eq('from_custom_builder' => 1)
       expect(engine.query.term).to eq('greatness')
+    end
+
+    it 'fails the field when a builder of the search raises, rather than search without it' do
+      Lighthouse::Config.on_error = ->(_error, _context) {}
+      schema = build_schema(<<~GRAPHQL)
+        type SearchPost { id: Int! }
+        type Query { posts(only: String @builder(class: "SearchSpecBroken"), search: String @search): [SearchPost!]! @all }
+      GRAPHQL
+
+      result = run(schema, '{ posts(only: "x", search: "great") { id } }')
+
+      expect(result['errors'].pluck('message')).to eq(['Could not apply the filters of Query.posts.'])
+      expect(engine.requests).to be_empty
     end
 
     it "keeps a builder's options for the adapter" do
@@ -891,6 +908,26 @@ RSpec.describe '@search' do
     it 'does not search without the argument' do
       expect(titles(run(schema, '{ posts { title } }')).size).to eq(3)
       expect(relational.queries).to be_empty
+    end
+
+    it 'fails the field when a filter raises, rather than answer what the filter would have left out' do
+      reported = []
+      Lighthouse::Config.on_error = ->(error, _context) { reported << error.message }
+      broken = build_schema(<<~GRAPHQL)
+        type SearchPost { title: String! }
+        type Query {
+          byArgument(search: String @search, only: String @builder(class: "SearchSpecBroken")): [SearchPost!]! @all
+          byField(search: String @search): [SearchPost!]! @all @builder(class: "SearchSpecBroken")
+        }
+      GRAPHQL
+
+      ['byArgument(search: "great", only: "x")', 'byField(search: "great")', 'byField'].each do |field|
+        result = run(broken, "{ #{field} { title } }")
+
+        expect(result['data']).to be_nil
+        expect(result['errors'].pluck('message')).to eq([format('Could not apply the filters of Query.%s.', field[/\A\w+/])])
+      end
+      expect(reported).to eq(['the builder broke'] * 3)
     end
 
     describe 'on a mass mutation' do
