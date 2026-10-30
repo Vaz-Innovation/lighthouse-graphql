@@ -41,6 +41,22 @@ class Lighthouse::GraphQL::Incremental::State
     @needed = Set.new
     @keys = Set.new
     @objects = {}
+    @offsets = {}.compare_by_identity
+  end
+
+  # A stream's Partial (`query`) runs the items of the list at `path` from 0, and they start at
+  # index `offset` of the response's list.
+  def offset(query, path, offset)
+    @offsets[query] = [path.size, offset]
+  end
+
+  # `path` as a path of the response: in a stream's Partial, its items' indices count from the
+  # list's first item. Everything keyed or answered by path goes through it.
+  def absolute(query, path)
+    size, offset = @offsets[query]
+    return path unless offset&.positive? && path[size].is_a?(Integer)
+
+    path.dup.tap { |copy| copy[size] += offset }
   end
 
   # true when the fragment of the @defer whose `arguments` graphql-ruby evaluates is deferred
@@ -53,7 +69,8 @@ class Lighthouse::GraphQL::Incremental::State
     fragment = directive_for(query, 'defer', arguments)&.then { |directive| @document.owner(directive) }
     return false unless fragment && @document.included?(fragment, query) && @document.applies?(fragment, object.class, query)
 
-    found(query, Pending.new(node: fragment, object: object.object, type: object.class, path: context[:current_path], label: arguments[:label]))
+    path = absolute(query, context[:current_path])
+    found(query, Pending.new(node: fragment, object: object.object, type: object.class, path: path, label: arguments[:label]))
     true
   end
 
@@ -65,7 +82,7 @@ class Lighthouse::GraphQL::Incremental::State
 
     query = context.query
     directive = directive_for(query, 'stream', arguments) or return false
-    path = context[:current_path]
+    path = absolute(query, context[:current_path])
     selections = @document.merged(directive, path, parent.class, query, @deferring) or return false
 
     record(query, Pending.new(node: directive, object: items, path: path, label: arguments[:label], offset: arguments[:initial_count],
@@ -89,9 +106,9 @@ class Lighthouse::GraphQL::Incremental::State
   # Recorder: is a field of response key `key` one a pending fragment may need the object of?
   def wanted?(key) = @keys.include?(key)
 
-  # Recorder: the value a field resolved to at `path`, if a pending fragment may need it.
-  def keep(path, value)
-    @objects[path] = value if @needed.include?(path.grep_v(Integer))
+  # Recorder: the value a field of `query` resolved to at `path`, if a pending fragment may need it.
+  def keep(query, path, value)
+    @objects[absolute(query, path)] = value if @needed.include?(path.grep_v(Integer))
   end
 
   # The value kept at `path`, or MISSING.

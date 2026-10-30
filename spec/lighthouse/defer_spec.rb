@@ -88,6 +88,32 @@ RSpec.describe 'Deferring fields' do
 
   def pending(*payloads) = payloads.flat_map { |payload| payload['pending'] || [] }
 
+  # The response a client puts together from the payloads: each entry merged at its pending
+  # path (and subPath), a stream's items after the list's.
+  def assembled(payloads)
+    data = payloads.first['data'].deep_dup
+    paths = {}
+    payloads.each do |payload|
+      payload['pending'].to_a.each { |entry| paths[entry['id']] = entry['path'] }
+      payload['incremental'].to_a.each { |entry| apply(data, paths.fetch(entry['id']) + entry['subPath'].to_a, entry) }
+    end
+    data
+  end
+
+  def apply(data, path, entry)
+    target = path.reduce(data) { |value, key| value[key] }
+    entry.key?('items') ? target.concat(entry['items'].deep_dup) : merge_into(target, entry['data'])
+  end
+
+  def merge_into(target, data)
+    data.each do |key, value|
+      if target[key].is_a?(Hash) && value.is_a?(Hash) then merge_into(target[key], value)
+      elsif target[key].is_a?(Array) && value.is_a?(Array) then target[key].zip(value).each { |old, new| merge_into(old, new) }
+      else target[key] = value.deep_dup
+      end
+    end
+  end
+
   describe 'the specification draft' do
     it 'answers a query with two deferred fragments as the draft does, both in one round' do
       query = <<~GRAPHQL
@@ -429,6 +455,30 @@ RSpec.describe 'Deferring fields' do
       expect(all.first['data']).to eq('users' => [{ 'id' => '1' }, { 'id' => '2' }, { 'id' => '3' }])
       expect(all.first['pending']).to eq([{ 'id' => '0', 'path' => [] }])
       expect(all.last['incremental']).to eq((0..2).map { |i| { 'id' => '0', 'subPath' => ['users', i], 'data' => { 'name' => "u#{i}" } } })
+    end
+
+    describe 'with @defer in and around the streamed items' do
+      before { LH::User.find_each { |user| LH::Post.create!(title: "q#{user.id}", user: user) } }
+
+      [
+        '{ users @stream(initialCount: %d) { name posts { id } ... @defer { posts { title } } } }',
+        '{ users @stream(initialCount: %d) { name ... @defer { posts { id ... @defer { title comments { comment } } } } } }',
+        '{ users @stream(initialCount: %d) { posts { id } ... @defer { name posts { title ... @defer { comments { comment } } } } } }',
+        '{ users @stream(initialCount: %d) { posts { id title } ... @defer { name posts @stream(initialCount: 1) { comments { comment } } } } }'
+      ].product([0, 1, 2]).each do |template, count|
+        it "puts every value with its own record: #{format(template, count)}" do
+          query = format(template, count)
+          plain = schema.execute(query.gsub(/ @(defer|stream)(\([^)]*\))?/, '')).to_h['data']
+
+          expect(assembled(payloads(query))).to eq(plain)
+        end
+      end
+
+      it 'resolves the posts of a streamed item once, the deferred titles from the objects it kept' do
+        streamed = queries_in { payloads('{ users @stream(initialCount: 1) { posts { id } ... @defer { posts { title } } } }') }
+
+        expect(streamed.size).to eq(queries_in { payloads('{ users @stream(initialCount: 1) { posts { id title } } }') }.size)
+      end
     end
 
     it 'streams the field that carries @stream, and no other' do

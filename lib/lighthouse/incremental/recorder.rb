@@ -24,6 +24,6 @@ module Lighthouse::GraphQL::Incremental::Recorder
 
   def keep(query, ast_node, result)
     state = query.context[Lighthouse::GraphQL::Incremental::State::CONTEXT_KEY]
-    state.keep(query.context[:current_path], result) if state&.wanted?(ast_node.alias || ast_node.name)
+    state.keep(query, query.context[:current_path], result) if state&.wanted?(ast_node.alias || ast_node.name)
   end
 end

@@ -92,7 +92,7 @@ class Lighthouse::GraphQL::Incremental::Run
     return result unless @state
 
     @tree = result.to_h['data'].deep_dup
-    announce(@state.drain(query), [])
+    announce(@state.drain(query))
     result
   end
 
@@ -124,17 +124,16 @@ class Lighthouse::GraphQL::Incremental::Run
     plan = Lighthouse::GraphQL::Incremental::Plan.new(@result.query, @state, @tree)
     units = plan.units(@running)
     partials = units.map { |unit| partial(unit) }
-    payload = deliver(units, run(partials))
-    found(plan, units, partials)
+    payload = deliver(units, partials, run(partials))
+    found(plan, partials)
     Serializer.subsequent(**payload, pending: @announced, has_next: deferred?).tap { @running = [] }
   end
 
-  # Announce the fragments the round found: Plan, and each unit's Partial (under a stream's
-  # items, their paths count from the first item the Partial ran).
-  def found(plan, units, partials)
+  # Announce the fragments the round found: Plan, and each unit's Partial.
+  def found(plan, partials)
     @announced = []
-    announce(@state.drain(plan), [])
-    units.each_with_index { |unit, index| announce(@state.drain(partials[index]), unit.path, unit.stream? ? unit.owner.offset : 0) }
+    announce(@state.drain(plan))
+    partials.each { |partial| announce(@state.drain(partial)) }
   end
 
   # May the fragments of this round defer the fragments they hold? Not past the limits:
@@ -152,13 +151,17 @@ class Lighthouse::GraphQL::Incremental::Run
   # scalars from its path, which has no selections).
   def partial(unit)
     query = @result.query
-    if unit.stream? && unit.type.unwrap.kind.leaf?
-      ::GraphQL::Query::Partial.new(object: unit.object, path: unit.path, query: query)
-    else
-      selections = unit.stream? ? unit.owner.selections : unit.selections
-      fragment = ::GraphQL::Language::Nodes::InlineFragment.new(selections: selections)
-      ::GraphQL::Query::Partial.new(object: unit.object, path: unit.path, query: query, fragment_node: fragment, type: unit.type)
-    end
+    return ::GraphQL::Query::Partial.new(object: unit.object, path: unit.path, query: query).tap { |items| place(items, unit) } if leaf_items?(unit)
+
+    fragment = ::GraphQL::Language::Nodes::InlineFragment.new(selections: unit.stream? ? unit.owner.selections : unit.selections)
+    ::GraphQL::Query::Partial.new(object: unit.object, path: unit.path, query: query, fragment_node: fragment, type: unit.type).tap { |run| place(run, unit) }
+  end
+
+  def leaf_items?(unit) = unit.stream? && unit.type.unwrap.kind.leaf?
+
+  # A stream's Partial counts its items from 0: State puts them where they are in the list.
+  def place(partial, unit)
+    @state.offset(partial, unit.path, unit.owner.offset) if unit.stream?
   end
 
   # The responses of the partials, run in one multiplex so the Dataloader batches across them.
@@ -170,12 +173,12 @@ class Lighthouse::GraphQL::Incremental::Run
 
   # The payload's `incremental`, `completed` and `extensions` for the units' responses, which
   # go in the response's data so far.
-  def deliver(units, results)
+  def deliver(units, partials, results)
     incremental = []
     extensions = {}
     failed = {}.compare_by_identity
     units.each_with_index do |unit, index|
-      entry = entry(unit, results[index])
+      entry = entry(unit, partials[index], results[index])
       next incremental << entry if entry.key?('data') || entry.key?('items')
 
       unit.pendings.each { |pending| failed[pending] = failed.fetch(pending, []) + entry['errors'].to_a }
@@ -192,9 +195,9 @@ class Lighthouse::GraphQL::Incremental::Run
   # A unit's incremental entry (a stream's `items`, data below its fragment's path at its
   # `subPath`), with the errors and the extensions of its run (BuildExtensionsResponse,
   # ManipulateResult); with no data (a non-null field failed beyond the unit), its errors only.
-  def entry(unit, response)
+  def entry(unit, partial, response)
     data, errors, extensions = response.values_at('data', 'errors', 'extensions')
-    offset_errors(errors, unit.owner) if unit.stream?
+    absolute_errors(errors, partial) if unit.stream?
     return { 'errors' => errors, 'extensions' => extensions } if data.nil?
 
     merge(unit, data.deep_dup)
@@ -218,20 +221,15 @@ class Lighthouse::GraphQL::Incremental::Run
     data.each { |key, value| target[key].is_a?(Hash) && value.is_a?(Hash) ? deep_merge(target[key], value) : target[key] = value }
   end
 
-  # The paths of a stream's errors count its items from the first one run, the response's from the first.
-  def offset_errors(errors, pending)
-    errors&.each do |error|
-      path = error['path']
-      path[pending.path.size] += pending.offset if path && path[pending.path.size].is_a?(Integer)
-    end
+  # The paths of a stream's errors, as the response's.
+  def absolute_errors(errors, partial)
+    errors&.each { |error| error['path'] = @state.absolute(partial, error['path']) if error['path'] }
   end
 
   # Give the fragments found their ids, and queue them. Those whose object an error nulled
-  # out of the response are dropped. `base`, `offset`: the path of a stream's items, and the
-  # index in the response's list of the first one, which the paths found under them count from.
-  def announce(found, base, offset = 0)
+  # out of the response are dropped.
+  def announce(found)
     found.each do |pending|
-      pending.path = pending.path.dup.tap { |path| path[base.size] += offset } if offset.positive? && pending.path[base.size].is_a?(Integer)
       next unless present?(pending.path)
 
       pending.id = @next_id.to_s
