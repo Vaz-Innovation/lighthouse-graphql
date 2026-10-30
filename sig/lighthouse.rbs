@@ -155,9 +155,8 @@ module Lighthouse
     def status: () -> Integer
   end
 
-  # An ActionController::Live response, whose stream is written and closed.
+  # What has a stream to close: an ActionController::Live response.
   interface _StreamedResponse
-    include _Response
     def stream: () -> _ClosableStream
   end
 
@@ -340,9 +339,10 @@ module Lighthouse
     # @defer's limits (Defer), PHP Lighthouse's defer.max_nested_fields and
     # defer.max_execution_ms: rounds of nesting, milliseconds; 0 (the default) is no limit.
     def self.defer_max_nested_fields: () -> Integer
-    def self.defer_max_nested_fields=: (Integer | String | nil rounds) -> (Integer | String | nil)
+    # Any value is taken, and read as a count (Support::Count): an Integer of 0 or more, or a String of digits.
+    def self.defer_max_nested_fields=: (Object? rounds) -> Object?
     def self.defer_max_execution_ms: () -> Integer
-    def self.defer_max_execution_ms=: (Integer | String | nil milliseconds) -> (Integer | String | nil)
+    def self.defer_max_execution_ms=: (Object? milliseconds) -> Object?
 
     # { queries:, mutations:, subscriptions:, builders:, validators:, events: } => [namespace, ...].
     # Assigning a partial hash overrides only the kinds it names.
@@ -422,7 +422,8 @@ module Lighthouse
   module Support
     # A count a setting holds: an Integer of 0 or more, or a String of digits read as its number.
     module Count
-      def self?.read: (Symbol name, Integer | String | nil value) -> Integer?
+      # Raises ArgumentError for a value that is not one.
+      def self?.read: (Symbol name, Object? value) -> Integer?
     end
 
     module SoftDeletes
