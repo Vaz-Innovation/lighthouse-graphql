@@ -70,9 +70,12 @@ module Lighthouse::GraphQL::Operations
     rescue Lighthouse::GraphQL::Controller::Performed
       nil
     end
-    Lighthouse::Events.dispatch(Lighthouse::Events::EndRequest.new(response))
+    Lighthouse::Events.dispatch(Lighthouse::Events::EndRequest.new(lighthouse_response))
     result
   end
+
+  # The response EndRequest carries (the controller's streamed one is closed first).
+  def lighthouse_response = response
 
   # The context of the operation: what @guard and the @can* directives read.
   def graphql_context

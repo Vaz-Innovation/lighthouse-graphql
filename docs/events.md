@@ -73,6 +73,12 @@ def search
 end
 ```
 
+For a response streamed with [`@defer`](performance.md#deferring-fields-experimental),
+`EndRequest` comes once the last part is written and the stream is closed. Its `response` is the
+response, but for its `body`: the parts written, as the client was sent them (the stream's own body
+is the client's, which the server reads as it goes, and reading it would take parts from the
+client).
+
 Without the concern, dispatch them yourself:
 `Lighthouse::Events.dispatch(Lighthouse::Events::StartRequest.new(request))`, and
 `EndRequest.new(response)` after rendering.

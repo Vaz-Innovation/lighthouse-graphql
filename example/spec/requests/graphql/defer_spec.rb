@@ -347,6 +347,32 @@ RSpec.describe 'Deferring fields', type: :request do
     expect(controller.response.stream).to be_closed
   end
 
+  it 'ends the request after the stream is closed, with a response whose body is the parts the client was sent' do
+    seen = []
+    Lighthouse::Events.listen(Lighthouse::Events::EndRequest) do |event|
+      (seen << [event.response.stream.closed?, event.response.body, event.response.status]) && nil
+    end
+
+    Timeout.timeout(10) { stream(query) }
+
+    expect(seen).to eq([[true, response.body, 200]])
+    expect(response.body).to end_with("\r\n-----\r\n")
+    expect(parts(response.body).size).to eq(2)
+  ensure
+    Lighthouse::Events.reset!
+  end
+
+  it 'resolves the schema once a request' do
+    resolved = 0
+    allow_any_instance_of(GraphqlStreamingController).to receive(:graphql_schema).and_wrap_original do |original| # rubocop:disable RSpec/AnyInstance
+      (resolved += 1) && original.call
+    end
+
+    stream(query)
+
+    expect(resolved).to eq(1)
+  end
+
   it 'dispatches the request events once, around the whole stream' do
     events = []
     Lighthouse::Events.listen(Lighthouse::Events::StartRequest) { (events << :start) && nil }

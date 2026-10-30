@@ -269,6 +269,13 @@ module Lighthouse
         def emit: (String part) -> void
         def started?: () -> bool
         def finish: () -> void
+        # The response, its stream closed, as EndRequest carries it: its body the parts written.
+        def ended: (_StreamedResponse response) -> Response
+
+        class Response
+          def initialize: (_StreamedResponse response, String body) -> void
+          def body: () -> String
+        end
       end
 
       interface _Stream

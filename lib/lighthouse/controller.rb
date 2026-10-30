@@ -60,8 +60,8 @@ module Lighthouse::GraphQL::Controller
 
     lighthouse_development_error(e)
   ensure
-    # A streamed response ends when its stream is closed, after EndRequest.
-    response.stream.close if @lighthouse_streaming
+    # A streamed response ends when its stream is closed: before EndRequest, or here when it failed.
+    response.stream.close if @lighthouse_multipart && !response.stream.closed?
   end
 
   private
@@ -77,8 +77,8 @@ module Lighthouse::GraphQL::Controller
   end
 
   # `operation`: the request's parameters, or a multipart request's operation.
-  def lighthouse_operation(operation = params)
-    Lighthouse::GraphQL::PersistedQueries.execute(graphql_schema, **lighthouse_arguments(operation))
+  def lighthouse_operation(operation = params, schema = graphql_schema)
+    Lighthouse::GraphQL::PersistedQueries.execute(schema, **lighthouse_arguments(operation))
   end
 
   # Each operation gets its own context: `schema.multiplex`'s `context:` is the
@@ -96,10 +96,12 @@ module Lighthouse::GraphQL::Controller
   end
 
   # One operation: answered whole, or streamed (Defer) when it asks for it.
+  # The schema is resolved once, for both.
   def lighthouse_respond(operation)
-    return lighthouse_incremental(operation) if lighthouse_incremental?
+    schema = graphql_schema
+    return lighthouse_incremental(operation, schema) if lighthouse_incremental?(schema)
 
-    result = lighthouse_operation(operation)
+    result = lighthouse_operation(operation, schema)
     Lighthouse::GraphQL::CacheControl.apply(response, result)
     render json: result
   end
@@ -107,16 +109,16 @@ module Lighthouse::GraphQL::Controller
   # Does this request take a streamed response (Defer): the schema uses the
   # plugin, the controller includes ActionController::Live, and the client
   # accepts `multipart/mixed`?
-  def lighthouse_incremental?
+  def lighthouse_incremental?(schema)
     defined?(::ActionController::Live) && is_a?(::ActionController::Live) &&
-      !Lighthouse::GraphQL::Defer.stream_type_of(request).nil? && Lighthouse::GraphQL::Defer.enabled?(graphql_schema)
+      !Lighthouse::GraphQL::Defer.stream_type_of(request).nil? && Lighthouse::GraphQL::Defer.enabled?(schema)
   end
 
   # Runs the operation as Incremental::Run does, and renders it whole when no
   # fragment is deferred, else streams the payloads as `multipart/mixed` parts
   # (not cacheable, whatever @cacheControl says).
-  def lighthouse_incremental(operation)
-    error = Lighthouse::GraphQL::PersistedQueries.incremental(graphql_schema, **lighthouse_arguments(operation)) do |run|
+  def lighthouse_incremental(operation, schema)
+    error = Lighthouse::GraphQL::PersistedQueries.incremental(schema, **lighthouse_arguments(operation)) do |run|
       lighthouse_answer(run)
       nil
     end
@@ -159,7 +161,7 @@ module Lighthouse::GraphQL::Controller
     headers = Lighthouse::GraphQL::Incremental::Multipart.headers(Lighthouse::GraphQL::Defer.stream_type_of(request)) unless multipart.started?
     headers&.each { |name, value| response.headers[name] = value }
     part ? multipart.emit(part) : multipart.finish
-    @lighthouse_streaming = true
+    @lighthouse_multipart = multipart
   rescue ::ActionController::Live::ClientDisconnected, ::IOError
     raise Lighthouse::GraphQL::Incremental::Gone
   end
@@ -168,11 +170,12 @@ module Lighthouse::GraphQL::Controller
   # by then ends it quietly, and an error writing it is reported in turn.
   def lighthouse_close(multipart)
     lighthouse_write(multipart, nil)
-  rescue Lighthouse::GraphQL::Incremental::Gone
-    nil
   rescue StandardError => e
-    lighthouse_report(e)
+    lighthouse_report(e) unless e.is_a?(Lighthouse::GraphQL::Incremental::Gone)
   end
+
+  # A streamed response EndRequest carries: closed, its body the parts written (Multipart#ended).
+  def lighthouse_response = @lighthouse_multipart ? @lighthouse_multipart.ended(response) : response
 
   # An error that ended a streamed response on its way, which `lighthouse_stream` handled: to
   # Rails.error (where the JSON path's would go, through the executor or rescue_from), and the log.

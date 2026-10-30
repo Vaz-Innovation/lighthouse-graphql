@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'active_support/json'
+require 'delegate'
 require 'time'
 
 # Writes the payloads of an incremental response as the parts of a
@@ -28,9 +29,21 @@ class Lighthouse::GraphQL::Incremental::Multipart
     }
   end
 
+  # A streamed response as EndRequest carries it: closed, with the parts written as its body (the
+  # stream's own body is the client's, which the server reads as it goes).
+  class Response < SimpleDelegator
+    def initialize(response, body)
+      super(response)
+      @body = body
+    end
+
+    attr_reader :body
+  end
+
   def initialize(stream)
     @stream = stream
     @started = false
+    @written = []
   end
 
   # The part of `payload`, encoded: an error raised here is the app's values'.
@@ -41,14 +54,24 @@ class Lighthouse::GraphQL::Incremental::Multipart
   # Writes an encoded part: an error raised here is the stream's.
   def emit(part)
     @stream.write(part)
+    @written << part
     @started = true
   end
 
   # Has a part been written?
   def started? = @started
 
-  # The closing boundary. Closing the stream is the controller's, after the request events.
+  # The closing boundary. Closing the stream is the controller's (`ended`).
   def finish
-    @stream.write("--\r\n") if @started
+    return unless @started
+
+    @stream.write("--\r\n")
+    @written << "--\r\n"
+  end
+
+  # `response`, its stream closed, as EndRequest carries it (Response).
+  def ended(response)
+    response.stream.close unless response.stream.closed?
+    Response.new(response, @written.join)
   end
 end
