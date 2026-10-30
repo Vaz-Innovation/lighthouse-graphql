@@ -208,9 +208,18 @@ class SoftDeleteAdapter
   def without_trashed(relation) = relation.unscope(where: :archived_at).where(archived_at: nil)
   def restore(record) = record.unarchive
   def force_delete(record) = record.destroy
+
+  # Optional, for @trashed in a Searchkick search: the column that marks trashed records,
+  # and its value for the others (nil, or a sentinel as paranoia's).
+  def column(_model) = :archived_at
+  def kept_value(_model) = nil
 end
 config.soft_deletes = SoftDeleteAdapter.new
 ```
+
+A Searchkick search filters `@trashed` on the same column, and value, as the database does: the
+gems' and `Column`'s are known; an adapter of your own tells them with `column` and `kept_value`, or
+the search falls back to `deleted_at`.
 
 See [Soft deletes & global scopes](directives.md#soft-deletes-global-scopes).
 
@@ -223,19 +232,22 @@ inspected: Searchkick if it calls `searchkick`, then pg_search if it includes `P
 ```ruby
 config.search = Lighthouse::Search::PgSearch.new
 
-# Searchkick, with the indexed column @trashed filters on:
+# Searchkick, with the indexed column @trashed filters on (by default, the one config.soft_deletes tells):
 config.search = Lighthouse::Search::Searchkick.new(trashed_column: :archived_at)
 
 # Any object answering `searchable?(model, index)` and `relational?`, and `scope(relation, query)`
 # (a relational one, in the database) or `page(query, offset:, limit:)` -> [records, total],
-# with an optional `result_window(query)` (how many matches it pages through; 10,000 otherwise)
+# with an optional `result_window(query)` (how many matches it pages through; 10,000 otherwise,
+# nil when it cannot tell) and `named?(model, index)` (does `within:` name something of its own)
 config.search = MySearch.new
 ```
 
-`Lighthouse::Search::Searchkick` asks the engine for the exact total (`track_total_hits`), loads
-the records it finds through the model's `search_results` scope when it has one, and past the default
-scope that hides trashed records when `@trashed` asks for them, and reads the result window from the
-model's `max_result_window:` / `deep_paging:`. The adapter protocol is experimental. See [Full-text
+By default, a model that uses both gems is searched with Searchkick, unless `within:` names one of
+its pg_search scopes. `Lighthouse::Search::Searchkick` asks the engine for the exact total
+(`track_total_hits`), loads the records it finds through the model's `search_results` scope when it
+has one, and past the default scope that hides trashed records when `@trashed` asks for them, filters
+`@trashed` on the column `soft_deletes` tells, and reads the result window from the model's
+`max_result_window:` / `deep_paging:` (not for another index `within:` names). The adapter protocol is experimental. See [Full-text
 search](filtering-and-ordering.md#full-text-search).
 
 ### `authenticated_user`, `policy_user`, `authorizer`

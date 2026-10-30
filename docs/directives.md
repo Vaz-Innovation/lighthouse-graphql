@@ -638,7 +638,8 @@ directive @search(
 ```
 
 `within:` names the Searchkick index (`index_name:`), or the `pg_search_scope` to
-search with (`search` by default). It must be a string, or the schema fails to build.
+search with (`search` by default); on a model that uses both gems, naming one of its
+pg_search scopes searches with pg_search. It must be a string, or the schema fails to build.
 
 Ruby has no Laravel Scout, so two gems back it, **neither a dependency of Lighthouse**: add
 the one your models use to your Gemfile. The engine is detected per model
@@ -655,18 +656,21 @@ each engine up.
 
 - **pg_search** narrows the relation, ranked first, and **everything else applies on
   top of it**: `scopes:`, `@builder`, `@whereAuth`, every argument filter, `@orderBy`,
-  pagination, and nested fields, batched as usual. The primary key ends the order, after
-  the orders that break the rank's ties.
+  pagination, nested fields, batched as usual, and mass mutations (`@delete`, ...), where a
+  `@search` argument counts as a filter only when the search runs. The primary key ends the
+  order, after the orders that break the rank's ties.
 - **Searchkick** answers with the records the engine found, in relevance order. Only `@eq`,
   `@trashed` and `@builder` on an argument narrow it (as Scout's `@eq` / `@trashed` /
-  `@builder`); they work at any depth of input objects. It serves `@all` and `@paginate` on a
-  root field, with an exact total, within the index's result window (10,000 matches by
-  default; a page past it is an error the client reads).
+  `@builder`); they work at any depth of input objects. It serves `@all`, `@paginate` on a
+  root field, and a resolver of your own (`resolve_info.enhance_builder` answers a
+  `Lighthouse::Search::Result`), with an exact total, within the index's result window (10,000
+  matches by default; a page past it is an error the client reads). `@all` without `first`
+  reads 10,000 records at most.
 
 A model's `search_results` scope, when it has one, is what a search of it may return:
 Searchkick loads the records it finds through it, so a record the index still holds after it
 should have left is not returned. `@canQuery` on the field checks every record the search
-finds, as PHP Lighthouse does.
+finds, as PHP Lighthouse does (with Searchkick, 10,000 at most: more is an error).
 
 Two `@search` arguments sent together, and (Searchkick) an argument whose directive an
 engine cannot apply (`@neq`, `@orderBy`, `@whereConditions`, ...), are errors.
@@ -674,7 +678,8 @@ Schema errors, at build, where PHP Lighthouse fails when a query runs: a `within
 not a string, a model that is not searchable, and, with Searchkick, a field with `scopes:`,
 `@builder`, `@whereAuth` or `@orderBy(column:)`, or an `@canQuery` with `scopes:`, which PHP
 Lighthouse **drops silently** when it searches (a search that skipped `@whereAuth` would
-return records the user must not see).
+return records the user must not see), and an argument with a default value whose directive
+the engine cannot apply, which would fail every search.
 
 ### `@orderBy`
 

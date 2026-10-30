@@ -13,24 +13,32 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   database; `null` or nothing falls back to it. `within:` names the index (Searchkick) or the
   `pg_search_scope`. Ruby has no Laravel Scout, so two gems back it behind one adapter seam
   (`Lighthouse::Search`), neither a dependency of Lighthouse: **Searchkick** (Elasticsearch /
-  OpenSearch) answers with the records it found, in relevance order, for `@all` and `@paginate`
+  OpenSearch) answers with the records it found, in relevance order, for `@all`, `@paginate`
   (all three types; the total comes with the page, one request, and `first: 0` can count, which Scout
-  cannot). The total is exact past the 10,000 matches the engines stop counting at
-  (`track_total_hits`), and a search reads within the index's result window (`max_result_window`,
-  read from the model): a page past it is an error the client reads, not the engine's. **pg_search**
-  is a scope on the relation, so `scopes:`, `@builder`, `@whereAuth`, the argument filters,
-  `@orderBy`, nested fields and batched nested `@paginate` all apply on top of it, the rank first,
-  then the orders that break its ties, then the primary key, so equal matches keep one order on
-  every field. The engine is detected per model; `Config.search` replaces the detection. `@eq`,
+  cannot) and a resolver of your own. The total is exact past the 10,000 matches the engines stop
+  counting at (`track_total_hits`), a search reads within the index's result window
+  (`max_result_window`, read from the model, whatever its settings' keys; left to the engine for
+  another index `within:` names): a page past it is an error the client reads, and `@all` without
+  `first` reads 10,000 records at most, even with `deep_paging`. **pg_search** (2.3 and 2.4) is a
+  scope on the relation, so `scopes:`, `@builder`, `@whereAuth`, the argument filters, `@orderBy`,
+  nested fields, batched nested `@paginate` and mass mutations all apply on top of it, the rank
+  first, then the orders that break its ties, then the primary key, so equal matches keep one order
+  on every field. A mass mutation (`@delete`, ...) counts a `@search` argument as a filter only when
+  the search runs, as PHP Lighthouse. The engine is detected per model, and for a model with both
+  gems a `within:` naming a pg_search scope picks pg_search; `Config.search` replaces the detection. `@eq`,
   `@trashed` and `@builder` on an argument narrow a Searchkick search through the new
   `Contracts::SearchBuilder` and `Lighthouse::Search::Query`, as Scout's `ScoutBuilderDirective`.
-  `@trashed` filters on the soft-delete column the index holds (`trashed_column:`), and `ONLY` /
-  `WITH` load the trashed records past the default scope that hides them (paranoia's, discard's).
+  `@trashed` filters on the soft-delete column the index holds, the one `Config.soft_deletes` filters
+  the database on (with paranoia's sentinel value; adapters may tell it with `column(model)` and
+  `kept_value(model)`; `trashed_column:` names another), and `ONLY` / `WITH` load the trashed records
+  past the default scope that hides them (paranoia's, discard's).
   A model's `search_results` scope, when it has one, is what a search of it may return: Searchkick
   loads the records it finds through it (`scope_results:`), so a record a stale index still holds
   is not returned. `@canQuery` on a searched field checks every record the search finds, as PHP
-  Lighthouse does, and `resolve_info.enhance_builder` answers a `Lighthouse::Search::Result` for a
-  Searchkick search, as PHP Lighthouse answers Scout's builder.
+  Lighthouse does (with Searchkick, 10,000 at most: a search that finds more a page could reach is
+  an error), and `resolve_info.enhance_builder` answers a `Lighthouse::Search::Result` for a
+  Searchkick search, as PHP Lighthouse answers Scout's builder, so a field your own class resolves
+  can search through it.
   See [Full-text search](docs/filtering-and-ordering.md#full-text-search).
 
 ### Changed
@@ -40,8 +48,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `@whereAuth` and `@orderBy(column:)` when it searches, so a search that skipped `@whereAuth`
   returns records the user must not see. Here that field is a schema error at build, as are `@search`
   on a model that is not searchable, a `within:` that is not a string, and, with Searchkick, any field
-  but `@all` / `@paginate` on a root field and an `@canQuery` with `scopes:`. A relational engine
-  (pg_search) applies them all. `enhance_builder` refuses, with Searchkick, a relation narrowed
+  but `@all`, `@paginate` on a root field and a resolver of your own, an `@canQuery` with `scopes:`,
+  and an argument with a default value whose directive the engine cannot apply (PHP Lighthouse fails
+  every search of such a field). A relational engine (pg_search) applies them all. `enhance_builder` refuses, with Searchkick, a relation narrowed
   beforehand, whose conditions PHP Lighthouse drops.
 
 ## [0.8.2] - 2026-10-30
