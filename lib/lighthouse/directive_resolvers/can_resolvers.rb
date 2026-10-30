@@ -203,11 +203,11 @@ module Lighthouse::GraphQL::DirectiveResolvers
     # The records the field's argument filters (@eq, @where, ...) select. When the
     # client searches (@search), the records the search finds: all of them, not
     # only the page the field returns, as PHP Lighthouse checks what its Scout
-    # builder gets. An engine outside the database (Searchkick) reads at most its
-    # result window, past which no page can reach (Search::Result).
+    # builder gets. An engine outside the database (Searchkick) answers 10,000 at
+    # most, and more that a page could reach is an error (Search::Result#every_record).
     def authorize_before(_obj, args, ctx)
       found = apply_where_filters(scoped(model_class.all), args, ctx, search_results: true)
-      authorize_each!(ctx, found.is_a?(Lighthouse::Search::Result) ? found.records : found.to_a, args)
+      authorize_each!(ctx, found.is_a?(Lighthouse::Search::Result) ? found.every_record : found.to_a, args)
     end
   end
 

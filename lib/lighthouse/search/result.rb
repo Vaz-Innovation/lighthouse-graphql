@@ -17,6 +17,11 @@ class Lighthouse::Search::Result
   # Elasticsearch's and OpenSearch's default index.max_result_window.
   MAX_WINDOW = 10_000
 
+  # The most records a read without `first` asks for, whatever the window (a
+  # billion with Searchkick's `deep_paging`): @all without `first`, and the
+  # records @canQuery checks.
+  READ_LIMIT = 10_000
+
   def initialize(adapter, query)
     @adapter = adapter
     @query = query
@@ -37,9 +42,22 @@ class Lighthouse::Search::Result
     @count ||= @adapter.page(@query, offset: 0, limit: 0).last
   end
 
-  # What @all returns: `first` records from `offset`, else all of them, up to the result window.
+  # What @all returns: `first` records from `offset`, else READ_LIMIT of them at
+  # most; within the result window either way.
   def records(first: nil, offset: nil)
-    window(offset || 0, first || result_window || MAX_WINDOW)
+    window(offset || 0, first || READ_LIMIT)
+  end
+
+  # Every record the search finds that a page can reach, for @canQuery to check:
+  # one request, of READ_LIMIT records at most. A search that finds more within
+  # the result window is a client error, as a page could reach a record not checked.
+  def every_record
+    found = records
+    reachable = result_window ? [count, result_window].min : count
+    return found if reachable <= READ_LIMIT
+
+    raise ::GraphQL::ExecutionError,
+          "@canQuery checks every record the search finds, at most #{READ_LIMIT}, and this one finds #{reachable}. Narrow the search."
   end
 
   # How many of the matches the engine pages through; nil when the adapter cannot tell.

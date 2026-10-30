@@ -222,6 +222,16 @@ RSpec.describe '@search' do
       expect(engine.requests.last).to include(offset: 0, limit: Lighthouse::Search::Result::MAX_WINDOW)
     end
 
+    it 'reads @all without first 10,000 records at most, whatever the result window' do
+      allow(engine).to receive(:result_window).and_return(1_000_000_000)
+      schema = build_schema('type SearchPost { title: String! } type Query { posts(first: Int, search: String @search): [SearchPost!]! @all }')
+
+      run(schema, '{ posts(search: "great") { title } }')
+      expect(engine.requests.last).to include(offset: 0, limit: 10_000)
+      run(schema, '{ posts(search: "great", first: 50000) { title } }')
+      expect(engine.requests.last).to include(offset: 0, limit: 50_000)
+    end
+
     it "reads @all no further than the engine's result window, whatever the offset" do
       schema = build_schema(<<~GRAPHQL)
         type SearchPost { title: String! }
@@ -391,6 +401,29 @@ RSpec.describe '@search' do
         result = run(schema, '{ posts(first: 1, search: "great") { data { title } } }')
 
         expect(result['errors'].pluck('message')).to eq(['This action is unauthorized.'])
+      end
+
+      it 'reads no more than 10,000 records to check, whatever the result window' do
+        allow(engine).to receive(:result_window).and_return(1_000_000_000)
+        all = build_schema(<<~GRAPHQL)
+          type SearchPost { title: String! }
+          type Query { posts(search: String @search): [SearchPost!]! @all @canQuery(ability: "view") }
+        GRAPHQL
+
+        run(all, '{ posts(search: "great") { title } }')
+
+        expect(engine.requests.pluck(:limit)).to eq([10_000, 10_000])
+      end
+
+      it 'refuses a search with more matches than it can check that a page could reach, not those past the result window' do
+        many = ->(original, *args, **options) { [original.call(*args, **options).first, 10_001] }
+        allow(engine).to receive(:page).and_wrap_original(&many)
+        query = '{ posts(first: 1, search: "great") { data { title } } }'
+
+        expect(run(schema, query)['errors']).to be_nil
+        allow(engine).to receive(:result_window).and_return(20_000)
+        expect(run(schema, query)['errors'].pluck('message'))
+          .to eq(['@canQuery checks every record the search finds, at most 10000, and this one finds 10001. Narrow the search.'])
       end
 
       it 'checks the records of the database when the client does not search' do

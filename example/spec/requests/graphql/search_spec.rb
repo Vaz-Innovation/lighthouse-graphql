@@ -209,7 +209,10 @@ RSpec.describe 'GraphQL @search', type: :request do
         let(:many) do
           schema_from(<<~GRAPHQL)
             type SearchedPost { id: ID! }
-            type Query { many(search: String @search(within: "#{index}")): [SearchedPost!]! @paginate }
+            type Query {
+              many(search: String @search(within: "#{index}")): [SearchedPost!]! @paginate
+              checked(search: String @search(within: "#{index}")): [SearchedPost!]! @paginate @canQuery(ability: "update")
+            }
           GRAPHQL
         end
 
@@ -227,6 +230,13 @@ RSpec.describe 'GraphQL @search', type: :request do
           result = run(many, '{ many(first: 0, search: "*") { paginatorInfo { total } } }')
 
           expect(result.dig('data', 'many', 'paginatorInfo', 'total')).to eq(10_001)
+        end
+
+        it 'refuses @canQuery past the 10,000 matches it checks, which a page could reach' do
+          result = run(many, '{ checked(first: 1, search: "*") { paginatorInfo { total } } }', { current_user: author })
+
+          expect(result['errors'].pluck('message'))
+            .to eq(['@canQuery checks every record the search finds, at most 10000, and this one finds 10001. Narrow the search.'])
         end
 
         it "pages as far as the index's own window, which Lighthouse cannot know, and leaves the refusal past it to the engine" do
