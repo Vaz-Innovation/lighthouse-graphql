@@ -34,6 +34,7 @@ module Lighthouse
       queue_broadcasts broadcast_queue
       global_id
       schema_output schema_log
+      defer_max_pending
     ].freeze
 
     class << self
@@ -135,6 +136,13 @@ module Lighthouse
       def persisted_queries_store
         @persisted_queries_store || Lighthouse::GraphQL::Caching.store
       end
+
+      # The most deferred fragments (and, per streamed list, one for each) one request
+      # may leave pending (Defer, experimental). Past it, a fragment runs in the first
+      # response, as the specification allows a server to do. Default 100.
+      attr_writer :defer_max_pending
+
+      def defer_max_pending = @defer_max_pending || 100
 
       # Pagination defaults, overridden by a directive's defaultCount / maxCount.
       # Without a default count, paginated fields require `first`.

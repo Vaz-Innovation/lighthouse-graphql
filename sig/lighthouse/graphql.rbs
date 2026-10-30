@@ -96,6 +96,10 @@ module Lighthouse
       # protocol error as a ready-to-render { "errors" => [...] } Hash.
       def self?.execute: (schema schema, query: String?, ?extensions: extensions?, ?variables: Hash[String, untyped]?,
                           ?operation_name: String?, ?context: Hash[Symbol, untyped], **untyped options) -> _Result
+      # `execute` for a response that may be streamed (Defer): the started
+      # Incremental::Run, or a protocol error as a ready-to-render Hash.
+      def self?.incremental: (schema schema, query: String?, ?extensions: extensions?, ?variables: Hash[String, untyped]?,
+                              ?operation_name: String?, ?context: Hash[Symbol, untyped], **untyped options) -> (Incremental::Run | Hash[String, json])
       # A batch: `schema.multiplex` with the query each operation (a Hash of
       # query, extensions, variables, operation_name, context) names. One result
       # per operation, in order; a protocol error is a ready-to-render Hash.
@@ -176,6 +180,57 @@ module Lighthouse
         # A number (added to the selection's cost) or a proc of
         # (context, args, child_complexity); nil when never set.
         def complexity: (?(Numeric | ^(context, arguments, Integer) -> Integer)? new_complexity) -> (Numeric | ^(context, arguments, Integer) -> Integer)?
+      end
+    end
+
+    # @defer (experimental; the specification it follows is a draft): a graphql-ruby
+    # plugin, `use Lighthouse::GraphQL::Defer` in the schema class. The controller
+    # streams the response when the controller includes ActionController::Live and
+    # the client accepts `multipart/mixed`.
+    module Defer
+      MULTIPART: String
+      OLD_FORMAT: String
+      FORMAT: String
+
+      # graphql-ruby's plugin hook.
+      def self?.use: (schema schema, **untyped options) -> void
+      # Does the schema use the plugin?
+      def self?.enabled?: (schema schema) -> bool
+      # Does the `Accept` header take a streamed response in this gem's format?
+      def self?.accepts?: (String? accept) -> bool
+      # The Content-Type of the streamed response to `accept`.
+      def self?.content_type: (String? accept) -> String
+      def self?.ranges: (String? accept) -> Array[Array[String]]
+    end
+
+    module Incremental
+      # One operation, run in as many passes as @defer asks for.
+      class Run
+        # `options` are `schema.execute`'s: variables:, operation_name:, context:.
+        def initialize: (schema schema, String query_string, ?stream: bool, **untyped options) -> void
+        # Runs the first pass; returns self.
+        def start: () -> Run
+        # The first pass's result, or the validation errors as a Hash.
+        def result: () -> (_Result | Hash[String, json])
+        # Are fragments pending?
+        def deferred?: () -> bool
+        # The initial payload, then one per deferred fragment, until `hasNext` is false.
+        def each_payload: () { (Hash[String, json]) -> void } -> void
+      end
+
+      # The parts of a `multipart/mixed` response (graphql-over-http's IncrementalDelivery).
+      class Multipart
+        CONTENT_TYPE: String
+        PART_HEADERS: String
+
+        def self.headers: (?String content_type) -> Hash[String, String]
+        def initialize: (_Stream stream) -> void
+        def write: (Hash[String, json] payload) -> void
+        def finish: () -> void
+      end
+
+      interface _Stream
+        def write: (String data) -> untyped
       end
     end
 

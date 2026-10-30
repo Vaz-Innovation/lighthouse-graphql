@@ -315,6 +315,10 @@ module Lighthouse
     def self.schema_output=: ((path | { path: path, ?schema: String })? output) -> (path | { path: path, ?schema: String })?
 
     # Log the schema's build on boot and every reload; nil: in a development server.
+    # The most deferred fragments one request may leave pending (Defer); default 100.
+    def self.defer_max_pending: () -> Integer
+    def self.defer_max_pending=: (Integer? count) -> Integer?
+
     def self.schema_log: () -> bool
     def self.schema_log=: (bool? enabled) -> bool?
 

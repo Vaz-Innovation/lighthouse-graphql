@@ -65,6 +65,13 @@ require_relative 'namespaces'
   persisted_queries
   persisted_queries/batch
   persisted_queries/manifest
+  incremental/state
+  incremental/defer_directive
+  incremental/document
+  incremental/serializer
+  incremental/multipart
+  incremental/run
+  defer
   operations
   controller
   schema_factory

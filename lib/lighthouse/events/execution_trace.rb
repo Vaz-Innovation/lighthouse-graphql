@@ -5,6 +5,10 @@
 # ManipulateResult, EndExecution) around each query of a multiplex. A query
 # runs through a multiplex even on its own. With nothing listening it adds one
 # lookup per request.
+#
+# A deferred fragment runs as a GraphQL::Query::Partial of the operation's query
+# (Incremental::Run): one more multiplex, with its own StartExecution and
+# EndExecution, which carry the operation's document, variables and name.
 module Lighthouse::Events::ExecutionTrace
   EVENTS = [
     Lighthouse::Events::StartExecution, Lighthouse::Events::BuildExtensionsResponse,
@@ -22,8 +26,9 @@ module Lighthouse::Events::ExecutionTrace
 
   class << self
     def start(schema, query)
+      source = query.is_a?(::GraphQL::Query::Partial) ? query.query : query
       Lighthouse::Events.dispatch(
-        Lighthouse::Events::StartExecution.new(schema, query.document, query.provided_variables, query.operation_name, query.context, query)
+        Lighthouse::Events::StartExecution.new(schema, source.document, source.provided_variables, source.operation_name, query.context, query)
       )
     end
 
