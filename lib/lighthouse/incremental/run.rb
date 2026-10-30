@@ -66,15 +66,14 @@ class Lighthouse::GraphQL::Incremental::Run
 
   # The initial payload, then each later one, until `hasNext` is false. A round that fails
   # ends the stream with a last payload, which completes, with an error, the ids the client
-  # was sent and has not seen completed (Controller::Performed is not a StandardError, but
-  # ends the round all the same), then raises again. However it ends, the `on_finish`
+  # was sent and has not seen completed, then raises again. However it ends, the `on_finish`
   # block gets the response.
   def each_payload
     yield Serializer.initial(@result, @announced, has_next: deferred?)
     until @queue.empty?
       begin
         payload = next_payload
-      rescue StandardError, Lighthouse::GraphQL::Controller::Performed
+      rescue StandardError
         yield failure_payload
         raise
       end

@@ -827,16 +827,6 @@ RSpec.describe 'Deferring fields' do
       expect(controller.notes).to eq([])
     end
 
-    it 'ends the stream with every announced id completed, whatever ends the round' do
-      LH::User.define_method(:loud) { raise Lighthouse::GraphQL::Controller::Performed }
-      run = run('{ users { ... @defer { loud } } }')
-      all = []
-
-      expect { run.each_payload { |payload| all << payload } }.to raise_error(Lighthouse::GraphQL::Controller::Performed)
-      expect(all.last).to include('completed' => %w[0 1 2].map { |id| { 'id' => id, 'errors' => [{ 'message' => 'Internal server error' }] } },
-                                  'hasNext' => false)
-    end
-
     it 'completes only the ids the client was sent' do
       calls = 0
       allow(Lighthouse::GraphQL::Incremental::Serializer).to receive(:subsequent).and_wrap_original do |original, **payload|
