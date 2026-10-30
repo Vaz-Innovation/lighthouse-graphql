@@ -468,10 +468,10 @@ RSpec.describe '@search' do
     describe 'through resolve_info.enhance_builder' do
       let(:schema) do
         build_schema(<<~GRAPHQL)
-          type Found { title: String! }
+          type SearchPost { title: String! }
           type Query {
-            found(search: String @search): [Found!]! @field(resolver: "SearchSpecEnhanced")
-            narrowed(search: String @search): [Found!]! @field(resolver: "SearchSpecNarrowed")
+            found(search: String @search): [SearchPost!]! @field(resolver: "SearchSpecEnhanced")
+            narrowed(search: String @search): [SearchPost!]! @field(resolver: "SearchSpecNarrowed")
           }
         GRAPHQL
       end
@@ -626,7 +626,7 @@ RSpec.describe '@search' do
             type SearchPost { id: ID! relatedCount(search: String @search): Int! @count(relation: "related") }
             type Query { posts: [SearchPost!]! @all }
           GRAPHQL
-        end.to raise_error(Lighthouse::DefinitionError, /SearchPost.relatedCount\(search\): .*needs @all or @paginate/)
+        end.to raise_error(Lighthouse::DefinitionError, /SearchPost.relatedCount\(search\): .*needs @all, @paginate/)
       end
 
       it 'accepts @all and @paginate on a root field' do
@@ -638,12 +638,17 @@ RSpec.describe '@search' do
       it 'refuses any other directive: the engine answers with records, not a relation' do
         %w[@first @count @delete].each do |directive|
           expect { build_posts("posts(search: String @search): SearchPost #{directive}(model: \"SearchPost\")") }
-            .to raise_error(Lighthouse::DefinitionError, /needs @all or @paginate on a root field/)
+            .to raise_error(Lighthouse::DefinitionError, /needs @all, @paginate on a root field or with its own `model:`, or a resolver of your own/)
         end
         expect do
           build_posts('posts(search: String @search): SearchPost @find')
-        end.to raise_error(Lighthouse::DefinitionError, /needs @all or @paginate/)
-        expect { build_posts('posts(search: String @search): SearchPost') }.to raise_error(Lighthouse::DefinitionError, /needs @all or @paginate/)
+        end.to raise_error(Lighthouse::DefinitionError, /needs @all, @paginate/)
+      end
+
+      it 'accepts a field your own class resolves, which reads the search through resolve_info.enhance_builder' do
+        expect do
+          build_posts('a(search: String @search): [SearchPost!]! @field(resolver: "SearchSpecEnhanced") b(search: String @search): [SearchPost!]!')
+        end.not_to raise_error
       end
 
       it 'refuses a nested field, which pages a relation' do
@@ -652,7 +657,7 @@ RSpec.describe '@search' do
             type SearchPost { id: ID! related(search: String @search): [SearchPost!]! @paginate }
             type Query { posts: [SearchPost!]! @all }
           GRAPHQL
-        end.to raise_error(Lighthouse::DefinitionError, /SearchPost.related\(search\): .*needs @all or @paginate on a root field/)
+        end.to raise_error(Lighthouse::DefinitionError, /SearchPost.related\(search\): .*needs @all, @paginate on a root field/)
       end
 
       it "refuses a nested @paginate when the model: is another directive's: it still pages the parent's association" do
@@ -661,7 +666,7 @@ RSpec.describe '@search' do
             type SearchPost { id: ID! related(search: String @search): [SearchPost!]! @paginate @canModel(ability: "view", model: "SearchPost") }
             type Query { posts: [SearchPost!]! @all }
           GRAPHQL
-        end.to raise_error(Lighthouse::DefinitionError, /needs @all or @paginate on a root field/)
+        end.to raise_error(Lighthouse::DefinitionError, /needs @all, @paginate on a root field or with its own `model:`, or a resolver of your own/)
       end
 
       it 'accepts a nested @paginate that names its model' do

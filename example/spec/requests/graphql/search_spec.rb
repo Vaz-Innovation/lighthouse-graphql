@@ -22,6 +22,12 @@ class SearchedPost < Post
   # Both gems on one model: `within: "search_title"` searches with pg_search, anything else with Searchkick.
   pg_search_scope :search_title, against: :title
 
+  # Query.found, resolved by a class of the app's own: the search, through resolve_info.enhance_builder, two at most.
+  def self.found(_object, _args, _context, resolve_info)
+    found = resolve_info.enhance_builder(all)
+    found.is_a?(Lighthouse::Search::Result) ? found.records(first: 2) : found.limit(2)
+  end
+
   # Pundit's: who may edit it (@canQuery(ability: "update")) is who may edit a post, its author or an admin.
   def self.policy_class = PostPolicy
 
@@ -150,6 +156,7 @@ RSpec.describe 'GraphQL @search', type: :request do
             indexed(search: String @search(within: "lighthouse_example_searched_posts")): [SearchedPost!]! @all
             filtered(search: String @search, title: String @neq): [SearchedPost!]! @all
             byTitle(search: String @search(within: "search_title")): [SearchedPost!]! @all
+            found(search: String @search): [SearchedPost!]! @field(resolver: "SearchedPost@found")
             editable(search: String @search, authorId: Int @eq(key: "author_id")): [SearchedPost!]! @paginate @canQuery(ability: "update")
           }
         GRAPHQL
@@ -288,6 +295,10 @@ RSpec.describe 'GraphQL @search', type: :request do
 
       it 'searches with pg_search when within: names a pg_search scope of a model that also calls searchkick', if: postgres do
         expect(titles(run(schema, '{ byTitle(search: "bad") { title } }'), 'byTitle')).to eq(['Bad title'])
+      end
+
+      it 'searches a field resolved by a class of your own, through resolve_info.enhance_builder' do
+        expect(titles(run(schema, '{ found(search: "great") { title } }'), 'found')).to eq(['Really great great title', 'Great title'])
       end
 
       it 'refuses what an engine cannot apply' do

@@ -5,9 +5,11 @@
 #
 # - `within:` is a string.
 # - The field's model, when it can be told, is searchable by an adapter.
-# - With an adapter outside the database (Searchkick), the field is an @all or
-#   @paginate on a root field, or names its `model:`; and it has no `scopes:`,
-#   @builder, @whereAuth or @orderBy(column:), which the engine cannot apply.
+# - With an adapter outside the database (Searchkick), the field is an @all, an
+#   @paginate on a root field or with its own `model:`, or resolved by a class of
+#   the app's (which reads the search through resolve_info.enhance_builder); and
+#   it has no `scopes:`, @builder, @whereAuth or @orderBy(column:), which the
+#   engine cannot apply.
 #   PHP Lighthouse drops them silently, so a search could return records the
 #   user must not see. A relational adapter (pg_search) applies them.
 # - An @canQuery, which runs the search to check the records it finds, searches
@@ -15,6 +17,8 @@
 class Lighthouse::Search::FieldCheck
   HINT = 'it needs searchkick or pg_search, or an adapter in Config.search'
   DATA_DIRECTIVES = %w[all paginate].freeze
+  # A field with no resolving directive, or @field, is resolved by the app's own code.
+  OWN_RESOLVERS = [nil, 'field'].freeze
   QUERY_DIRECTIVES = %w[builder whereAuth].freeze
 
   def self.check!(...) = new(...).check!
@@ -59,7 +63,10 @@ class Lighthouse::Search::FieldCheck
 
   def outside_database!(path, adapter)
     name = adapter.class.name.demodulize
-    fail!(path, "#{name} answers outside the database, so it needs @all or @paginate on a root field (or `model:`)") unless whole_table?
+    unless answers_records?
+      fail!(path, "#{name} answers outside the database, so it needs @all, @paginate on a root field or with its own `model:`, " \
+                  'or a resolver of your own (which reads the search through resolve_info.enhance_builder)')
+    end
     dropped = dropped_constraints
     return if dropped.empty?
 
@@ -78,9 +85,12 @@ class Lighthouse::Search::FieldCheck
                 '(PHP Lighthouse drops them silently); remove them, or search with a relational adapter (pg_search)')
   end
 
-  # @all, or @paginate of the model's whole table (its own `model:`, not the parent's association).
-  def whole_table?
+  # Can the field take the records an engine answers with? @all, @paginate of the
+  # model's whole table (its own `model:`, not the parent's association), or the
+  # app's own resolver, which gets a Search::Result from enhance_builder.
+  def answers_records?
     name = resolving_directive&.name
+    return true if OWN_RESOLVERS.include?(name)
     return false unless DATA_DIRECTIVES.include?(name)
 
     name == 'all' || !@root_kind.nil? || !Lighthouse::Support::DirectiveArgs.literal(resolving_directive, 'model').nil?
@@ -104,7 +114,7 @@ class Lighthouse::Search::FieldCheck
 
   # The field's model, as its resolving directive tells it (BaseDirectiveResolver#model_class),
   # else the model of the parent's association it reads (@count(relation:)); nil when it cannot
-  # be told (a custom resolver).
+  # be told.
   def model_class
     record_class(Lighthouse::Support::ModelResolver.field_model_name(@field_def, resolving_directive)) || association_model
   end
