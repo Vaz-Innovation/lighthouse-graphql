@@ -138,7 +138,7 @@ class Lighthouse::GraphQL::Incremental::Plan
       next pairs.map(&:last).uniq(&:object_id) unless apart?(pairs)
 
       field = pairs.first.last
-      follow << Follow.new(field.alias || field.name, field_type(spot.type, field), pairs)
+      follow << Follow.new(field.alias || field.name, @document.field_type(spot.type, field), pairs)
       pairs.map { |_, node| node.merge(selections: [PLACEHOLDER_NODE]) }
     end
     Unit.new(owner: pendings.first, pendings: pendings, path: spot.path, object: spot.object, type: spot.type, selections: selections,
@@ -185,7 +185,7 @@ class Lighthouse::GraphQL::Incremental::Plan
   # The selections `pairs` (each pending fragment with a node of the field) add to the object (or
   # each object of the list) the response holds at `key`.
   def descend(key, pairs, held, spot)
-    type = field_type(spot.type, pairs.first.last) or return
+    type = @document.field_type(spot.type, pairs.first.last) or return
     path = spot.path + [key]
     targets(path, kept(path), held).each { |target, object| plan(by_pending(pairs), spot(target, object, type)) }
   end
@@ -211,8 +211,6 @@ class Lighthouse::GraphQL::Incremental::Plan
     objects = value.respond_to?(:to_a) ? value.to_a : []
     held.each_index.filter_map { |index| [path + [index], objects[index]] unless held[index].nil? || objects[index].nil? }
   end
-
-  def field_type(type, field) = @schema.get_field(type, field.name)&.type&.unwrap
 
   # Where an object of `type` (its object type, if `type` is abstract) is at `path`.
   def spot(path, object, type)

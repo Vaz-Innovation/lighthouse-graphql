@@ -34,16 +34,42 @@ class Lighthouse::GraphQL::Incremental::Document
   # the selection set the level starts with and the one it is in, and what a Declaration holds.
   At = Struct.new(:pattern, :level_type, :type, :around, :gates, :uncertain, :defers, keyword_init: true)
 
+  # The schema's directive definitions, each looked up once (Schema.directives builds its Hash on
+  # every call): a request's Document and an analysis's Rules each hold one.
+  class Definitions
+    def initialize(schema)
+      @schema = schema
+      @found = {}
+    end
+
+    def [](name) = @found.fetch(name) { @found[name] = @schema.directives[name] }
+  end
+
   # Does the document use @defer or @stream? A walk of its selections, for the queries that do not.
   def self.incremental?(document)
     document.definitions.any? { |definition| definition.respond_to?(:selections) && uses?(definition.selections) }
   end
 
   def self.uses?(selections)
-    selections.any? do |selection|
-      selection.directives.any? { |directive| DIRECTIVES.include?(directive.name) } ||
-        (selection.respond_to?(:selections) && uses?(selection.selections))
+    visit_directives(selections) { return true }
+    false
+  end
+
+  # Each @defer and @stream of `selections`, at any depth, with the selection it is on; through the
+  # named fragments they spread (each once), with the document's `definitions` (by name).
+  def self.visit_directives(selections, definitions = nil, seen = Set.new, &block)
+    selections.each do |selection|
+      selection.directives.each { |directive| yield directive, selection if DIRECTIVES.include?(directive.name) }
+      inner = selection.is_a?(Nodes::FragmentSpread) ? spread(selection, definitions, seen) : selection.selections
+      visit_directives(inner, definitions, seen, &block)
     end
+  end
+
+  # The selections of the named fragment `spread` spreads, the first time it is: none after, nor
+  # without the document's definitions.
+  def self.spread(spread, definitions, seen)
+    definition = definitions&.[](spread.name)
+    definition && seen.add?(spread.name) ? definition.selections : []
   end
 
   attr_reader :schema
@@ -54,6 +80,7 @@ class Lighthouse::GraphQL::Incremental::Document
     @operation = operation
     @definitions = document.definitions.grep(Nodes::FragmentDefinition).index_by(&:name)
     @owners = {}.compare_by_identity
+    @directive_definitions = Definitions.new(schema)
   end
 
   def directives(name)
@@ -103,9 +130,14 @@ class Lighthouse::GraphQL::Incremental::Document
     query.arguments_for(directive, directive('defer'))[:if] != false
   end
 
-  # The schema's directive `name`: Schema.directives builds its Hash on every call, so once a request.
-  def directive(name)
-    (@directive_definitions ||= {})[name] ||= @schema.directives[name]
+  # The schema's directive `name`, looked up once a request.
+  def directive(name) = @directive_definitions[name]
+
+  # The unwrapped type of `field` (a node) on `type`; nil on a union, or where it is not known.
+  def field_type(type, field)
+    return nil if type.nil? || type.kind.union?
+
+    @schema.get_field(type, field.name)&.type&.unwrap
   end
 
   # The selections the later items of a streamed list run: those of each declaration of the field
@@ -147,20 +179,11 @@ class Lighthouse::GraphQL::Incremental::Document
 
   # The directive nodes the operation reaches, each fragment definition walked once.
   def collect_directives
-    Hash.new { |hash, name| hash[name] = [] }.tap { |found| gather(@operation&.selections.to_a, found, Set.new) }
-  end
-
-  def gather(selections, found, seen)
-    selections.each do |selection|
-      selection.directives.each do |directive|
-        next unless DIRECTIVES.include?(directive.name)
-
+    Hash.new { |hash, name| hash[name] = [] }.tap do |found|
+      self.class.visit_directives(@operation&.selections.to_a, @definitions) do |directive, owner|
         found[directive.name] << directive
-        @owners[directive] = selection
+        @owners[directive] = owner
       end
-      next gather(selection.selections, found, seen) unless selection.is_a?(Nodes::FragmentSpread)
-
-      gather(@definitions[selection.name].selections, found, seen) if @definitions.key?(selection.name) && seen.add?(selection.name)
     end
   end
 
@@ -195,12 +218,6 @@ class Lighthouse::GraphQL::Incremental::Document
     type = field_type(at.type, field)
     uncertain = at.uncertain || at.around.any? { |fragment| !always?(condition(fragment), at.level_type) }
     At.new(pattern: pattern, level_type: type, type: type, around: [], gates: at.gates + at.around + [field], uncertain: uncertain, defers: at.defers)
-  end
-
-  def field_type(type, field)
-    return nil if type.nil? || type.kind.union?
-
-    @schema.get_field(type, field.name)&.type&.unwrap
   end
 
   def within(fragment, selections, at, index, stack)

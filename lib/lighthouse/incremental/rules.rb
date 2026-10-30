@@ -29,7 +29,7 @@ class Lighthouse::GraphQL::Incremental::Rules < GraphQL::Analysis::Analyzer
     super
     @errors = []
     @reported = Set.new
-    @definitions = {}
+    @definitions = Lighthouse::GraphQL::Incremental::Document::Definitions.new(subject.schema)
   end
 
   # The text the query was given (graphql-ruby's Query#query_string would print a document given
@@ -78,7 +78,7 @@ class Lighthouse::GraphQL::Incremental::Rules < GraphQL::Analysis::Analyzer
   # allows a variable, and forbids incremental delivery in a subscription, so a true one is refused).
   def check_subscription(directive)
     return unless query.selected_operation.operation_type == 'subscription'
-    return if query.arguments_for(directive, definition(directive.name))[:if] == false
+    return if query.arguments_for(directive, @definitions[directive.name])[:if] == false
 
     error(directive, "The @#{directive.name} directive must be disabled with `if: false` in a subscription.")
   end
@@ -98,22 +98,14 @@ class Lighthouse::GraphQL::Incremental::Rules < GraphQL::Analysis::Analyzer
     end
   end
 
-  # Every @defer and @stream of the nodes, each fragment definition once (it is a definition).
-  def directives(nodes)
-    nodes.flat_map do |node|
-      own = if node.respond_to?(:directives)
-              node.directives.select do |directive|
-                Lighthouse::GraphQL::Incremental::Document::DIRECTIVES.include?(directive.name)
-              end
-            else
-              []
-            end
-      own + (node.respond_to?(:selections) ? directives(node.selections) : [])
+  # Every @defer and @stream of the definitions, each fragment definition once (it is one).
+  def directives(definitions)
+    [].tap do |found|
+      definitions.select { |definition| definition.respond_to?(:selections) }.each do |definition|
+        Lighthouse::GraphQL::Incremental::Document.visit_directives(definition.selections) { |directive, _| found << directive }
+      end
     end
   end
-
-  # Schema.directives builds its Hash on every call: once an analysis.
-  def definition(name) = @definitions[name] ||= query.schema.directives[name]
 
   # An error, once for a node.
   def error(node, message)
