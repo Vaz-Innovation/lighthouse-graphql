@@ -24,6 +24,9 @@
 class Lighthouse::Search::Searchkick
   DEFAULT_TRASHED_COLUMN = 'deleted_at'
 
+  # The result window of a model with `searchkick deep_paging: true`, as Searchkick sets it.
+  DEEP_PAGING_WINDOW = 1_000_000_000
+
   def initialize(trashed_column: nil)
     @trashed_column = trashed_column&.to_s
   end
@@ -38,9 +41,27 @@ class Lighthouse::Search::Searchkick
   def page(query, offset:, limit:)
     response = query.model.searchkick_search(query.term, **search_options(query), offset: offset, limit: limit)
     [response.to_a, response.total_count]
+  rescue StandardError => e
+    raise unless past_window?(e)
+
+    # The index's window is smaller than the model's options say: set on the server.
+    raise ::GraphQL::ExecutionError, "The search reads no further than the index.max_result_window of #{query.model.name}. Narrow the search instead."
+  end
+
+  # How many of the matches the model's index pages through (Search::Result): its
+  # `max_result_window:` (in `searchkick` or its index `settings:`), a billion
+  # with `deep_paging: true`, else the engines' default, 10,000.
+  def result_window(query)
+    options = query.model.searchkick_options
+    options[:max_result_window] || options.dig(:settings, :index, :max_result_window) ||
+      (options[:deep_paging] ? DEEP_PAGING_WINDOW : Lighthouse::Search::Result::MAX_WINDOW)
   end
 
   private
+
+  def past_window?(error)
+    defined?(::Searchkick::InvalidQueryError) && error.is_a?(::Searchkick::InvalidQueryError) && error.message.include?('max_result_window')
+  end
 
   def search_options(query)
     options = query.options.dup

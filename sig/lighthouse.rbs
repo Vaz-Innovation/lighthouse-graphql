@@ -262,6 +262,8 @@ module Lighthouse
     def scope: (relation relation, Search::Query query) -> relation
   end
 
+  # It may also answer `result_window(query)`: how many matches it pages through
+  # (Search::Result::MAX_WINDOW when it does not).
   interface _EngineSearchAdapter
     include _SearchAdapter
     def page: (Search::Query query, offset: Integer, limit: Integer) -> [Array[_Record], Integer]

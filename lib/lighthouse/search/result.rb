@@ -5,11 +5,15 @@
 # (Pagination::List), and @all reads whole. The engine is asked once per page,
 # whose response holds the total too, so a page costs one request even when
 # the client selects `paginatorInfo`.
+#
+# An engine pages no further than its result window (Elasticsearch's and
+# OpenSearch's index.max_result_window): a window that runs past it is cut at
+# its end, and one that starts past it is a client error.
 class Lighthouse::Search::Result
   include Lighthouse::GraphQL::Pagination::List
 
-  # @all without `first` reads this many, the most Elasticsearch and OpenSearch
-  # return by default (index.max_result_window).
+  # The result window of an adapter that does not tell it (`result_window(query)`):
+  # Elasticsearch's and OpenSearch's default index.max_result_window.
   MAX_WINDOW = 10_000
 
   def initialize(adapter, query)
@@ -19,11 +23,11 @@ class Lighthouse::Search::Result
 
   attr_reader :query
 
-  # The records at `offset`, `limit` of them.
+  # The records at `offset`, `limit` of them, those within the result window.
   def window(offset, limit)
     return [] if limit.zero?
 
-    records, @count = @adapter.page(@query, offset: offset, limit: limit)
+    records, @count = @adapter.page(@query, offset: offset, limit: within_window(offset, limit))
     records
   end
 
@@ -32,8 +36,23 @@ class Lighthouse::Search::Result
     @count ||= @adapter.page(@query, offset: 0, limit: 0).last
   end
 
-  # What @all returns: `first` records from `offset`, else all of them (up to MAX_WINDOW).
+  # What @all returns: `first` records from `offset`, else all of them, up to the result window.
   def records(first: nil, offset: nil)
-    window(offset || 0, first || MAX_WINDOW)
+    window(offset || 0, first || result_window)
+  end
+
+  # How many of the matches the engine pages through.
+  def result_window
+    @result_window ||= @adapter.respond_to?(:result_window) ? @adapter.result_window(@query) : MAX_WINDOW
+  end
+
+  private
+
+  def within_window(offset, limit)
+    return [limit, result_window - offset].min if offset < result_window
+
+    raise ::GraphQL::ExecutionError,
+          "The search reads no further than its first #{result_window} matches (the index.max_result_window of " \
+          "#{@query.model.name}), so offset #{offset} is past them. Narrow the search instead."
   end
 end

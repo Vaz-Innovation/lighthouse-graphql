@@ -59,6 +59,35 @@ RSpec.describe 'search adapters' do
       expect(searched.last).to include(where: { published: true, author_id: 3 }, index_name: 'other_index', offset: 0, limit: 1)
     end
 
+    describe 'the result window' do
+      it "is the model's max_result_window, a billion with deep_paging, else the engines' default" do
+        expect(adapter.result_window(query)).to eq(10_000)
+        allow(SearchkickPost).to receive(:searchkick_options).and_return(deep_paging: true)
+        expect(adapter.result_window(query)).to eq(1_000_000_000)
+        allow(SearchkickPost).to receive(:searchkick_options).and_return(max_result_window: 50_000, deep_paging: true)
+        expect(adapter.result_window(query)).to eq(50_000)
+        allow(SearchkickPost).to receive(:searchkick_options).and_return(settings: { index: { max_result_window: 20_000 } })
+        expect(adapter.result_window(query)).to eq(20_000)
+      end
+
+      it "turns the engine's refusal of a page past it into an error the client reads" do
+        stub_const('Searchkick::InvalidQueryError', Class.new(StandardError))
+        message = '[400] {"error":{"reason":"Result window is too large, from + size must be less than or equal to: [500] but was [510]. ' \
+                  'This limit can be set by changing the [index.max_result_window] index level setting."}}'
+        allow(SearchkickPost).to receive(:searchkick_search).and_raise(Searchkick::InvalidQueryError, message)
+
+        expect { adapter.page(query, offset: 500, limit: 10) }
+          .to raise_error(GraphQL::ExecutionError, /The search reads no further than the index.max_result_window of SearchkickPost/)
+      end
+
+      it 'leaves the other errors of the engine alone' do
+        stub_const('Searchkick::InvalidQueryError', Class.new(StandardError))
+        allow(SearchkickPost).to receive(:searchkick_search).and_raise(Searchkick::InvalidQueryError, 'Bad mapping - run SearchkickPost.reindex')
+
+        expect { adapter.page(query, offset: 0, limit: 10) }.to raise_error(Searchkick::InvalidQueryError, /Bad mapping/)
+      end
+    end
+
     describe 'trashed records' do
       def where_of(trashed, adapter = self.adapter)
         query.trashed = trashed

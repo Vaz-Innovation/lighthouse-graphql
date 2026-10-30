@@ -222,6 +222,30 @@ RSpec.describe '@search' do
       expect(engine.requests.last).to include(offset: 0, limit: Lighthouse::Search::Result::MAX_WINDOW)
     end
 
+    it "reads @all no further than the engine's result window, whatever the offset" do
+      schema = build_schema(<<~GRAPHQL)
+        type SearchPost { title: String! }
+        type Query { posts(first: Int, offset: Int, search: String @search): [SearchPost!]! @all }
+      GRAPHQL
+
+      expect(titles(run(schema, '{ posts(search: "great", offset: 1) { title } }'))).to eq(['Really great title'])
+      expect(engine.requests.last).to include(offset: 1, limit: Lighthouse::Search::Result::MAX_WINDOW - 1)
+      run(schema, '{ posts(search: "great", first: 10, offset: 9995) { title } }')
+      expect(engine.requests.last).to include(offset: 9995, limit: 5)
+    end
+
+    it 'refuses a page past the result window, with an error the client reads' do
+      schema = build_schema('type SearchPost { title: String! } type Query { posts(search: String @search): [SearchPost!]! @paginate }')
+
+      result = run(schema, '{ posts(first: 10, page: 1001, search: "great") { data { title } } }')
+
+      expect(result['errors'].pluck('message')).to eq(
+        ['The search reads no further than its first 10000 matches (the index.max_result_window of SearchPost), so offset 10000 is past them. ' \
+         'Narrow the search instead.']
+      )
+      expect(engine.requests).to be_empty
+    end
+
     describe 'with @paginate' do
       let(:schema) do
         build_schema('type SearchPost { id: ID! title: String! } type Query { posts(search: String @search): [SearchPost!]! @paginate }')
@@ -707,6 +731,14 @@ RSpec.describe '@search' do
     it 'asks for nothing for a window of none' do
       expect(result.window(0, 0)).to eq([])
       expect(engine.requests).to be_empty
+    end
+
+    it "reads within the window the adapter answers for the model's index" do
+      allow(engine).to receive(:result_window).and_return(3)
+
+      expect(result.records(offset: 1).map(&:title)).to eq(%w[b c])
+      expect(engine.requests.last).to include(offset: 1, limit: 2)
+      expect { result.window(3, 1) }.to raise_error(GraphQL::ExecutionError, /no further than its first 3 matches/)
     end
   end
 

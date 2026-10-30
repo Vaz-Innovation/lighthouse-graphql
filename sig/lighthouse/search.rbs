@@ -44,6 +44,8 @@ module Lighthouse
       def window: (Integer offset, Integer limit) -> Array[_Record]
       def count: () -> Integer
       def records: (?first: Integer?, ?offset: Integer?) -> Array[_Record]
+      # How many of the matches the engine pages through: the adapter's `result_window(query)`, else MAX_WINDOW.
+      def result_window: () -> Integer
     end
 
     # Searchkick (Elasticsearch / OpenSearch), outside the database.
@@ -51,9 +53,13 @@ module Lighthouse
       include _EngineSearchAdapter
 
       DEFAULT_TRASHED_COLUMN: String
+      DEEP_PAGING_WINDOW: Integer
 
       # `trashed_column`: the indexed column @trashed filters on; default deleted_at (discard's, paranoia's).
       def initialize: (?trashed_column: (String | Symbol)?) -> void
+
+      # The model's max_result_window, a billion with deep_paging, else 10,000.
+      def result_window: (Query query) -> Integer
     end
 
     # pg_search (PostgreSQL full-text search), in the database.

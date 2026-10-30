@@ -94,6 +94,7 @@ class SearchkickPost < ApplicationRecord
     attr_accessor :searches, :indexed
 
     def searchkick_index = nil
+    def searchkick_options = {}
 
     def searchkick_search(term, **options)
       searches << [term, options]
@@ -125,6 +126,7 @@ module FakeSearch::Searchkicked
   attr_accessor :searches
 
   def searchkick_index = nil
+  def searchkick_options = {}
 
   def searchkick_search(_term, **options)
     (self.searches ||= []) << options

@@ -141,6 +141,7 @@ RSpec.describe 'GraphQL @search', type: :request do
           }
           type Query {
             posts(search: String @search, authorId: Int @eq(key: "author_id")): [SearchedPost!]! @all
+            listed(search: String @search, first: Int, offset: Int): [SearchedPost!]! @all
             paged(search: String @search, authorId: Int @eq(key: "author_id")): [SearchedPost!]! @paginate
             feed(search: String @search): [SearchedPost!]! @paginate(type: CONNECTION)
             indexed(search: String @search(within: "lighthouse_example_searched_posts")): [SearchedPost!]! @all
@@ -219,6 +220,16 @@ RSpec.describe 'GraphQL @search', type: :request do
         expect(result.dig('data', 'many', 'paginatorInfo', 'total')).to eq(10_001)
       ensure
         client&.indices&.delete(index: index)
+      end
+
+      it "reads @all from an offset within the engine's result window, and refuses a page past it" do
+        expect(titles(run(schema, '{ listed(search: "great", offset: 1) { title } }'), 'listed')).to eq(['Great title', 'Another great one'])
+
+        result = run(schema, '{ paged(first: 10, page: 1001, search: "great") { data { title } } }')
+        expect(result['errors'].pluck('message')).to eq(
+          ['The search reads no further than its first 10000 matches (the index.max_result_window of SearchedPost), so offset 10000 is past them. ' \
+           'Narrow the search instead.']
+        )
       end
 
       it 'walks a connection by position' do
