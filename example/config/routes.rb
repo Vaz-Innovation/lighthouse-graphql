@@ -3,6 +3,9 @@ Rails.application.routes.draw do
   # GET serves persisted queries by hash, so CDNs can cache them (see config/initializers/lighthouse.rb).
   get '/graphql', to: 'graphql#execute'
 
+  # A page preloading its data with lighthouse_execute (Lighthouse::GraphQL::Operations).
+  get '/search', to: 'pages#search'
+
   # The GraphiQL IDE, in development only: http://localhost:3000/graphiql
   get '/graphiql', to: 'graphiql#show', constraints: ->(_request) { Rails.env.development? }
 

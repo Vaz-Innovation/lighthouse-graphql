@@ -8,6 +8,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`lighthouse_execute` runs an operation from any controller action**, with the context the
+  GraphQL endpoint gives it (`graphql_context`, and the IP and controller `@throttle` counts
+  with), to render a page with its data loaded. It comes from the new
+  `Lighthouse::GraphQL::Operations` concern, which any controller can include (with
+  `lighthouse_schema`), and which `Lighthouse::GraphQL::Controller` includes. It returns the
+  result, or `nil` when a `@throttle` answered the request with a 429.
 - **`config.schema_output` keeps the client schema in a file, in development**, for a codegen
   to read, as NestJS's `autoSchemaFile`: rewritten on boot and on every reload, only when it
   changed (atomically, so a watcher never reads half of it). A path (`.json` for the

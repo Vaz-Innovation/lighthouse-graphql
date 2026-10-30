@@ -267,16 +267,41 @@ Route to it (`post '/graphql', to: 'graphql#execute'`, plus a `get` for
 - renders the JSON; in development an error renders as JSON with its backtrace.
 
 The hooks `graphql_context`, `graphql_schema` and `graphql_variables(param)` are
-private methods you can override. A controller with an action of its own wraps it
-in `lighthouse_request { ... }` to keep the request events:
+private methods you can override.
+
+### Running an operation from another action
+
+To render a page with its data already loaded, run the operation from the action
+with `lighthouse_execute`, from `Lighthouse::GraphQL::Operations` (which
+`Lighthouse::GraphQL::Controller` includes). It runs the operation as the endpoint
+does, with the endpoint's context: `graphql_context`, and the client's IP and the
+controller `@throttle` counts with. It returns the result, or `nil` when a
+`@throttle` answered the request with a 429:
 
 ```ruby
-def search
-  lighthouse_request do
-    render json: Lighthouse::GraphQL::PersistedQueries.execute(AppSchema, query: params[:q], context: graphql_context)
+class PagesController < ApplicationController
+  include Lighthouse::GraphQL::Operations
+
+  lighthouse_schema AppSchema
+
+  def search
+    @results = lighthouse_execute('query Search($term: String!) { searchPosts(term: $term) { title } }',
+                                  variables: { term: params[:term] })
+    return if performed? # @throttle answered 429
   end
+
+  private
+
+  def graphql_context = { current_user: current_user }
 end
 ```
+
+`extensions:` runs a persisted query by its hash, and `context:` adds to the
+context. The operation events (`StartOperationOrOperations`, `StartExecution`, ...)
+fire as for a client's request. The request events (`StartRequest`, `EndRequest`)
+are the GraphQL endpoint's, one per GraphQL request, as PHP Lighthouse's controller
+dispatches them; wrap an action in `lighthouse_request { ... }` to dispatch them
+around it.
 
 Not on the concern? Plain graphql-ruby works too:
 `render json: AppSchema.execute(params[:query], variables: params[:variables], context: { current_user: current_user })`.

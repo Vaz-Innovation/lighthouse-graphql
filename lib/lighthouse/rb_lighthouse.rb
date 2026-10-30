@@ -58,6 +58,7 @@ require_relative 'namespaces'
   schema_cache
   persisted_queries
   persisted_queries/batch
+  operations
   controller
   schema_factory
   schema_implementation

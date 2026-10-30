@@ -1,18 +1,18 @@
-# The Rails controller concern that serves a schema. See docs/getting-started.md.
+# The Rails controller concerns that run and serve a schema. See docs/getting-started.md.
 module Lighthouse
   module GraphQL
-    module Controller
+    # Run an operation from any action, with the context the endpoint gives it.
+    module Operations
       module ClassMethods
-        # The schema `execute` runs: a schema class, its name (constantized per
-        # request) or a block (evaluated in the controller, per request).
+        # The schema the operations run on: a schema class, its name (constantized
+        # per request) or a block (evaluated in the controller, per request).
         def lighthouse_schema: (?(Class | String | Symbol)? schema) ?{ () -> untyped } -> untyped
       end
 
-      # The action: dispatches StartRequest, runs the operation (or a batch),
-      # sets Cache-Control, renders JSON, dispatches EndRequest.
-      def execute: () -> untyped
-
       private
+
+      # The operation's result, or nil when a @throttle performed the response.
+      def lighthouse_execute: (String? query, ?variables: untyped, ?operation_name: String?, ?extensions: Hash[untyped, untyped]?, ?context: Hash[Symbol, untyped]) -> Hash[String, untyped]?
 
       # Dispatch StartRequest, yield, dispatch EndRequest; only the outermost call does.
       def lighthouse_request: [T] () { () -> T } -> T
@@ -20,11 +20,22 @@ module Lighthouse
       # The operation's context; { current_user: current_user } when the controller has one.
       def graphql_context: () -> Hash[Symbol, untyped]
 
+      # graphql_context, with what @throttle reads: remote_ip and the controller.
+      def lighthouse_context: () -> Hash[Symbol, untyped]
+
       # The schema class `lighthouse_schema` names.
       def graphql_schema: () -> untyped
 
       # The `variables` parameter as a Hash: from a JSON String, a Hash or parameters.
       def graphql_variables: (untyped param) -> Hash[String, untyped]
+    end
+
+    module Controller
+      include Operations
+
+      # The action: dispatches StartRequest, runs the operation (or a batch),
+      # sets Cache-Control, renders JSON, dispatches EndRequest.
+      def execute: () -> untyped
     end
   end
 end

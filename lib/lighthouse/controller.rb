@@ -31,9 +31,11 @@ require 'json'
 #
 # Hooks, private so they are not actions: `graphql_context` (default:
 # `{ current_user: current_user }` when the controller has a current_user, else
-# `{}`), `graphql_schema` and `graphql_variables(param)`. A controller with an
-# action of its own wraps it in `lighthouse_request { ... }` to get the request
-# events; a nested call dispatches them once.
+# `{}`), `graphql_schema` and `graphql_variables(param)`, from
+# Lighthouse::GraphQL::Operations, which also gives the controller's own actions
+# `lighthouse_execute`. An action of its own wraps itself in
+# `lighthouse_request { ... }` to get the request events; a nested call
+# dispatches them once.
 module Lighthouse::GraphQL::Controller
   extend ActiveSupport::Concern
 
@@ -42,18 +44,7 @@ module Lighthouse::GraphQL::Controller
   # schema's rescue_from) catches it on its way out of the operation.
   class Performed < Exception; end # rubocop:disable Lint/InheritException
 
-  included do
-    class_attribute :lighthouse_schema_source, instance_writer: false
-  end
-
-  class_methods do
-    # The schema `execute` runs: a schema class, its name (a String, constantized
-    # per request so code reloading works) or a block (evaluated in the
-    # controller, per request).
-    def lighthouse_schema(schema = nil, &block)
-      self.lighthouse_schema_source = schema || block
-    end
-  end
+  include Lighthouse::GraphQL::Operations
 
   def execute
     lighthouse_request do
@@ -73,58 +64,6 @@ module Lighthouse::GraphQL::Controller
   end
 
   private
-
-  # Dispatch StartRequest, run the block, dispatch EndRequest with the
-  # response. Only the outermost call dispatches, and stops the block where a
-  # @throttle `with:` method performed the response.
-  def lighthouse_request
-    return yield if @lighthouse_request_started
-
-    @lighthouse_request_started = true
-    Lighthouse::Events.dispatch(Lighthouse::Events::StartRequest.new(request))
-    result = begin
-      yield
-    rescue Performed
-      nil
-    end
-    Lighthouse::Events.dispatch(Lighthouse::Events::EndRequest.new(response))
-    result
-  end
-
-  # The context of the operation: what @guard and the @can* directives read.
-  def graphql_context
-    respond_to?(:current_user, true) ? { current_user: current_user } : {}
-  end
-
-  # graphql_context, with what @throttle reads unless it sets its own: the
-  # client's IP (rate_limit's default by:) and the controller, whose cache_store,
-  # controller_path and methods rate_limit uses.
-  def lighthouse_context
-    { remote_ip: request.remote_ip, lighthouse_controller: self }.merge(graphql_context)
-  end
-
-  def graphql_schema
-    source = lighthouse_schema_source
-    case source
-    when nil then raise Lighthouse::DefinitionError, "#{self.class}: name the schema with `lighthouse_schema AppSchema`"
-    when String, Symbol then source.to_s.constantize
-    when Proc then instance_exec(&source)
-    else source
-    end
-  end
-
-  # Variables arrive as a JSON string (GET or form posts) or as parameters.
-  def graphql_variables(param)
-    case param
-    when String then param.present? ? JSON.parse(param) || {} : {}
-    when Hash then param
-    when nil then {}
-    else
-      raise ArgumentError, "Unexpected parameter: #{param}" unless param.respond_to?(:to_unsafe_h)
-
-      param.to_unsafe_h
-    end
-  end
 
   # A multipart request's operation(s), a batch (a JSON array body), or the parameters.
   def lighthouse_operations
