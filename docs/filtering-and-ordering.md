@@ -476,7 +476,7 @@ Comment. Narrow the search instead.` Raising the window lets clients page deeper
 With pg_search, `@trashed` and `@softDeletes` filter the relation, as without a search.
 
 With Searchkick, `@trashed` filters on the soft-delete column the index holds, so `search_data` must hold
-it (`deleted_at: deleted_at`), or the search is an error: `Comment.search_data does not index
+it (`deleted_at: deleted_at`), or `ONLY` and `WITHOUT` are an error (`WITH` filters nothing): `Comment.search_data does not index
 deleted_at, which @trashed filters the search on.` The column is the one the database path filters on
 ([`Config.soft_deletes`](configuration.md#soft-deletes)): paranoia's (`paranoia_column`, and its
 `sentinel_value` in place of null for the records that are not trashed), discard's (`discard_column`),

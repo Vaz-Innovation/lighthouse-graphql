@@ -109,13 +109,11 @@ class Lighthouse::Search::Searchkick
   def trashed_filter(query)
     return {} unless query.trashed
 
+    return {} if query.trashed == :with # no filter: the index need not hold the column
+
     column, kept = trashed_column(query.model)
     require_indexed!(query.model, column)
-    case query.trashed
-    when :only then { column.to_sym => { not: kept } }
-    when :without then { column.to_sym => kept }
-    else {}
-    end
+    query.trashed == :only ? { column.to_sym => { not: kept } } : { column.to_sym => kept }
   end
 
   # [the indexed column that marks trashed records, its value for the others]:

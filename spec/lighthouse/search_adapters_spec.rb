@@ -120,6 +120,12 @@ RSpec.describe 'search adapters' do
         expect { described_class.new(trashed_column: :archived_at) }.to raise_error(ArgumentError)
       end
 
+      it 'does not need the column for WITH, which filters nothing' do
+        SearchkickPost.indexed = %w[title]
+
+        expect(where_of(:with)).to eq({})
+      end
+
       it 'refuses a model that does not index the column' do
         SearchkickPost.indexed = %w[title]
 
