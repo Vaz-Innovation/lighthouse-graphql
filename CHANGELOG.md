@@ -33,6 +33,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Paginated queries end their order with the primary key.** Pages are cut by position, so
+  rows the field's order tied (`@orderBy(column: "created_at")`) could come back in another
+  order on the next page's query, and show on two pages or none; the same in the per-parent
+  row numbers of a batched relation. `@paginate` (every `type:`) and the paginated relation
+  directives now append the primary key unless the order names it already. PHP Lighthouse
+  leaves the order as it is.
 - **`@globalId(decode:)` no longer loads the record to read its id.** On a schema with
   graphql-ruby's `object_from_id` (Rails' GlobalID, as its install writes it), decoding went
   through `object_from_id`: a SELECT before `@find`'s own, under the model's default scope,

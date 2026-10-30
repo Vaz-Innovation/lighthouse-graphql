@@ -65,7 +65,7 @@ class Lighthouse::GraphQL::RelationBatch
 
   # { owner key => its records in rows offset+1..offset+limit }
   def pages(owners, offset, limit)
-    relation = relation(owners)
+    relation = Lighthouse::GraphQL::Pagination.stable_order(relation(owners))
     ranked = relation.unscope(:order).select(*selection(relation), "#{row_number(relation)} AS #{ROW}", "#{partition} AS #{OWNER}")
     rows = relation.klass.unscoped.from(ranked, relation.klass.table_name)
                    .where("#{ROW} > ? AND #{ROW} <= ?", offset, offset + limit)

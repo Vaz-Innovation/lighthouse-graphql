@@ -200,7 +200,27 @@ module Lighthouse::GraphQL::Pagination
     return [] if limit.zero?
     return Array(relation)[offset, limit] || [] unless relation.respond_to?(:offset)
 
-    relation.offset(offset).limit(limit).to_a
+    stable_order(relation).offset(offset).limit(limit).to_a
+  end
+
+  # The relation, its ORDER BY ending with the primary key. Pages are cut by
+  # position (an OFFSET, or a row number per parent), and rows the order ties
+  # (posts with the same created_at), or a relation with no order at all, may
+  # come back in another order on the next page's query: a row then shows on
+  # two pages, or on none. PHP Lighthouse leaves the order as it is. A grouped
+  # relation is left alone: its key may not be in the GROUP BY.
+  def stable_order(relation)
+    return relation unless relation.respond_to?(:klass) && relation.klass.primary_key && relation.group_values.empty?
+
+    table = relation.klass.arel_table
+    missing = Array(relation.klass.primary_key).reject { |key| ordered_by?(relation, table.name, key) }
+    missing.empty? ? relation : relation.order(*missing.map { |key| table[key].asc })
+  end
+
+  # Does the relation's ORDER BY name `table`.`key`, or `key` alone?
+  def ordered_by?(relation, table_name, key)
+    column = /(?:\A|[^\w."`\]])(?:["`\[]?#{Regexp.escape(table_name)}["`\]]?\.)?["`\[]?#{Regexp.escape(key)}["`\]]?(?:\s|,|\z)/i
+    relation.order_values.any? { |order| (order.respond_to?(:to_sql) ? order.to_sql : order.to_s).match?(column) }
   end
 
   def count(relation)

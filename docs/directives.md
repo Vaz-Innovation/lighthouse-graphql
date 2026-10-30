@@ -89,6 +89,11 @@ type Query {
 - **The total** is only counted when the client selects `paginatorInfo` or
   `pageInfo`.
 - **Cursors** are base64 of the item's position.
+- **The order** ends with the primary key: a page is cut by position, so rows the
+  field's order ties (`@orderBy(column: "created_at")` on posts created in the same
+  second), or a query with no order, would otherwise come back in another order on
+  the next page, and a row would show on two pages or none. An order that names
+  the key already, or a grouped query, is left as it is. PHP Lighthouse does not add it.
 
 ### `@count`
 
