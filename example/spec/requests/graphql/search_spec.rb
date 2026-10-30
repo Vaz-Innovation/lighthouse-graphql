@@ -204,22 +204,39 @@ RSpec.describe 'GraphQL @search', type: :request do
         expect(result.dig('data', 'paged')).to eq('data' => [], 'paginatorInfo' => { 'total' => 3 })
       end
 
-      it 'counts every match, past the 10,000 the engine stops at unless asked for the exact total' do
-        # Indexed through the client, without rows: `first: 0` loads no record, it only counts.
-        index = 'lighthouse_example_many_posts'
-        client = Searchkick.client
-        client.indices.delete(index: index) if client.indices.exists(index: index)
-        client.bulk(index: index, refresh: true, body: Array.new(10_001) { |id| [{ index: { _id: id + 1 } }, { title: 'many' }] }.flatten)
-        many = schema_from(<<~GRAPHQL)
-          type SearchedPost { id: ID! }
-          type Query { many(search: String @search(within: "#{index}")): [SearchedPost!]! @paginate }
-        GRAPHQL
+      describe 'an index of 10,001 documents within: names' do
+        let(:index) { 'lighthouse_example_many_posts' }
+        let(:many) do
+          schema_from(<<~GRAPHQL)
+            type SearchedPost { id: ID! }
+            type Query { many(search: String @search(within: "#{index}")): [SearchedPost!]! @paginate }
+          GRAPHQL
+        end
 
-        result = run(many, '{ many(first: 0, search: "*") { paginatorInfo { total } } }')
+        # Indexed through the client, without rows: what a page finds does not load, only the total counts.
+        before do
+          client = Searchkick.client
+          client.indices.delete(index: index) if client.indices.exists(index: index)
+          client.indices.create(index: index, body: { settings: { index: { max_result_window: 20_000 } } })
+          client.bulk(index: index, refresh: true, body: Array.new(10_001) { |id| [{ index: { _id: id + 1 } }, { title: 'many' }] }.flatten)
+        end
 
-        expect(result.dig('data', 'many', 'paginatorInfo', 'total')).to eq(10_001)
-      ensure
-        client&.indices&.delete(index: index)
+        after { Searchkick.client.indices.delete(index: index) }
+
+        it 'counts every match, past the 10,000 the engine stops at unless asked for the exact total' do
+          result = run(many, '{ many(first: 0, search: "*") { paginatorInfo { total } } }')
+
+          expect(result.dig('data', 'many', 'paginatorInfo', 'total')).to eq(10_001)
+        end
+
+        it "pages as far as the index's own window, which Lighthouse cannot know, and leaves the refusal past it to the engine" do
+          deep = run(many, '{ many(first: 1, page: 10001, search: "*") { paginatorInfo { total } } }')
+          past = run(many, '{ many(first: 10, page: 2001, search: "*") { paginatorInfo { total } } }')
+
+          expect(deep).to eq('data' => { 'many' => { 'paginatorInfo' => { 'total' => 10_001 } } })
+          expect(past['errors'].pluck('message'))
+            .to eq(['The search reads no further than the index.max_result_window of SearchedPost. Narrow the search instead.'])
+        end
       end
 
       it "reads @all from an offset within the engine's result window, and refuses a page past it" do

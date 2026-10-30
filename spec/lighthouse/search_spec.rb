@@ -800,6 +800,13 @@ RSpec.describe '@search' do
       expect(engine.requests).to be_empty
     end
 
+    it 'reads past any window when the adapter does not know it, and leaves the refusal to the engine' do
+      allow(engine).to receive(:result_window).and_return(nil)
+
+      result.window(20_000, 10)
+      expect(engine.requests.last).to include(offset: 20_000, limit: 10)
+    end
+
     it "reads within the window the adapter answers for the model's index" do
       allow(engine).to receive(:result_window).and_return(3)
 

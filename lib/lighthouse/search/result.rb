@@ -8,7 +8,8 @@
 #
 # An engine pages no further than its result window (Elasticsearch's and
 # OpenSearch's index.max_result_window): a window that runs past it is cut at
-# its end, and one that starts past it is a client error.
+# its end, and one that starts past it is a client error. When the adapter does
+# not know the window (`result_window` nil), the engine refuses on its own.
 class Lighthouse::Search::Result
   include Lighthouse::GraphQL::Pagination::List
 
@@ -38,17 +39,20 @@ class Lighthouse::Search::Result
 
   # What @all returns: `first` records from `offset`, else all of them, up to the result window.
   def records(first: nil, offset: nil)
-    window(offset || 0, first || result_window)
+    window(offset || 0, first || result_window || MAX_WINDOW)
   end
 
-  # How many of the matches the engine pages through.
+  # How many of the matches the engine pages through; nil when the adapter cannot tell.
   def result_window
-    @result_window ||= @adapter.respond_to?(:result_window) ? @adapter.result_window(@query) : MAX_WINDOW
+    return @result_window if defined?(@result_window)
+
+    @result_window = @adapter.respond_to?(:result_window) ? @adapter.result_window(@query) : MAX_WINDOW
   end
 
   private
 
   def within_window(offset, limit)
+    return limit if result_window.nil?
     return [limit, result_window - offset].min if offset < result_window
 
     raise ::GraphQL::ExecutionError,

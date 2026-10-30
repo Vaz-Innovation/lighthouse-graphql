@@ -70,6 +70,17 @@ RSpec.describe 'search adapters' do
         expect(adapter.result_window(query)).to eq(20_000)
       end
 
+      it 'reads the settings whatever their keys' do
+        allow(SearchkickPost).to receive(:searchkick_options).and_return(settings: { 'index' => { 'max_result_window' => 50_000 } })
+        expect(adapter.result_window(query)).to eq(50_000)
+        allow(SearchkickPost).to receive(:searchkick_options).and_return('settings' => { 'index.max_result_window' => 30_000 })
+        expect(adapter.result_window(query)).to eq(30_000)
+      end
+
+      it "is not known for an index within: names, which is not the model's: the engine's refusal stands" do
+        expect(adapter.result_window(Lighthouse::Search::Query.new(SearchkickPost, 'milk', 'other_index'))).to be_nil
+      end
+
       it "turns the engine's refusal of a page past it into an error the client reads" do
         stub_const('Searchkick::InvalidQueryError', Class.new(StandardError))
         message = '[400] {"error":{"reason":"Result window is too large, from + size must be less than or equal to: [500] but was [510]. ' \
