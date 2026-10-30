@@ -117,6 +117,15 @@ config.persisted_queries_only = Rails.env.production?
 - The manifest's operations are served from memory, so a cache eviction can
   never drop them. The file is reloaded when it changes, and an id that is not
   the SHA-256 of its body is rejected.
+- The manifest can also be a Hash of operations, or a callable answering a Hash
+  or a path, called for every persisted query: to read what a frontend build
+  (Vite, graphql-codegen's persisted documents) writes somewhere of its own. A Hash
+  is checked once, until its content changes; keep the callable cheap (memoize the
+  parsed file), as it runs per request.
+
+```ruby
+config.persisted_queries_manifest = -> { ViteManifest.persisted_documents } # a Hash, memoized
+```
 - With `persisted_queries_only`, nothing else runs, and arbitrary queries get
   `Only persisted queries are allowed.` (`PERSISTED_QUERY_NOT_IN_LIST`).
 

@@ -106,7 +106,8 @@ module Lighthouse
       # persisted_queries     accept Apollo's Automatic Persisted Queries (PersistedQueries)
       # persisted_queries_store     where APQ keeps queries; default Rails.cache
       # persisted_queries_ttl       how long they live there (seconds; nil: until evicted)
-      # persisted_queries_manifest  a manifest of trusted operations, served by hash
+      # persisted_queries_manifest  a manifest of trusted operations, served by hash: a JSON file,
+      #                             a Hash, or a callable answering either
       # persisted_queries_only      reject any operation not in the manifest
       attr_accessor :schema_cache_path, :persisted_queries_ttl, :persisted_queries_manifest
 

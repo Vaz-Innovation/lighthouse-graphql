@@ -135,6 +135,32 @@ RSpec.describe Lighthouse::GraphQL::PersistedQueries do
       expect { run(extensions: apq) }.to raise_error(Lighthouse::DefinitionError, /is not the SHA-256 of its body/)
     end
 
+    it 'takes the operations as a Hash, or a callable answering a Hash or a path' do
+      other_sha = Digest::SHA256.hexdigest(other)
+      widgets = { 'data' => { 'widgets' => [{ 'id' => Widget.first.id.to_s }] } }
+
+      Lighthouse.configure { |c| c.persisted_queries_manifest = { other_sha => other } }
+      expect(run(extensions: apq(other_sha))).to eq(widgets)
+
+      Lighthouse.configure { |c| c.persisted_queries_manifest = -> { { operations: [{ id: other_sha, body: other }] } } }
+      expect(run(extensions: apq(other_sha))).to eq(widgets)
+
+      Lighthouse.configure { |c| c.persisted_queries_manifest = -> { Pathname(manifest) } }
+      expect(run(extensions: apq)).to eq('data' => { 'widgets' => [{ 'email' => 'a@x.y' }] })
+    end
+
+    it 'checks the hashes of a Hash it is given once, until its content changes' do
+      operations = { Digest::SHA256.hexdigest(other) => other }
+      Lighthouse.configure { |c| c.persisted_queries_manifest = -> { operations } }
+      allow(described_class).to receive(:digest).and_call_original
+
+      2.times { run(extensions: apq(Digest::SHA256.hexdigest(other))) }
+      expect(described_class).to have_received(:digest).with(other).once
+
+      Lighthouse.configure { |c| c.persisted_queries_manifest = -> { { sha => other } } }
+      expect { run(extensions: apq) }.to raise_error(Lighthouse::DefinitionError, /persisted_queries_manifest: operation #{sha}/)
+    end
+
     describe 'and persisted_queries_only' do
       before { Lighthouse.configure { |c| c.persisted_queries_only = true } }
 

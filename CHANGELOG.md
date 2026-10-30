@@ -14,6 +14,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `Lighthouse::GraphQL::Operations` concern, which any controller can include (with
   `lighthouse_schema`), and which `Lighthouse::GraphQL::Controller` includes. It returns the
   result, or `nil` when a `@throttle` answered the request with a 429.
+- `config.persisted_queries_manifest` takes a Hash of operations, or a callable answering a
+  Hash or a path (called per persisted query), besides a JSON file: a frontend build can keep
+  its trusted documents where it writes them. A Hash is checked once, until its content changes.
 - **`config.schema_output` keeps the client schema in a file, in development**, for a codegen
   to read, as NestJS's `autoSchemaFile`: rewritten on boot and on every reload, only when it
   changed (atomically, so a watcher never reads half of it). A path (`.json` for the

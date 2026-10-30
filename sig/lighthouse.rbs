@@ -138,8 +138,9 @@ module Lighthouse
     def self.persisted_queries_store=: (untyped store) -> untyped
     def self.persisted_queries_ttl: () -> Numeric?
     def self.persisted_queries_ttl=: (Numeric? seconds) -> Numeric?
-    def self.persisted_queries_manifest: () -> path?
-    def self.persisted_queries_manifest=: (path? path) -> path?
+    # A JSON file, a Hash of operations, or a callable answering either.
+    def self.persisted_queries_manifest: () -> (path | Hash[untyped, untyped] | ^() -> (path | Hash[untyped, untyped])?)?
+    def self.persisted_queries_manifest=: ((path | Hash[untyped, untyped] | ^() -> (path | Hash[untyped, untyped])?)? manifest) -> untyped
     def self.persisted_queries_only: () -> bool
     def self.persisted_queries_only=: (bool? enabled) -> bool?
 
