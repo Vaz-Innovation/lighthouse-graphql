@@ -1,5 +1,19 @@
 require 'rails_helper'
 
+# The streaming endpoint of an app whose controllers rescue every error and render a 500.
+class DeferSpecRescuingController < GraphqlStreamingController
+  cattr_accessor :rescued, default: []
+
+  rescue_from StandardError, with: :render_internal_error
+
+  private
+
+  def render_internal_error(error)
+    rescued << error
+    render json: { errors: [{ message: 'Internal server error' }] }, status: :internal_server_error
+  end
+end
+
 # @defer over HTTP: the endpoint streams the deferred fragments as multipart/mixed parts to a
 # client that accepts them (Lighthouse::GraphQL::Defer, GraphqlController's ActionController::Live).
 RSpec.describe 'Deferring fields', type: :request do
@@ -185,6 +199,45 @@ RSpec.describe 'Deferring fields', type: :request do
     reported
   ensure
     Rails.error.unsubscribe(subscriber)
+  end
+
+  describe 'in a controller that rescues errors' do
+    before do
+      DeferSpecRescuingController.rescued = []
+      Rails.application.routes.draw { post '/rescuing', to: 'defer_spec_rescuing#execute' }
+      allow_any_instance_of(Comment).to receive(:body).and_raise(EOFError, 'the app read past the end') # rubocop:disable RSpec/AnyInstance
+    end
+
+    after { Rails.application.reload_routes! }
+
+    def reports
+      reports = []
+      subscriber = Class.new { define_method(:report) { |error, handled:, **| reports << [error.message, handled] } }.new
+      Rails.error.subscribe(subscriber)
+      yield
+      reports
+    ensure
+      Rails.error.unsubscribe(subscriber)
+    end
+
+    it 'ends a stream an error fails after it began inside the action, reporting the error once, handled, and rescuing nothing' do
+      reported = reports { post '/rescuing', params: { query: query }, headers: accept, as: :json }
+
+      failed = %w[0 1 2].map { |id| { 'id' => id, 'errors' => [{ 'message' => 'Internal server error' }] } }
+      expect(parts(response.body).last).to eq('completed' => failed, 'hasNext' => false)
+      expect(response.body).to end_with("\r\n-----\r\n")
+      expect(DeferSpecRescuingController.rescued).to eq([])
+      expect(reported).to eq([['the app read past the end', true]])
+    end
+
+    it "reports the error that failed the stream when its closing boundary cannot be written, and that one's error after it" do
+      allow_any_instance_of(Lighthouse::GraphQL::Incremental::Multipart).to receive(:finish).and_raise('cannot close') # rubocop:disable RSpec/AnyInstance
+
+      reported = reports { post '/rescuing', params: { query: query }, headers: accept, as: :json }
+
+      expect(reported).to eq([['the app read past the end', true], ['cannot close', true]])
+      expect(DeferSpecRescuingController.rescued).to eq([])
+    end
   end
 
   it 'answers an error as the JSON path does when the first part cannot be encoded, nothing being written yet' do
