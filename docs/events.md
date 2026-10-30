@@ -51,10 +51,10 @@ created at (UTC).
 | --- | --- | --- |
 | `StartRequest` | The controller action begins | `request`, `moment` |
 | `StartOperationOrOperations` | The operation(s) were read, before they run | `operation_or_operations` |
-| `StartExecution` | A query is about to run (once per operation of a batch) | `schema`, `query`, `variables`, `operation_name`, `context`, `moment` |
+| `StartExecution` | A query is about to run (once per operation of a batch) | `schema`, `query`, `variables`, `operation_name`, `context`, `graphql_query`, `moment` |
 | `BuildExtensionsResponse` | A query ran | `result`, `query_complexity` |
 | `ManipulateResult` | Before the result is returned | `result` (+ writer) |
-| `EndExecution` | The result is final | `result`, `moment` |
+| `EndExecution` | The result is final | `result`, `operation_name`, `context`, `graphql_query`, `moment` |
 | `EndOperationOrOperations` | The operation(s) ran | `result_or_results` |
 | `EndRequest` | The response is rendered | `response`, `moment` |
 
@@ -95,7 +95,21 @@ it builds, so they fire however the query was started: the controller,
 With no listener, and no `ActiveSupport::Notifications` subscriber, they cost
 one lookup per request.
 
-`StartExecution#query` is the parsed `GraphQL::Language::Nodes::Document`.
+`StartExecution#query` is the parsed `GraphQL::Language::Nodes::Document`, and
+`operation_name` the one the client gave. Both events carry the `GraphQL::Query` as
+`graphql_query`, and `EndExecution` its `operation_name` (the operation that ran,
+`nil` for an anonymous one) and `context`. In a batch, graphql-ruby runs the
+operations together, so every `StartExecution` comes before any `EndExecution`:
+read what you need from `EndExecution`, or pair the two by `graphql_query`, not by
+order. PHP Lighthouse's `EndExecution` has the result only, as it runs a batch's
+operations one after the other.
+
+```ruby
+Lighthouse::Events.listen(Lighthouse::Events::EndExecution) do |event|
+  errors = event.result['errors']
+  Rails.logger.warn("GraphQL #{event.operation_name || 'an anonymous operation'} answered with errors") if errors.present?
+end
+```
 
 **`BuildExtensionsResponse`**: return an `ExtensionsResponse` (or an Array of
 them) to add to the result's `extensions`:

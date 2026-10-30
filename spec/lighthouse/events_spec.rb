@@ -218,6 +218,18 @@ RSpec.describe Lighthouse::Events do
       expect(seen.size).to eq(2)
     end
 
+    it 'gives EndExecution the operation that ran, which pairs it with its StartExecution in a batch (#4)' do
+      started = record(Lighthouse::Events::StartExecution)
+      ended = record(Lighthouse::Events::EndExecution)
+      schema.multiplex([{ query: 'query Mine { widgets { id } }', context: { user: 1 } },
+                        { query: 'query Everyone { nope }' }, { query: '{ widgets { name } }' }])
+
+      expect(ended.map { |event| [event.operation_name, event.result.key?('errors')] }).to eq([['Mine', false], ['Everyone', true], [nil, false]])
+      expect(ended.first.context[:user]).to eq(1)
+      expect(started.map(&:graphql_query)).to eq(ended.map(&:graphql_query))
+      expect(started.map { |event| event.graphql_query.selected_operation_name }).to eq(['Mine', 'Everyone', nil])
+    end
+
     it 'merges the ExtensionsResponses of BuildExtensionsResponse into the result' do
       events.listen(Lighthouse::Events::BuildExtensionsResponse) do |event|
         Lighthouse::Events::ExtensionsResponse.new(:widgets_seen, event.result['data']['widgets'].size)

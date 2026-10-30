@@ -23,7 +23,7 @@ module Lighthouse::Events::ExecutionTrace
   class << self
     def start(schema, query)
       Lighthouse::Events.dispatch(
-        Lighthouse::Events::StartExecution.new(schema, query.document, query.provided_variables, query.operation_name, query.context)
+        Lighthouse::Events::StartExecution.new(schema, query.document, query.provided_variables, query.operation_name, query.context, query)
       )
     end
 
@@ -38,7 +38,7 @@ module Lighthouse::Events::ExecutionTrace
       manipulate = Lighthouse::Events::ManipulateResult.new(result)
       Lighthouse::Events.dispatch(manipulate)
       result.replace(manipulate.result) unless manipulate.result.equal?(result)
-      Lighthouse::Events.dispatch(Lighthouse::Events::EndExecution.new(result))
+      Lighthouse::Events.dispatch(Lighthouse::Events::EndExecution.new(result, query))
     end
 
     def merge_extensions(result, responses)

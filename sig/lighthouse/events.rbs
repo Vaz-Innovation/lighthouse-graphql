@@ -69,8 +69,10 @@ module Lighthouse
       attr_reader variables: Hash[String, untyped]?
       attr_reader operation_name: String?
       attr_reader context: untyped
+      # The GraphQL::Query, which the operation's EndExecution carries too.
+      attr_reader graphql_query: untyped
 
-      def initialize: (untyped schema, untyped query, Hash[String, untyped]? variables, String? operation_name, untyped context) -> void
+      def initialize: (untyped schema, untyped query, Hash[String, untyped]? variables, String? operation_name, untyped context, ?untyped graphql_query) -> void
     end
 
     # A listener may answer an ExtensionsResponse, or an Array of them.
@@ -89,8 +91,13 @@ module Lighthouse
 
     class EndExecution < Event
       attr_reader result: Hash[String, untyped]
+      # The GraphQL::Query its StartExecution carried.
+      attr_reader graphql_query: untyped
 
-      def initialize: (Hash[String, untyped] result) -> void
+      def initialize: (Hash[String, untyped] result, ?untyped graphql_query) -> void
+      # The operation that ran; nil for an anonymous one.
+      def operation_name: () -> String?
+      def context: () -> untyped
     end
 
     class EndOperationOrOperations < Event

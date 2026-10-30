@@ -12,6 +12,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `UNAUTHENTICATED` from `@guard` and `@auth` (the new `Lighthouse::AuthenticationError`), and
   `FORBIDDEN` from the `@can*` directives (`Lighthouse::AuthorizationError`), as Apollo names
   them, so a client can react without matching the message. PHP Lighthouse's have no code.
+- **`EndExecution` says which operation ended** (#4): `operation_name`, `context`, and the
+  `GraphQL::Query` as `graphql_query`, which `StartExecution` carries too. In a batch every
+  `StartExecution` comes before any `EndExecution`, so a listener could not tell the results
+  apart.
 
 ## [0.8.0] - 2026-10-29
 

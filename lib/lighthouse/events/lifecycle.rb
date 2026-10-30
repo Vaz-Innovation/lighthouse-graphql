@@ -55,17 +55,23 @@ module Lighthouse::Events
   end
 
   # A query is about to run. `query` is its parsed GraphQL::Language::Nodes::Document
-  # (nil if it does not parse). Fires once per operation of a multiplex.
+  # (nil if it does not parse), `operation_name` the one the client gave.
+  # Fires once per operation of a multiplex: in a batch, every StartExecution
+  # comes before any EndExecution, as graphql-ruby runs the operations
+  # together. `graphql_query` (the GraphQL::Query) is the one the operation's
+  # EndExecution carries too, to pair them.
   class StartExecution < Event
-    attr_reader :schema, :query, :variables, :operation_name, :context
+    attr_reader :schema, :query, :variables, :operation_name, :context, :graphql_query
 
-    def initialize(schema, query, variables, operation_name, context)
+    # PHP Lighthouse's five, positional as there, then the query.
+    def initialize(schema, query, variables, operation_name, context, graphql_query = nil) # rubocop:disable Metrics/ParameterLists
       super()
       @schema = schema
       @query = query
       @variables = variables
       @operation_name = operation_name
       @context = context
+      @graphql_query = graphql_query
     end
   end
 
@@ -95,14 +101,22 @@ module Lighthouse::Events
     end
   end
 
-  # A query ran and its result is final.
+  # A query ran and its result is final. `graphql_query` is the GraphQL::Query
+  # its StartExecution carried; `operation_name` the operation that ran (nil
+  # for an anonymous one), and `context` its context. PHP Lighthouse's carries
+  # the result only, where a batch runs its operations one after the other.
   class EndExecution < Event
-    attr_reader :result
+    attr_reader :result, :graphql_query
 
-    def initialize(result)
+    def initialize(result, graphql_query = nil)
       super()
       @result = result
+      @graphql_query = graphql_query
     end
+
+    def operation_name = graphql_query&.selected_operation_name
+
+    def context = graphql_query&.context
   end
 
   # The operation(s) ran: the result, or for a batch an Array of results.
