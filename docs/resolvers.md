@@ -519,10 +519,11 @@ end
 It is repeatable, and `method:` names a method other than `call`. Builder classes
 are looked up in the builders namespace only. Raising a `GraphQL::ExecutionError`
 from a builder (e.g. a tenancy check) always reaches the client. Any other error
-fails the field too, reported to [`on_error`](configuration.md#on_error): the client
-reads `Could not apply the filters of Type.field.`. A query never falls back to the
-relation without the builder, nor does a builder whose class or method cannot be
-found (a `Lighthouse::DefinitionError`).
+fails the field too: it is reported to [`on_error`](configuration.md#on_error), then
+raised as it is, as any resolver's error, so your schema's `rescue_from` maps it
+(unmapped, it is graphql-ruby's error). A query never falls back to the relation
+without the builder. A builder whose class or method cannot be found is a schema
+error, which the client reads, reported too.
 
 The gem ships RBS signatures in `sig/`, so with Steep (or anything that reads
 `rbs collection`) a builder can be checked against `Lighthouse::_Builder`:

@@ -670,7 +670,8 @@ is: a schema error). This protocol is experimental.
 | A directive of your own on a searched field, which does not say it applies a search | (no such contract) | schema error |
 | A Searchkick model whose default scope or `search_results` narrows what loads, without `search_where` | the engine counts what does not load | schema error |
 | A nested `@paginate` whose record pages an association its type's model lacks | `ScoutException` at run time | client error |
-| A filter raises (on any field) | the error | client error, "Could not apply the filters of …", reported to `Config.on_error` |
+| A filter raises (on any field) | the error | the error, reported to `Config.on_error`, for the schema's `rescue_from` |
+| A search the field's own directives would narrow, on a field whose model the build could not tell | directives dropped silently | client error, reported |
 | `@all` without `first` on more than 10,000 matches | Scout's `get()` answers its driver's default | the first 10,000, with an error next to them |
 
 ## Complex where conditions

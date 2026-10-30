@@ -115,10 +115,12 @@ This is the seam that keeps the gem free of your app's namespace.
 
 A callable `->(error, context) { ... }` invoked when a directive or resolver
 reports an error. A filter that raises (an argument directive, a `@builder`,
-`@whereAuth`) is one: the field fails, its client reads `Could not apply the
-filters of Type.field.`, and the error comes here. A query is never answered
-without a filter that failed. The default **raises in test** (so failures surface
-in your suite) and logs otherwise. Point it at your error reporter in production:
+`@whereAuth`) is one: the error comes here, then the field fails with it, raised as
+it is, so your schema's `rescue_from` maps it as any resolver's error. A schema error
+found only as a query runs (a `@builder` that does not exist) comes here, and the
+client reads it. A query is never answered without a filter that failed. The default
+**raises in test** (so failures surface in your suite) and logs otherwise. Point it at
+your error reporter in production:
 
 ```ruby
 config.on_error = ->(error, _ctx) { Sentry.capture_exception(error) }

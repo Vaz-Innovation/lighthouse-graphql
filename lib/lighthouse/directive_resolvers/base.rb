@@ -49,28 +49,15 @@ class Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
   # as PHP Lighthouse's enhanceBuilder. `ctx`: the query's context, for @builder
   # on an argument. `search`: SEARCHES.
   #
-  # A filter that raises fails the field, "Could not apply the filters of
-  # Type.field.", once Config.on_error has heard of it: never the rows it would
-  # have left out. A relational search's order ends with the primary key, once
-  # every other order applies (apply_search).
+  # A filter that raises fails the field, never answering the rows it would have
+  # left out (strictly). A relational search's order ends with the primary key,
+  # once every other order applies (apply_search).
   def apply_where_filters(relation, args, ctx = nil, search: nil)
     raise ArgumentError, "search: is nil, :model or :given, got #{search.inspect}" unless SEARCHES.include?(search)
     return relation unless relation.respond_to?(:where)
 
     relation = relation.all if relation.is_a?(Class) # a model class, as `enhance_builder(Post)` gives it
     strictly(ctx) { filter(relation, args_hash(args), ctx, search) }
-  end
-
-  # Compose argument-builder directives (@eq, @neq, @in, @notIn, @like,
-  # @where, @orderBy, @whereConditions, @whereHasConditions) onto the relation, in SDL argument order, for each
-  # field argument that carries one and that the client supplied a value
-  # for — and for the fields of the input objects the client sent, at any depth.
-  # A builder that raises fails the field, as in apply_where_filters.
-  def apply_arg_builders(relation, args_h, ctx = nil)
-    return relation unless relation.respond_to?(:where)
-    return relation unless @field_def.ast_node
-
-    strictly(ctx) { arg_builders(args_h).reduce(relation) { |acc, built| apply_built(acc, built, ctx) } }
   end
 
   def constantize_model(name)
@@ -115,26 +102,49 @@ class Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
 
   def args_hash(args) = args.respond_to?(:to_h) ? args.to_h : (args || {})
 
+  # The argument directives (@eq, @in, @where, @orderBy, @whereConditions, ...), in
+  # SDL order, for each argument the client sent, and the fields of the input
+  # objects it sent, at any depth; then the field's own query directives.
   def filter(relation, args_h, ctx, search)
     builders = @field_def.ast_node ? arg_builders(args_h) : []
     searched = searching? ? apply_search(relation, builders, ctx, search) : relation
-    return searched if searched.is_a?(Lighthouse::Search::Result)
+    return unconstrained!(searched) if searched.is_a?(Lighthouse::Search::Result)
 
     filtered = apply_field_builders(builders.reduce(searched) { |acc, built| apply_built(acc, built, ctx) }, args_h, ctx)
     searched.equal?(relation) ? filtered : Lighthouse::GraphQL::Pagination.stable_order(filtered)
   end
 
-  # The block's filters, failing the field when one raises: the error is the
-  # client's or the schema's (raised as it is), else it is reported to
-  # Config.on_error and the client reads "Could not apply the filters of Type.field.".
-  # Never the relation without them.
+  # An engine's Search::Result answers without the field's own query directives
+  # (@builder, @whereAuth, @orderBy(column:)) and its directive's `scopes:`, which
+  # only a relation takes. Search::FieldCheck refuses such a field when the schema
+  # is built; one whose model it could not tell is refused here, never answered
+  # without them.
+  def unconstrained!(result)
+    dropped = Lighthouse::GraphQL::DirectiveResolvers::BuilderApplier.query_directives(@field_def.ast_node).map { |d| "@#{d.name}" }
+    dropped << '`scopes:`' if directive_arg('scopes').present?
+    return result if dropped.empty?
+
+    raise Lighthouse::DefinitionError,
+          "@search on #{@type_def.graphql_name}.#{@field_def.name}: #{result.adapter_name} answers outside the database, so it cannot " \
+          "apply #{dropped.join(', ')} of the field; it does not search"
+  end
+
+  # The block's filters, failing the field when one raises, never answering the
+  # relation without them. A client's error is raised as it is. A schema error
+  # found only as the query runs (a field whose model the build could not tell)
+  # is reported (Config.on_error) and the client reads it. Any other (a
+  # builder's) is reported and raised as it is, so that the schema's rescue_from
+  # maps it, as any resolver's error; unmapped, it is graphql-ruby's.
   def strictly(ctx)
     yield
-  rescue ::GraphQL::ExecutionError, Lighthouse::DefinitionError
+  rescue ::GraphQL::ExecutionError
     raise
+  rescue Lighthouse::DefinitionError => e
+    Lighthouse::Config.handle_error(e, ctx)
+    raise ::GraphQL::ExecutionError, e.message.end_with?('.') ? e.message : "#{e.message}."
   rescue StandardError => e
     Lighthouse::Config.handle_error(e, ctx)
-    raise ::GraphQL::ExecutionError, "Could not apply the filters of #{@type_def.graphql_name}.#{@field_def.name}."
+    raise
   end
 
   # One of arg_builders, on the relation.

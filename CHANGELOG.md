@@ -59,10 +59,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   field answered without it, or without any filter: a `@builder` that enforces tenancy, a
   `@whereAuth` whose user has no id, or a `@builder` class that does not exist let the client read
   every row, and a mass `@delete` whose builder raised deleted every row. Now the error is
-  reported, and the field fails with `Could not apply the filters of Type.field.`, on every field
-  (lists, pages, relationships, counts, mass mutations, `enhance_builder`). A `@builder` whose class
-  or method cannot be found is a `Lighthouse::DefinitionError`. Breaking for an app that relied on a
-  failing filter being skipped.
+  reported, then raised as it is, on every field (lists, pages, relationships, counts, mass
+  mutations, `enhance_builder`): the schema's `rescue_from` maps it as any resolver's error, in test
+  and production alike. A schema error found only as a query runs (a `@builder` whose class or
+  method cannot be found, a search a field's directives would narrow) is reported and answered as
+  a client error. Breaking for an app that relied on a failing filter being skipped.
+- **`BaseDirectiveResolver#apply_arg_builders` is removed.** It applied the argument directives
+  without the field's search, so a directive of your own calling it answered unsearched rows: call
+  `apply_where_filters`.
 - **`@search` is stricter than PHP Lighthouse where it drops a constraint silently.** With an engine
   outside the database (Searchkick) PHP Lighthouse ignores the field's `scopes:`, `@builder`,
   `@whereAuth` and `@orderBy(column:)` when it searches, so a search that skipped `@whereAuth`

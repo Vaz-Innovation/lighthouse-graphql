@@ -179,7 +179,6 @@ module Lighthouse
         # `ctx`: the query's context, which @builder on an argument receives.
         # `search`: nil, a relation only; :model, a Search::Result for the model's own relation; :given, one for a relation the app's code gave.
         def apply_where_filters: (relation relation, _ArgumentSet? args, ?context? ctx, ?search: (:model | :given)?) -> (relation | Search::Result)
-        def apply_arg_builders: (relation relation, arguments args_h, ?context? ctx) -> relation
         def apply_field_builders: (relation relation, ?arguments args_h, ?context? ctx) -> relation
         def constantize_model: (String? name) -> Class?
         def apply_scopes: (relation relation) -> relation

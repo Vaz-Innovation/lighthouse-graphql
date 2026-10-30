@@ -242,9 +242,7 @@ RSpec.describe '@search' do
         type Query { posts(only: String @builder(class: "SearchSpecBroken"), search: String @search): [SearchPost!]! @all }
       GRAPHQL
 
-      result = run(schema, '{ posts(only: "x", search: "great") { id } }')
-
-      expect(result['errors'].pluck('message')).to eq(['Could not apply the filters of Query.posts.'])
+      expect { run(schema, '{ posts(only: "x", search: "great") { id } }') }.to raise_error(RuntimeError, 'the builder broke')
       expect(engine.requests).to be_empty
     end
 
@@ -657,9 +655,25 @@ RSpec.describe '@search' do
         expect(titles(run(schema, '{ posts(search: "great") { title } }'))).to eq(['great title', 'Really great title'])
       end
 
+      it "refuses, as the query runs, a search that would drop the field's own query directives, for a field the build could not tell" do
+        Lighthouse::Config.on_error = ->(_error, _context) {}
+        hit = build_schema(<<~GRAPHQL)
+          type Hit { id: ID! }
+          type Query { found(search: String @search): [Hit!]! @field(resolver: "SearchSpecEnhanced") @builder(class: "SearchSpecOnlyBodied") }
+        GRAPHQL
+
+        result = run(hit, '{ found(search: "great") { id } }')
+
+        expect(result['errors'].pluck('message'))
+          .to eq(['@search on Query.found: Engine answers outside the database, so it cannot apply @builder of the field; it does not search.'])
+        expect(result.dig('data', 'found')).to be_nil
+      end
+
       it 'refuses a relation narrowed beforehand, whose conditions the engine would drop' do
-        expect { run(schema, '{ narrowed(search: "great") { title } }') }
-          .to raise_error(Lighthouse::DefinitionError, /searches the whole index of SearchPost: it cannot apply the conditions of the relation/)
+        Lighthouse::Config.on_error = ->(_error, _context) {}
+
+        expect(run(schema, '{ narrowed(search: "great") { title } }')['errors'].first['message'])
+          .to include('searches the whole index of SearchPost: it cannot apply the conditions of the relation')
       end
 
       describe 'on a model whose default scope hides records (paranoia)' do
@@ -690,7 +704,8 @@ RSpec.describe '@search' do
             'none' => -> { model.none },
             'from' => -> { model.from('search_posts AS search_posts') }
           }.each do |form, relation|
-            expect { search(relation) }.to raise_error(Lighthouse::DefinitionError, /cannot apply the conditions/), form
+            Lighthouse::Config.on_error = ->(_error, _context) {}
+            expect(search(relation)['errors'].first['message']).to include('cannot apply the conditions'), form
           end
         end
 
@@ -698,8 +713,10 @@ RSpec.describe '@search' do
           search_with(FakeSearch::Engine.new([SearchTimedPost], great))
           timed = given_schema('SearchTimedPost')
 
-          expect { timed.execute('{ found(search: "great") { title } }', context: { relation: -> { SearchTimedPost.all } }) }
-            .to raise_error(Lighthouse::DefinitionError, /cannot apply the conditions/)
+          Lighthouse::Config.on_error = ->(_error, _context) {}
+          result = timed.execute('{ found(search: "great") { title } }', context: { relation: -> { SearchTimedPost.all } }).to_h
+
+          expect(result['errors'].first['message']).to include('cannot apply the conditions')
         end
 
         it "searches the model's own relation, the model class itself, or the relation in another order" do
@@ -1084,10 +1101,7 @@ RSpec.describe '@search' do
       GRAPHQL
 
       ['byArgument(search: "great", only: "x")', 'byField(search: "great")', 'byField'].each do |field|
-        result = run(broken, "{ #{field} { title } }")
-
-        expect(result['data']).to be_nil
-        expect(result['errors'].pluck('message')).to eq([format('Could not apply the filters of Query.%s.', field[/\A\w+/])])
+        expect { run(broken, "{ #{field} { title } }") }.to raise_error(RuntimeError, 'the builder broke')
       end
       expect(reported).to eq(['the builder broke'] * 3)
     end

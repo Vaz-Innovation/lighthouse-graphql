@@ -29,6 +29,9 @@ class Lighthouse::Search::Result
 
   attr_reader :query
 
+  # The engine's name, for errors: Searchkick.
+  def adapter_name = @adapter.class.name.demodulize
+
   # The records at `offset`, `limit` positions of them, within the result window:
   # a Pagination::Window, whose records keep their engine positions. The adapter
   # answers one entry per hit, nil for a hit that did not load (the model's

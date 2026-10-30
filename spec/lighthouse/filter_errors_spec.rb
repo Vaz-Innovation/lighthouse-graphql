@@ -33,6 +33,20 @@ RSpec.describe 'a filter that raises' do
       type Mutation { deletePosts(only: String @builder(class: "FilterErrorsSpecBroken")): [Post!]! @delete }
     GRAPHQL
   end
+  # The app's own mapping of errors, as graphql-ruby's rescue_from.
+  let(:mapped) { Class.new(schema) { rescue_from(StandardError) { |error, *| raise GraphQL::ExecutionError, "mapped: #{error.message}" } } }
+  let(:queries) do
+    {
+      'byField' => '{ byField { title } }',
+      'byArgument' => '{ byArgument(only: "x") { title } }',
+      'byScope' => '{ byScope(first: 10, boom: true) { data { title } } }',
+      'byOwner' => '{ byOwner { id } }',
+      'counted' => '{ counted(only: "x") }',
+      'first' => '{ first(only: "x") { title } }',
+      'enhanced' => '{ enhanced(only: "x") { title } }',
+      'related' => '{ searchPosts { related(only: "x") { id } } }'
+    }
+  end
 
   before do
     Lighthouse::Config.on_error = ->(error, _context) { reported << error.message }
@@ -41,44 +55,34 @@ RSpec.describe 'a filter that raises' do
     SearchPost.create!(title: 'parent', author_id: nil)
   end
 
-  def run(query, context = {}) = schema.execute(query, context: context).to_h
+  def run(query, context = {}, on: schema) = on.execute(query, context: context).to_h
 
-  it 'fails the field, reported, rather than answer the rows the filter would have left out' do
-    {
-      'byField' => '{ byField { title } }',
-      'byArgument' => '{ byArgument(only: "x") { title } }',
-      'byScope' => '{ byScope(first: 10, boom: true) { data { title } } }',
-      'byOwner' => '{ byOwner { id } }',
-      'counted' => '{ counted(only: "x") }',
-      'first' => '{ first(only: "x") { title } }',
-      'enhanced' => '{ enhanced(only: "x") { title } }'
-    }.each do |field, query|
-      result = run(query, current_user: Object.new)
-
-      expect(result['data']&.dig(field)).to be_nil, field
-      expect(result['errors'].pluck('message')).to eq(["Could not apply the filters of Query.#{field}."]), field
+  it 'fails the field with the error itself, reported, rather than answer the rows the filter would have left out' do
+    queries.each_value do |query|
+      expect { run(query, { current_user: Object.new }) }.to raise_error(StandardError) { |error| expect(error).not_to be_a(ArgumentError) }
     end
-    expect(reported.size).to eq(7)
+    expect(reported.size).to eq(queries.size)
   end
 
-  it 'fails a nested field the same way, for each parent' do
-    result = run('{ searchPosts { related(only: "x") { id } } }')
+  it "lets the schema's rescue_from map it, as any error of a resolver" do
+    queries.each do |field, query|
+      result = run(query, { current_user: Object.new }, on: mapped)
 
-    expect(result['errors'].pluck('message')).to eq(['Could not apply the filters of SearchPost.related.'])
-    expect(reported).to eq(['the builder broke'])
+      expect(result['data']&.dig(field)).to be_nil, field
+      expect(result['errors'].first['message']).to start_with('mapped: '), field
+    end
   end
 
   it 'modifies nothing on a mass mutation' do
-    result = run('mutation { deletePosts(only: "x") { id } }')
-
-    expect(result['errors'].pluck('message')).to eq(['Could not apply the filters of Mutation.deletePosts.'])
+    expect { run('mutation { deletePosts(only: "x") { id } }') }.to raise_error(RuntimeError, 'the builder broke')
     expect(Post.count).to eq(2)
   end
 
-  it 'never skips a @builder it cannot find, which would answer every row' do
+  it 'never skips a @builder it cannot find, which would answer every row: the schema error is the client\'s, and reported' do
     missing = build_schema('type Post { id: ID! } type Query { posts: [Post!]! @all @builder(class: "NoSuchBuilder") }')
 
-    expect { missing.execute('{ posts { id } }').to_h }.to raise_error(Lighthouse::DefinitionError, /@builder: no builder "NoSuchBuilder"/)
+    expect(missing.execute('{ posts { id } }').to_h['errors'].pluck('message')).to eq(['@builder: no builder "NoSuchBuilder".'])
+    expect(reported).to eq(['@builder: no builder "NoSuchBuilder".'])
   end
 
   it 'never answers the rows of a query the database refuses: a misspelt column fails as it runs' do
