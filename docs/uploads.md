@@ -25,7 +25,11 @@ which the resolver gets as `nil`; leaving the argument out is not the same as se
 `null`. `Upload` is for arguments only, never a field's result.
 
 An ActiveStorage attachment takes the file as it is: with `has_one_attached :avatar`
-on `User`, the mutation above attaches it.
+on `User`, the mutation above attaches it. This is the way to attach a file to a model:
+ActiveStorage uploads it once the record is saved and the transaction committed, so a
+mutation the model's validations refuse uploads nothing. Reach for `@upload` when the
+argument needs the stored blob itself (its signed id), or a `path:` or service of its
+own.
 
 ## `@upload`
 
@@ -52,6 +56,14 @@ type Mutation {
 The signed id is what an attachment attribute attaches (`user.avatar = signed_id`) and
 `ActiveStorage::Blob.find_signed` finds; the blob keeps the file's name and content
 type. Lists of files are stored one by one, and `null` stays `null`.
+
+`@upload` stores the file before the field resolves (after `@guard`, the `@can*`
+directives and `@validator`), and the model validates it after. When the field fails,
+because the model refuses it, or the resolver raises or reports an error, the blobs
+`@upload` stored for it are purged (`purge_later`), so no file is left behind. A blob
+that is stored but never attached (the field succeeds and does not attach it) stays,
+as ActiveStorage's own direct uploads do: purge those with a periodic job over
+`ActiveStorage::Blob.unattached`.
 
 ActiveStorage makes a whole service public (`public: true` in `config/storage.yml`)
 or private, never one file. So `public:` must agree with the service's, and the schema

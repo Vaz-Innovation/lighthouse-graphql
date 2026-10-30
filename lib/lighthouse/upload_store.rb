@@ -10,7 +10,16 @@
 # which a has_one_attached / has_many_attached attribute attaches (where Laravel
 # hands the stored path, for a model to keep). To store files elsewhere, declare
 # an ActiveStorage service for it, as a Laravel app declares a disk.
+#
+# A blob is stored before the field resolves (after @guard, @can* and
+# @validator), and the model's own validations run after. When the field
+# fails, the blobs it stored are purged (purge_later), so a refused mutation
+# leaves no file behind: see purge_on_failure.
 module Lighthouse::GraphQL::UploadStore
+  # The fiber-local list of the blobs stored for the field resolving: graphql-ruby's
+  # dataloader runs each field in a fiber of its own.
+  STORED = :lighthouse_uploads_stored
+
   module_function
 
   def call(file, argument:, disk: nil, path: nil, public: nil)
@@ -23,9 +32,44 @@ module Lighthouse::GraphQL::UploadStore
 
     service = service(argument, disk, public == true)
     file.rewind if file.respond_to?(:rewind) # a @validator, or another argument the multipart map sent it to, may have read it
-    ::ActiveStorage::Blob.create_and_upload!(
+    blob = ::ActiveStorage::Blob.create_and_upload!(
       io: file, filename: filename(file), content_type: file.try(:content_type), key: key(path), service_name: service.name
-    ).signed_id
+    )
+    Thread.current[STORED]&.push(blob)
+    blob.signed_id
+  end
+
+  # Runs the block, a field's resolution, and purges the blobs @upload stored
+  # meanwhile when it fails: it raises, returns a GraphQL::ExecutionError, or
+  # adds an error to the query's `context`. Nested in another, a success
+  # hands its blobs to the outer one.
+  def purge_on_failure(context)
+    outer = Thread.current[STORED]
+    blobs = Thread.current[STORED] = []
+    errors = error_count(context)
+    result = yield
+    failed?(result, context, errors) ? purge(blobs) : outer&.concat(blobs)
+    result
+  rescue StandardError
+    purge(blobs || [])
+    raise
+  ensure
+    Thread.current[STORED] = outer
+  end
+
+  # Not Array(result): a relation would be loaded.
+  def failed?(result, context, errors_before)
+    result.is_a?(::GraphQL::ExecutionError) || (result.is_a?(Array) && result.any?(::GraphQL::ExecutionError)) ||
+      error_count(context) > errors_before
+  end
+
+  def error_count(context)
+    context.respond_to?(:errors) ? context.errors.size : 0
+  end
+
+  def purge(blobs)
+    blobs.each { |blob| blob.respond_to?(:purge_later) ? blob.purge_later : blob.purge }
+    blobs.clear
   end
 
   # The service `disk` names, or the default one, checked to be as public as asked.

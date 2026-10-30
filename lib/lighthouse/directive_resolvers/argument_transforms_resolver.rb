@@ -112,8 +112,14 @@ class Lighthouse::GraphQL::DirectiveResolvers::ArgumentTransformsResolver < Ligh
     trim_all = phase == :rewrite && self.class.trims_all?(@field_def)
     inner = capture_inner(target_type_class)
 
-    install(target_type_class, lambda do |obj, args, ctx|
+    resolve = lambda do |obj, args, ctx|
       inner.call(obj, args.is_a?(Hash) ? me.transform_hash(argument_defs, args, ctx, trim_all) : args, ctx)
+    end
+    return install(target_type_class, resolve) if phase == :rewrite
+
+    # A field that fails leaves no file @upload stored for it behind.
+    install(target_type_class, lambda do |obj, args, ctx|
+      Lighthouse::GraphQL::UploadStore.purge_on_failure(ctx) { resolve.call(obj, args, ctx) }
     end)
   end
 

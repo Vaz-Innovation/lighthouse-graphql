@@ -33,6 +33,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`@upload` purges what it stored when the field fails.** It stores a file before the
+  field resolves, and a model's validations run after: a `@create` the model refused left
+  its blobs in the bucket. The blobs `@upload` stored for a field that raises, returns an
+  error or adds one to the context are now purged (`purge_later`). The uploads guide now
+  recommends passing the file to the attachment attribute, which ActiveStorage uploads
+  only after commit.
 - **Paginated queries end their order with the primary key.** Pages are cut by position, so
   rows the field's order tied (`@orderBy(column: "created_at")`) could come back in another
   order on the next page's query, and show on two pages or none; the same in the per-parent
