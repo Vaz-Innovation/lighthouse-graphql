@@ -543,8 +543,8 @@ RSpec.describe '@search' do
             .to raise_error(Lighthouse::DefinitionError, /cannot apply the conditions/)
         end
 
-        it "searches the model's own relation, or the relation in another order" do
-          [-> { model.all }, -> { model.order(:title) }].each do |relation|
+        it "searches the model's own relation, the model class itself, or the relation in another order" do
+          [-> { model.all }, -> { model }, -> { model.order(:title) }].each do |relation|
             expect(search(relation).dig('data', 'found').pluck('title')).to eq(['great title', 'Really great title'])
           end
         end
@@ -879,6 +879,17 @@ RSpec.describe '@search' do
 
       expect(run(schema, '{ one(search: "three") { title } }').dig('data', 'one', 'title')).to eq('great three')
       expect(run(schema, '{ many(search: "great") }').dig('data', 'many')).to eq(3)
+    end
+
+    it 'searches a model class a resolver gives enhance_builder, as its relation' do
+      given = build_schema(<<~GRAPHQL)
+        type SearchPost { title: String! }
+        type Query { found(search: String @search): [SearchPost!]! @field(resolver: "SearchSpecGiven") }
+      GRAPHQL
+
+      result = given.execute('{ found(search: "three") { title } }', context: { relation: -> { SearchPost } }).to_h
+
+      expect(result.dig('data', 'found').pluck('title')).to eq(['great three'])
     end
 
     it 'gives the adapter the term and the index' do

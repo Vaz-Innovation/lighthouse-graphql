@@ -38,7 +38,8 @@ class Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
   def apply_where_filters(relation, args, ctx = nil, search_results: false, model_relation: false)
     return relation unless relation.respond_to?(:where)
 
-    args_h = args.respond_to?(:to_h) ? args.to_h : (args || {})
+    relation = relation.all if relation.is_a?(Class) # a model class, as `enhance_builder(Post)` gives it
+    args_h = args_hash(args)
     builders = arg_builders(args_h) if searching?
     searched = apply_search(relation, builders, ctx, search_results: search_results, model_relation: model_relation)
     return searched if searched.is_a?(Lighthouse::Search::Result)
@@ -97,6 +98,8 @@ class Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
   end
 
   private
+
+  def args_hash(args) = args.respond_to?(:to_h) ? args.to_h : (args || {})
 
   # The field's arguments and own query directives, on the relation: what is left
   # after the search, if any. `builders`: the field's arg_builders, when the search walked them.
