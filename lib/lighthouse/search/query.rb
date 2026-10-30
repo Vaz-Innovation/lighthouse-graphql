@@ -8,7 +8,8 @@ class Lighthouse::Search::Query
   # The model searched, the `@search` argument's value, the `within:` index (nil: the model's own).
   attr_reader :model, :term, :index
 
-  # { column => value }, from @eq (and @builder).
+  # [[column, value], ...], from @eq (and @builder), in order: all of them hold,
+  # the same column twice too (a list of inputs), as the database applies them.
   attr_reader :wheres
 
   # Adapter-specific options, from @builder on an argument (Searchkick's `fields:`, `boost_by:`, ...).
@@ -21,14 +22,14 @@ class Lighthouse::Search::Query
     @model = model
     @term = term
     @index = index
-    @wheres = {}
+    @wheres = []
     @options = {}
     @trashed = nil
   end
 
   # The column equals the value, as Scout's `where`.
   def where(column, value)
-    @wheres[column.to_s] = value
+    @wheres << [column.to_s, value]
     self
   end
 end

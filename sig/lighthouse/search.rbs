@@ -23,8 +23,8 @@ module Lighthouse
       attr_reader model: Class
       attr_reader term: String
       attr_reader index: String?
-      # { column => value }, from @eq.
-      attr_reader wheres: Hash[String, untyped]
+      # [column, value] pairs, from @eq, all of which hold.
+      attr_reader wheres: Array[[String, untyped]]
       # Adapter-specific options, from @builder on an argument.
       attr_reader options: Hash[Symbol, untyped]
       # :with, :only or :without, from @trashed; nil: not given.

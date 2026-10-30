@@ -22,6 +22,12 @@ class SearchedPost < Post
   # Both gems on one model: `within: "search_title"` searches with pg_search, anything else with Searchkick.
   pg_search_scope :search_title, against: :title
 
+  # A @builder of the spec's own: the posts of these authors, as the engine's where.
+  def self.by_authors(target, ids, _context)
+    target.options[:where] = { author_id: ids }
+    target
+  end
+
   # Query.found, resolved by a class of the app's own: the search, through resolve_info.enhance_builder, two at most.
   def self.found(_object, _args, _context, resolve_info)
     found = resolve_info.enhance_builder(all)
@@ -162,8 +168,15 @@ RSpec.describe 'GraphQL @search', type: :request do
             filtered(search: String @search, title: String @neq): [SearchedPost!]! @all
             byTitle(search: String @search(within: "search_title")): [SearchedPost!]! @all
             found(search: String @search): [SearchedPost!]! @field(resolver: "SearchedPost@found")
+            authored(
+              search: String @search
+              authors: [Int!] @builder(method: "SearchedPost@by_authors")
+              authorId: Int @eq(key: "author_id")
+              filters: [SearchedPostFilter!]
+            ): [SearchedPost!]! @all
             editable(search: String @search, authorId: Int @eq(key: "author_id")): [SearchedPost!]! @paginate @canQuery(ability: "update")
           }
+          input SearchedPostFilter { authorId: Int @eq(key: "author_id") }
         GRAPHQL
       end
 
@@ -304,6 +317,15 @@ RSpec.describe 'GraphQL @search', type: :request do
 
       it 'searches a field resolved by a class of your own, through resolve_info.enhance_builder' do
         expect(titles(run(schema, '{ found(search: "great") { title } }'), 'found')).to eq(['Really great great title', 'Great title'])
+      end
+
+      it "applies a builder's condition and @eq's on one column both, and every @eq of a list, as the database does" do
+        query = '{ authored(search: "great", %s) { title } }'
+
+        expect(titles(run(schema, format(query, "authors: [#{author.id}], authorId: #{other.id}")), 'authored')).to eq([])
+        expect(titles(run(schema, format(query, "authors: [#{author.id}, #{other.id}], authorId: #{other.id}")), 'authored'))
+          .to eq(['Another great one'])
+        expect(titles(run(schema, format(query, "filters: [{ authorId: #{author.id} }, { authorId: #{other.id} }]")), 'authored')).to eq([])
       end
 
       it 'refuses what an engine cannot apply' do

@@ -79,7 +79,7 @@ class Lighthouse::Search::Searchkick
 
   def search_options(query)
     options = query.options.dup
-    options[:where] = (options[:where] || {}).merge(filters(query))
+    options[:where] = all_of(options[:where], *query.wheres.map { |column, value| { column => value } }, trashed_filter(query))
     options[:index_name] = query.index if query.index
     options[:load] = true unless options.key?(:load)
     options[:body_options] = { track_total_hits: true }.merge(options[:body_options] || {})
@@ -104,8 +104,14 @@ class Lighthouse::Search::Searchkick
     end
   end
 
-  def filters(query)
-    query.wheres.transform_keys(&:to_sym).merge(trashed_filter(query))
+  # The conditions as one Searchkick `where:`, all of which hold: the app's
+  # (@builder), the @eq ones, @trashed's. Their keys are read alike, symbols or
+  # strings; conditions on different keys merge, and ones on a key more than one
+  # names are ANDed (Searchkick's `_and`), never overwritten.
+  def all_of(*conditions)
+    conditions = conditions.compact.map { |condition| condition.to_h.transform_keys(&:to_sym) }.reject(&:empty?)
+    keys = conditions.flat_map(&:keys)
+    keys.uniq.size == keys.size ? conditions.reduce({}, :merge) : { _and: conditions }
   end
 
   def trashed_filter(query)

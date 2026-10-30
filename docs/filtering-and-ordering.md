@@ -412,9 +412,12 @@ class Builders::TitleFields
 end
 ```
 
-A query holds `model`, `term`, `index`, `wheres`, `trashed` and `options`: any option of Searchkick's
-`search` (`fields:`, `match:`, `boost_by:`, `order:`, `misspellings:`, `body_options:`,
-`scope_results:`, ...). Lighthouse adds `where:` (merged into yours), `index_name:` (from `within:`),
+A query holds `model`, `term`, `index`, `wheres` (the `[column, value]` pairs of `@eq`, in order),
+`trashed` and `options`: any option of Searchkick's `search` (`fields:`, `match:`, `boost_by:`,
+`order:`, `misspellings:`, `body_options:`, `scope_results:`, ...). Lighthouse adds `where:`, with yours,
+every `@eq` and `@trashed` all holding: keys are read alike, symbols or strings, and conditions on one
+column (yours and an `@eq`'s, or two `@eq` of a list of inputs) are ANDed (`_and`), never overwritten;
+`index_name:` (from `within:`),
 `load: true`, `body_options: { track_total_hits: true }` (yours win) and `scope_results:` (yours runs
 last).
 

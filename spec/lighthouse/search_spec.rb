@@ -158,7 +158,7 @@ RSpec.describe '@search' do
       result = run(schema, 'query ($id: Int) { posts(id: $id, search: "great") { id } }', { 'id' => 1 })
 
       expect(result).to eq('data' => { 'posts' => [{ 'id' => great.first.id }, { 'id' => great.last.id }] })
-      expect(engine.query.wheres).to eq('id' => 1)
+      expect(engine.query.wheres).to eq([['id', 1]])
     end
 
     it "uses @eq's key" do
@@ -169,7 +169,19 @@ RSpec.describe '@search' do
 
       run(schema, '{ posts(authorId: 3, search: "great") { id } }')
 
-      expect(engine.query.wheres).to eq('writer_id' => 3)
+      expect(engine.query.wheres).to eq([['writer_id', 3]])
+    end
+
+    it 'keeps every @eq of a list of inputs, the same column twice too, as the database applies them all' do
+      schema = build_schema(<<~GRAPHQL)
+        type SearchPost { id: Int! }
+        input Filter { writer: Int @eq(key: "author_id") }
+        type Query { posts(filters: [Filter!], search: String @search): [SearchPost!]! @all }
+      GRAPHQL
+
+      run(schema, '{ posts(filters: [{ writer: 4 }, { writer: 5 }], search: "great") { id } }')
+
+      expect(engine.query.wheres).to eq([['author_id', 4], ['author_id', 5]])
     end
 
     it 'narrows through the fields of an input object, at any depth' do
@@ -181,7 +193,7 @@ RSpec.describe '@search' do
 
       run(schema, '{ posts(filter: { writer: 4 }, search: "great") { id } }')
 
-      expect(engine.query.wheres).to eq('author_id' => 4)
+      expect(engine.query.wheres).to eq([['author_id', 4]])
     end
 
     it 'finds the search in an input object too' do
@@ -210,7 +222,7 @@ RSpec.describe '@search' do
       result = run(schema, 'query ($id: Int!) { posts(input: { id: $id }, search: "greatness") { id } }', { 'id' => 1 })
 
       expect(result.dig('data', 'posts').size).to eq(2)
-      expect(engine.query.wheres).to eq('from_custom_builder' => 1)
+      expect(engine.query.wheres).to eq([['from_custom_builder', 1]])
       expect(engine.query.term).to eq('greatness')
     end
 
@@ -1148,7 +1160,7 @@ RSpec.describe '@search' do
       query = described_class.new(SearchPost, 'great', 'idx')
 
       expect(query.where(:id, 1)).to equal(query)
-      expect(query).to have_attributes(model: SearchPost, term: 'great', index: 'idx', wheres: { 'id' => 1 }, options: {}, trashed: nil)
+      expect(query).to have_attributes(model: SearchPost, term: 'great', index: 'idx', wheres: [['id', 1]], options: {}, trashed: nil)
     end
   end
 

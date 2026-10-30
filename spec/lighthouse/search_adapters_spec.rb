@@ -49,6 +49,15 @@ RSpec.describe 'search adapters' do
       expect(searched.last[:body_options]).to eq(track_total_hits: 50_000, min_score: 1)
     end
 
+    it "ANDs a builder's where and the @eq conditions on one column, whatever the keys' type, rather than overwrite" do
+      query.options[:where] = { 'author_id' => [1, 2], 'published' => true }
+      query.where(:author_id, 3).where('author_id', 4)
+
+      adapter.page(query, offset: 0, limit: 1)
+
+      expect(searched.last[:where]).to eq(_and: [{ author_id: [1, 2], published: true }, { author_id: 3 }, { author_id: 4 }])
+    end
+
     it 'searches the index within: names, and merges the where of a builder' do
       query = Lighthouse::Search::Query.new(SearchkickPost, 'milk', 'other_index')
       query.options[:where] = { published: true }
