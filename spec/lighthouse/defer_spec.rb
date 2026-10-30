@@ -801,6 +801,24 @@ RSpec.describe 'Deferring fields' do
     it 'has no limit by default' do
       expect([Lighthouse::Config.defer_max_nested_fields, Lighthouse::Config.defer_max_execution_ms]).to eq([0, 0])
     end
+
+    it 'takes a limit from the environment, a String of digits, as its number' do
+      Lighthouse.configure do |config|
+        config.defer_max_nested_fields = '2'
+        config.defer_max_execution_ms = ' 1500 '
+      end
+
+      expect([Lighthouse::Config.defer_max_nested_fields, Lighthouse::Config.defer_max_execution_ms]).to eq([2, 1500])
+      expect(payloads('{ user(id: 1) { ... @defer { name } } }').size).to eq(2)
+    end
+
+    it 'refuses a limit that is not a number of 0 or more when it is set, not when a request runs' do
+      ['many', -1, 1.5, '-3', ''].each do |value|
+        expect { Lighthouse.configure { |config| config.defer_max_execution_ms = value } }
+          .to raise_error(ArgumentError, "Lighthouse::Config.defer_max_execution_ms must be an Integer of 0 or more, got #{value.inspect}.")
+      end
+      expect { Lighthouse::Config.defer_max_nested_fields = 'x' }.to raise_error(ArgumentError, /defer_max_nested_fields/)
+    end
   end
 
   describe 'the rules of the specification' do

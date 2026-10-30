@@ -163,6 +163,10 @@ Lighthouse's `defer.max_nested_fields` and `defer.max_execution_ms`. `0`, the de
 - `defer_max_execution_ms`: once that many milliseconds have gone since the first pass started, the
   next round is the last, and resolves everything left without deferring further.
 
+Each takes an Integer of 0 or more, or a String of digits, as `ENV` holds it
+(`config.defer_max_execution_ms = ENV.fetch('DEFER_MAX_MS', 0)`). Anything else raises
+`ArgumentError` when the setting is assigned, at boot, rather than when a request runs.
+
 ```ruby
 config.defer_max_nested_fields = 3
 config.defer_max_execution_ms = 2_000

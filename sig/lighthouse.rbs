@@ -322,9 +322,9 @@ module Lighthouse
     # @defer's limits (Defer), PHP Lighthouse's defer.max_nested_fields and
     # defer.max_execution_ms: rounds of nesting, milliseconds; 0 (the default) is no limit.
     def self.defer_max_nested_fields: () -> Integer
-    def self.defer_max_nested_fields=: (Integer? rounds) -> Integer?
+    def self.defer_max_nested_fields=: (Integer | String | nil rounds) -> (Integer | String | nil)
     def self.defer_max_execution_ms: () -> Integer
-    def self.defer_max_execution_ms=: (Integer? milliseconds) -> Integer?
+    def self.defer_max_execution_ms=: (Integer | String | nil milliseconds) -> (Integer | String | nil)
 
     # { queries:, mutations:, subscriptions:, builders:, validators:, events: } => [namespace, ...].
     # Assigning a partial hash overrides only the kinds it names.

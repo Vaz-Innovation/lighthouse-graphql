@@ -6,6 +6,29 @@ module Lighthouse
     Config.configure(&block)
   end
 
+  # Config's counts: @defer's limits (Defer, experimental), PHP Lighthouse's
+  # `defer.max_nested_fields` and `defer.max_execution_ms`; 0 (the default) is no limit. Past
+  # that many rounds of nested fragments, or that many milliseconds, what is left resolves in
+  # one last payload. Each takes an Integer of 0 or more, or a String of one (as ENV holds it);
+  # anything else raises ArgumentError as it is set, not as a request runs.
+  module ConfigCounts
+    NAMES = %i[defer_max_nested_fields defer_max_execution_ms].freeze
+
+    NAMES.each do |name|
+      define_method(name) { instance_variable_get(:"@#{name}") || 0 }
+      define_method(:"#{name}=") { |value| instance_variable_set(:"@#{name}", ConfigCounts.read(name, value)) }
+    end
+
+    # `value` as the setting `name` holds it: an Integer of 0 or more, a String of digits as its
+    # number, or nil (the default).
+    def self.read(name, value)
+      value = Integer(value.strip, 10) if value.is_a?(String) && value.strip.match?(/\A\d+\z/)
+      return value if value.nil? || (value.is_a?(Integer) && !value.negative?)
+
+      raise ArgumentError, "Lighthouse::Config.#{name} must be an Integer of 0 or more, got #{value.inspect}."
+    end
+  end
+
   module Config
     # Where each kind of class a schema refers to by name is looked up. Query and
     # mutation fields resolve to GraphQL::Schema::Resolver / Mutation classes,
@@ -39,7 +62,7 @@ module Lighthouse
     class << self
       attr_writer :schema_path, :ide_helper, :resolver_namespaces, :on_error, :authenticated_user, :policy_user, :authorizer,
                   :transactional_mutations, :schema_cache, :watch_sdl, :persisted_queries, :persisted_queries_store, :persisted_queries_only,
-                  :queue_broadcasts, :defer_max_nested_fields, :defer_max_execution_ms,
+                  :queue_broadcasts,
                   :convert_empty_strings_to_null, :feature_checker, :feature_actor, :global_id, :schema_log
 
       # A file development keeps the client schema in (SchemaPrinter): a path
@@ -136,11 +159,8 @@ module Lighthouse
         @persisted_queries_store || Lighthouse::GraphQL::Caching.store
       end
 
-      # @defer's limits (Defer, experimental), PHP Lighthouse's `defer.max_nested_fields`
-      # and `defer.max_execution_ms`; 0 (the default) is no limit. Past that many rounds of
-      # nested fragments, or that many milliseconds, what is left resolves in one last payload.
-      def defer_max_nested_fields = @defer_max_nested_fields || 0
-      def defer_max_execution_ms = @defer_max_execution_ms || 0
+      # defer_max_nested_fields, defer_max_execution_ms
+      include Lighthouse::ConfigCounts
 
       # Pagination defaults, overridden by a directive's defaultCount / maxCount.
       # Without a default count, paginated fields require `first`.
