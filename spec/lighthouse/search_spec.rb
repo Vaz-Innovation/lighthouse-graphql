@@ -795,6 +795,16 @@ RSpec.describe '@search' do
         expect { build_schema(format(sdl, '@where(operator: ">", key: "id")')) }.not_to raise_error
       end
 
+      it "refuses whatever a field's own query directives are, as BuilderApplier applies them" do
+        query_directives = Lighthouse::GraphQL::DirectiveResolvers::BuilderApplier.method(:query_directives)
+        allow(Lighthouse::GraphQL::DirectiveResolvers::BuilderApplier).to receive(:query_directives) do |node|
+          query_directives.call(node) + (node.directives || []).select { |directive| directive.name == 'deprecated' }
+        end
+
+        expect { build_posts('posts(search: String @search): [SearchPost!]! @all @deprecated(reason: "x")') }
+          .to raise_error(Lighthouse::DefinitionError, /Engine cannot apply @deprecated/)
+      end
+
       it 'accepts @all and @paginate on a root field' do
         expect do
           build_posts('a(search: String @search): [SearchPost!]! @all b(search: String @search): [SearchPost!]! @paginate')

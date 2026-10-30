@@ -67,11 +67,15 @@ class Lighthouse::GraphQL::DirectiveResolvers::BuilderApplier
     end
   end
 
-  # Does the field carry a query directive of its own?
-  def self.any?(field_def_ast_node)
+  # The field's own query directives, which `apply` applies: @builder,
+  # @whereAuth and the registry's field builders, in SDL order.
+  def self.query_directives(field_def_ast_node)
     registry = Lighthouse::DirectiveRegistry.default
-    (field_def_ast_node&.directives || []).any? { |d| DEFINITIONS.key?(d.name) || registry.field_builder_class(d.name) }
+    (field_def_ast_node&.directives || []).select { |d| DEFINITIONS.key?(d.name) || registry.field_builder_class(d.name) }
   end
+
+  # Does the field carry a query directive of its own?
+  def self.any?(field_def_ast_node) = query_directives(field_def_ast_node).any?
 
   def self.field_builder(registry, relation, field_def_ast_node, directive_node)
     builder_class = registry.field_builder_class(directive_node.name)

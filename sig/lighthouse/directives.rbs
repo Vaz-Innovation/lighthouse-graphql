@@ -199,6 +199,9 @@ module Lighthouse
         def self.apply: (relation relation, _NamedNode? field_def_ast_node, arguments args, context? ctx, ?strict: bool) -> relation
         def self.apply_directive: (relation relation, _DirectiveNode directive_node, arguments args, context? ctx, ?strict: bool) -> relation
         def self.extract_directive_arg: (_DirectiveNode directive_node, String name) -> literal
+        # The field's own query directives `apply` applies (@builder, @whereAuth, field builders), in SDL order.
+        def self.query_directives: (_NamedNode? field_def_ast_node) -> Array[_DirectiveNode]
+        def self.any?: (_NamedNode? field_def_ast_node) -> bool
       end
     end
 

@@ -20,8 +20,6 @@
 #   a searchable model, and without `scopes:` when the engine cannot apply them.
 class Lighthouse::Search::FieldCheck
   HINT = 'it needs searchkick or pg_search, or an adapter in Config.search'
-  QUERY_DIRECTIVES = %w[builder whereAuth].freeze
-
   def self.check!(...) = new(...).check!
 
   # `type_class`: the type's class (Types::PostType), whose methods resolve its fields with no resolving directive.
@@ -126,8 +124,7 @@ class Lighthouse::Search::FieldCheck
   # The field's own query constraints a search engine drops.
   def dropped_constraints
     scopes = Lighthouse::Support::DirectiveArgs.literal(resolving_directive, 'scopes') if resolving_directive
-    registry = Lighthouse::DirectiveRegistry.default
-    queries = @directives.select { |directive| QUERY_DIRECTIVES.include?(directive.name) || registry.field_builder_class(directive.name) }
+    queries = Lighthouse::GraphQL::DirectiveResolvers::BuilderApplier.query_directives(@field_def.ast_node)
     (scopes.present? ? ['`scopes:`'] : []) + queries.map { |directive| "@#{directive.name}" }
   end
 
