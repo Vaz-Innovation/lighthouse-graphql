@@ -1041,6 +1041,22 @@ RSpec.describe '@search' do
     end
   end
 
+  describe 'what a caller of the filters can take' do
+    let(:resolver) do
+      schema = build_schema('type SearchPost { id: ID! } type Query { posts(search: String @search): [SearchPost!]! @all }')
+      Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver.new(schema.query.fields['posts'], schema.query, nil)
+    end
+
+    before { search_with(engine) }
+
+    it 'is one choice: a relation only, the records of the model relation it built, or of one it was given' do
+      expect(resolver.apply_where_filters(SearchPost.all, { search: 'great' }, nil, search: :model)).to be_a(Lighthouse::Search::Result)
+      expect(resolver.apply_where_filters(SearchPost.all, { search: 'great' }, nil, search: :given)).to be_a(Lighthouse::Search::Result)
+      expect { resolver.apply_where_filters(SearchPost.all, { search: 'great' }, nil, search: :anything) }
+        .to raise_error(/search: is nil, :model or :given|\(:model \| :given\)\?/) # Ruby's, or the signature's under `rake rbs`
+    end
+  end
+
   describe Lighthouse::Search::Query do
     it 'holds what the directives write' do
       query = described_class.new(SearchPost, 'great', 'idx')

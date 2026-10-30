@@ -65,7 +65,7 @@ class Lighthouse::GraphQL::ResolveInfo
     resolver = Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver.new(field, parent_type, nil)
     args = arguments.respond_to?(:to_h) ? arguments.to_h : {}
     relation = Array(scopes).reduce(relation) { |acc, scope| acc.public_send(scope) }
-    resolver.apply_where_filters(relation, args, context, search_results: true)
+    resolver.apply_where_filters(relation, args, context, search: :given)
   end
 
   # `resolve_info`, for the classes that resolve a field.

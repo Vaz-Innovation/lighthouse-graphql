@@ -21,15 +21,15 @@ class Lighthouse::Search::Enhancer
     builder == :builder || builder.include?(Lighthouse::Contracts::SearchBuilder)
   end
 
-  # `model_relation`: the caller built the relation as the model's own (`Model.all`,
-  # with the `scopes:` Search::FieldCheck refuses for an engine), so an engine may
-  # search the model's whole index without checking it was not narrowed.
-  def initialize(arguments, relation, results:, context:, model_relation: false)
+  # `search`: what the caller takes from an engine (BaseDirectiveResolver::SEARCHES):
+  # nil, a relation only; :model, a Search::Result for the model's own relation it
+  # built (with the `scopes:` Search::FieldCheck refuses for an engine), searched
+  # whole without a check; :given, one for a relation the app's code gave, checked.
+  def initialize(arguments, relation, search:, context:)
     @arguments = arguments
     @relation = relation
-    @results = results
+    @search = search
     @context = context
-    @model_relation = model_relation
   end
 
   # The relation, searched; or a Search::Result. The relation itself if the client sent no search.
@@ -61,12 +61,12 @@ class Lighthouse::Search::Enhancer
   end
 
   def result(adapter, query)
-    unless @results
+    unless @search
       raise Lighthouse::DefinitionError,
             "@search with #{adapter.class.name.demodulize} answers outside the database: only @all and @paginate on a root field can use it."
     end
 
-    whole_index!(adapter) unless @model_relation
+    whole_index!(adapter) if @search == :given
     reject_incompatible
     query = @arguments.reject { |argument| search?(argument) }.reduce(query) { |narrowed, argument| narrow(narrowed, argument) }
     Lighthouse::Search::Result.new(adapter, query)

@@ -35,18 +35,24 @@ class Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
     raise NotImplementedError
   end
 
-  # `ctx`: the query's context, for @builder on an argument.
-  # `search_results`: the caller can take a Search::Result in place of a relation,
-  # which a search outside the database (Searchkick) answers with.
-  # `model_relation`: the caller built `relation` as the model's own (`Model.all`,
-  # with its `scopes:`); otherwise an engine refuses one that selects other records.
-  def apply_where_filters(relation, args, ctx = nil, search_results: false, model_relation: false)
+  # What a caller can take from a search outside the database (Searchkick), which
+  # answers with a Search::Result in place of a relation (`search:`):
+  #
+  #   nil      a relation only: such a search is a client error
+  #   :model   a Search::Result, for the model's own relation the caller built (`Model.all`, `scopes:`)
+  #   :given   a Search::Result, for a relation the app's code gave (enhance_builder), which the
+  #            engine refuses unless it selects what the model's own does
+  SEARCHES = [nil, :model, :given].freeze
+
+  # `ctx`: the query's context, for @builder on an argument. `search`: SEARCHES.
+  def apply_where_filters(relation, args, ctx = nil, search: nil)
+    raise ArgumentError, "search: is nil, :model or :given, got #{search.inspect}" unless SEARCHES.include?(search)
     return relation unless relation.respond_to?(:where)
 
     relation = relation.all if relation.is_a?(Class) # a model class, as `enhance_builder(Post)` gives it
     args_h = args_hash(args)
     builders = arg_builders(args_h) if searching?
-    searched = apply_search(relation, builders, ctx, search_results: search_results, model_relation: model_relation)
+    searched = apply_search(relation, builders, ctx, search)
     return searched if searched.is_a?(Lighthouse::Search::Result)
 
     filtered = apply_query_filters(searched, args_h, ctx, builders)
@@ -139,14 +145,14 @@ class Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
   # rank, and sort, alike come back in one order, whatever the field resolves with.
   # `builders`: the field's arg_builders, walked once for the search and the
   # filters after it; nil when the field has no @search.
-  def apply_search(relation, builders, ctx, search_results:, model_relation:)
+  def apply_search(relation, builders, ctx, search)
     return relation unless builders
 
     arguments = builders.map do |values, node, dnode, builder_class|
       path = [node.name]
       Lighthouse::Search::Enhancer::Argument.new(node, dnode, builder_class, dig_arg(values, path), arg_present?(values, path))
     end
-    Lighthouse::Search::Enhancer.new(arguments, relation, results: search_results, context: ctx, model_relation: model_relation).enhance
+    Lighthouse::Search::Enhancer.new(arguments, relation, search: search, context: ctx).enhance
   end
 
   # Does the field have an argument or input field with @search? Known when the schema is built.

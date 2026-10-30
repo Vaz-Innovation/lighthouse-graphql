@@ -89,7 +89,7 @@ class Lighthouse::GraphQL::DirectiveResolvers::PaginateDirectiveResolver < Light
   # the model's whole table.
   def page_list(obj, args, ctx)
     name = Lighthouse::Support::Naming.attribute(@field_def.name)
-    return decorate_relation(model_class.all, args, ctx, model_relation: true) unless nested?(obj, name)
+    return decorate_relation(model_class.all, args, ctx, search: :model) unless nested?(obj, name)
 
     dataloader = Lighthouse::Support::Batching.dataloader(ctx)
     batch = dataloader && Lighthouse::GraphQL::RelationBatch.for(obj, name, args, self, ctx)
@@ -105,10 +105,9 @@ class Lighthouse::GraphQL::DirectiveResolvers::PaginateDirectiveResolver < Light
   public
 
   # `scopes:`, the argument filters and @builder, on one relation or a RelationBatch.
-  # `model_relation`: `relation` is the model's own, which a search outside the
-  # database (Searchkick) answers with a Search::Result in place of.
-  def decorate_relation(relation, args, ctx, model_relation: false)
-    apply_where_filters(apply_scopes(relation), args, ctx, search_results: model_relation, model_relation: model_relation)
+  # `search`: what it takes from a search outside the database (apply_where_filters).
+  def decorate_relation(relation, args, ctx, search: nil)
+    apply_where_filters(apply_scopes(relation), args, ctx, search: search)
   end
 
   protected

@@ -39,7 +39,7 @@ class Lighthouse::GraphQL::DirectiveResolvers::AllDirectiveResolver < Lighthouse
     args = arguments.respond_to?(:to_h) ? arguments.to_h : {}
     relation = apply_scopes(model_class.all)
 
-    relation = apply_where_filters(relation, args, ctx, search_results: true, model_relation: true)
+    relation = apply_where_filters(relation, args, ctx, search: :model)
     return relation.records(first: args[:first], offset: args[:offset]) if relation.is_a?(Lighthouse::Search::Result)
 
     relation = relation.limit(args[:first]) if args[:first]
