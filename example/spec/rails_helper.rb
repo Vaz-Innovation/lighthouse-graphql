@@ -6,6 +6,11 @@ abort('The Rails environment is running in production mode!') if Rails.env.produ
 require 'rspec/rails'
 
 Rails.root.glob('spec/support/**/*.rb').each { |file| require file }
+require_relative 'search_engines'
+
+# Records reach a Searchkick index only when a spec reindexes them: no job, and no
+# engine needed, for the specs that create comments without searching them.
+Searchkick.disable_callbacks
 
 begin
   ActiveRecord::Migration.maintain_test_schema!

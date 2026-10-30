@@ -23,6 +23,13 @@ extend type Query {
   "A single published post."
   post(id: ID! @eq): Post @find(scopes: ["published"]) @cacheControl(maxAge: 30)
 
+  """
+  Comments on published posts matching a term, the best match first: @search through Comment's
+  Searchkick index, on Elasticsearch (or OpenSearch), which forgives a typo ("brillant" finds
+  "Brilliant"). `postId` narrows the search in the engine, as a filter on the indexed post_id.
+  """
+  searchComments(search: String! @search, postId: ID @eq(key: "post_id")): [Comment!]! @paginate(defaultCount: 10)
+
   "How many posts are published."
   publishedPostCount: Int! @count(model: "Post", scopes: ["published"])
 

@@ -25,10 +25,13 @@ gem 'pg_search', '~> 2.3'
 gem 'redis', '~> 5.0', require: false
 gem 'trilogy', '~> 2.9', require: false
 
-# Searchkick, which spec/requests/graphql/search_spec.rb runs @search through
-# against OpenSearch when OPENSEARCH_URL is set.
+# Query.searchComments(search:) searches through @search and Comment's Searchkick
+# index, on Elasticsearch, or OpenSearch when OPENSEARCH_URL is set
+# (config/initializers/searchkick.rb requires the client in use). The client's
+# major version must be the server's: elasticsearch 9 talks to Elasticsearch 9.
+gem 'elasticsearch', '~> 9.0', require: false
 gem 'opensearch-ruby', '~> 3.4', require: false
-gem 'searchkick', '~> 6.1', require: false
+gem 'searchkick', '~> 6.2'
 
 # Windows does not include zoneinfo files, so bundle the tzinfo-data gem
 gem 'tzinfo-data', platforms: %i[windows jruby]

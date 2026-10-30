@@ -132,6 +132,15 @@ GEM
       dry-initializer (~> 3.2)
       dry-schema (~> 1.14)
       zeitwerk (~> 2.6)
+    elastic-transport (8.5.3)
+      faraday (< 3)
+      multi_json
+    elasticsearch (9.5.0)
+      elastic-transport (~> 8.3)
+      elasticsearch-api (= 9.5.0)
+    elasticsearch-api (9.5.0)
+      base64
+      multi_json
     erb (6.0.7)
     erubi (1.13.1)
     et-orbi (1.4.2)
@@ -350,6 +359,7 @@ PLATFORMS
 DEPENDENCIES
   debug
   dry-validation (~> 1.10)
+  elasticsearch (~> 9.0)
   factory_bot_rails (~> 6.4)
   lighthouse-graphql!
   opensearch-ruby (~> 3.4)
@@ -360,7 +370,7 @@ DEPENDENCIES
   rails (~> 8.1.4)
   redis (~> 5.0)
   rspec-rails (~> 8.0)
-  searchkick (~> 6.1)
+  searchkick (~> 6.2)
   solid_queue (~> 1.2)
   testcontainers-postgres (~> 0.2)
   trilogy (~> 2.9)

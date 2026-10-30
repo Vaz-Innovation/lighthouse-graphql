@@ -16,6 +16,10 @@ class Post < ApplicationRecord
   # in the title ranking above one in the body, and "Rail" finding "Rails".
   pg_search_scope :search, against: { title: 'A', body: 'B' }, using: { tsearch: { prefix: true } }
 
+  # Comment indexes only the comments of published posts (Comment#should_index?):
+  # publishing or unpublishing a post adds its comments to the index or removes them.
+  after_commit :reindex_comments, if: -> { saved_change_to_published? && Searchkick.callbacks? }
+
   # Post.summary(words:) calls it through @method, with the field's argument.
   def summary(words:)
     body.to_s.split.first(words).join(' ')
@@ -26,4 +30,9 @@ class Post < ApplicationRecord
   def tag_names
     tags.map(&:name).sort
   end
+
+  private
+
+  # In a Solid Queue job, which indexes the comments that should be and deletes the others.
+  def reindex_comments = comments.reindex(mode: :async)
 end

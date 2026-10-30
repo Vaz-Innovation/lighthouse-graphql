@@ -1,33 +1,25 @@
 require 'rails_helper'
 
-# @search, first as the app has it: Query.posts(search:) through POST /graphql, with
-# Post's pg_search scope, in the suite's PostgreSQL. Then on each engine, with
-# schemas of the specs' own:
+# @search, end to end and on each engine:
 #
-# - Searchkick, against OpenSearch or Elasticsearch, when OPENSEARCH_URL is set;
-# - pg_search, in PostgreSQL: the suite's own (spec/postgres_container.rb), or a
-#   PostgreSQL DATABASE_URL. CI's MySQL run skips both pg_search groups.
-#
-#   docker run -d -p 9200:9200 -e discovery.type=single-node -e DISABLE_SECURITY_PLUGIN=true \
-#     -e DISABLE_INSTALL_DEMO_CONFIG=true opensearchproject/opensearch:2
-#   OPENSEARCH_URL=http://127.0.0.1:9200 bundle exec rspec spec/requests/graphql/search_spec.rb
+# - the app's own fields, through POST /graphql: Query.posts(search:) on Post's
+#   pg_search scope, and Query.searchComments(search:) on Comment's Searchkick index;
+# - Searchkick on Elasticsearch 9 and on OpenSearch 3, each started by Testcontainers
+#   (spec/search_engines.rb), or the server ELASTICSEARCH_URL / OPENSEARCH_URL names.
+#   SEARCH_ENGINES picks them: SEARCH_ENGINES=opensearch runs one, SEARCH_ENGINES= none;
+# - pg_search, in the suite's PostgreSQL (spec/postgres_container.rb) or a PostgreSQL
+#   DATABASE_URL. CI's MySQL run skips the pg_search groups.
 #
 # The gem suite runs the same cases against fake engines (spec/lighthouse/search_spec.rb).
 # The engines' schemas are the specs' own, built from SDL over subclasses of the app's models.
-opensearch = ENV['OPENSEARCH_URL'].present?
+search_engines = SearchEngines.enabled
 postgres = ActiveRecord::Base.connection_db_config.adapter.match?(/postg/i)
 
-if opensearch
-  require 'opensearch'
-  require 'searchkick'
-  Searchkick.client = OpenSearch::Client.new(url: ENV.fetch('OPENSEARCH_URL'))
+# Indexed by hand (reindex), as the specs run in a transaction.
+class SearchedPost < Post
+  searchkick index_name: 'lighthouse_example_searched_posts', callbacks: false
 
-  # Indexed by hand (Searchkick.reindex), as the tests run in a transaction.
-  class SearchedPost < Post
-    searchkick index_name: 'lighthouse_example_searched_posts', callbacks: false
-
-    def search_data = { title: title, body: body, author_id: author_id, published: published }
-  end
+  def search_data = { title: title, body: body, author_id: author_id, published: published }
 end
 
 if postgres
@@ -55,6 +47,9 @@ RSpec.describe 'GraphQL @search', type: :request do
     rows = result.dig('data', field)
     (rows.is_a?(Hash) ? rows['data'] : rows).pluck('title')
   end
+
+  # Matches SQL that reads `table`, however the database quotes its name.
+  def from(table) = /FROM #{Regexp.escape(ActiveRecord::Base.connection.quote_table_name(table))}/
 
   # The SQL statements a block runs, schema introspection and transaction statements aside.
   def sql_in(&)
@@ -115,7 +110,7 @@ RSpec.describe 'GraphQL @search', type: :request do
       sql = sql_in { body = graphql('{ posts(search: "rails") { data { title author { name } } } }') }
 
       expect(body.dig('data', 'posts', 'data').pluck('author')).to eq([{ 'name' => 'Ada' }, { 'name' => 'Ada' }, { 'name' => 'Grace' }])
-      expect(sql.grep(/FROM "users"/).size).to eq(1)
+      expect(sql.grep(from(:users)).size).to eq(1)
     end
 
     it 'stays a public, cacheable list' do
@@ -129,112 +124,186 @@ RSpec.describe 'GraphQL @search', type: :request do
     end
   end
 
-  describe 'Searchkick', if: opensearch do
-    let(:author) { create(:user) }
-    let(:other) { create(:user) }
-    let(:schema) do
-      schema_from(<<~GRAPHQL)
-        type User { id: ID! name: String! }
-        type SearchedPost {
-          id: ID!
-          title: String!
-          author: User! @belongsTo
-        }
-        type Query {
-          posts(search: String @search, authorId: Int @eq(key: "author_id")): [SearchedPost!]! @all
-          paged(search: String @search, authorId: Int @eq(key: "author_id")): [SearchedPost!]! @paginate
-          feed(search: String @search): [SearchedPost!]! @paginate(type: CONNECTION)
-          indexed(search: String @search(within: "lighthouse_example_searched_posts")): [SearchedPost!]! @all
-          filtered(search: String @search, title: String @neq): [SearchedPost!]! @all
-        }
-      GRAPHQL
-    end
+  SearchEngines::IMAGES.each_key do |engine|
+    describe "Searchkick on #{engine}", if: search_engines.include?(engine) do
+      let(:author) { create(:user) }
+      let(:other) { create(:user) }
+      let(:schema) do
+        schema_from(<<~GRAPHQL)
+          type User { id: ID! name: String! }
+          type SearchedPost {
+            id: ID!
+            title: String!
+            author: User! @belongsTo
+          }
+          type Query {
+            posts(search: String @search, authorId: Int @eq(key: "author_id")): [SearchedPost!]! @all
+            paged(search: String @search, authorId: Int @eq(key: "author_id")): [SearchedPost!]! @paginate
+            feed(search: String @search): [SearchedPost!]! @paginate(type: CONNECTION)
+            indexed(search: String @search(within: "lighthouse_example_searched_posts")): [SearchedPost!]! @all
+            filtered(search: String @search, title: String @neq): [SearchedPost!]! @all
+          }
+        GRAPHQL
+      end
 
-    before do
-      create(:post, author: author, title: 'Great title', body: 'one')
-      create(:post, author: author, title: 'Really great great title', body: 'great')
-      create(:post, author: other, title: 'Another great one', body: 'two')
-      create(:post, author: other, title: 'Bad title', body: 'three')
-      SearchedPost.reindex
-      SearchedPost.search_index.refresh
-    end
+      before do
+        SearchEngines.use(engine)
+        create(:post, author: author, title: 'Great title', body: 'one')
+        create(:post, author: author, title: 'Really great great title', body: 'great')
+        create(:post, author: other, title: 'Another great one', body: 'two')
+        create(:post, author: other, title: 'Bad title', body: 'three')
+        SearchedPost.reindex
+        SearchedPost.search_index.refresh
+      end
 
-    def requests_in
-      requests = []
-      subscriber = ActiveSupport::Notifications.subscribe('search.searchkick') { |*| requests << true }
-      yield
-      requests.size
-    ensure
-      ActiveSupport::Notifications.unsubscribe(subscriber)
-    end
+      def requests_in
+        requests = []
+        subscriber = ActiveSupport::Notifications.subscribe('search.searchkick') { |*| requests << true }
+        yield
+        requests.size
+      ensure
+        ActiveSupport::Notifications.unsubscribe(subscriber)
+      end
 
-    it 'returns the posts in the order of their relevance' do
-      result = run(schema, '{ posts(search: "great") { title } }')
+      it 'returns the posts in the order of their relevance' do
+        result = run(schema, '{ posts(search: "great") { title } }')
 
-      expect(titles(result)).to eq(['Really great great title', 'Great title', 'Another great one'])
-    end
+        expect(titles(result)).to eq(['Really great great title', 'Great title', 'Another great one'])
+      end
 
-    it 'narrows the search with @eq, as a filter in the engine' do
-      result = run(schema, "{ posts(search: \"great\", authorId: #{other.id}) { title } }")
+      it 'narrows the search with @eq, as a filter in the engine' do
+        result = run(schema, "{ posts(search: \"great\", authorId: #{other.id}) { title } }")
 
-      expect(titles(result)).to eq(['Another great one'])
-    end
+        expect(titles(result)).to eq(['Another great one'])
+      end
 
-    it 'does not search without the argument' do
-      expect(titles(run(schema, '{ posts { title } }')).size).to eq(4)
-    end
+      it 'does not search without the argument' do
+        expect(titles(run(schema, '{ posts { title } }')).size).to eq(4)
+      end
 
-    it 'pages with the total of the same request' do
-      query = '{ paged(first: 2, page: 2, search: "great") { data { title } paginatorInfo { total lastPage currentPage hasMorePages } } }'
-      result = nil
-      requests = requests_in { result = run(schema, query) }
+      it 'pages with the total of the same request' do
+        query = '{ paged(first: 2, page: 2, search: "great") { data { title } paginatorInfo { total lastPage currentPage hasMorePages } } }'
+        result = nil
+        requests = requests_in { result = run(schema, query) }
 
-      expect(result.dig('data', 'paged')).to eq(
-        'data' => [{ 'title' => 'Another great one' }],
-        'paginatorInfo' => { 'total' => 3, 'lastPage' => 2, 'currentPage' => 2, 'hasMorePages' => false }
-      )
-      expect(requests).to eq(1)
-    end
+        expect(result.dig('data', 'paged')).to eq(
+          'data' => [{ 'title' => 'Another great one' }],
+          'paginatorInfo' => { 'total' => 3, 'lastPage' => 2, 'currentPage' => 2, 'hasMorePages' => false }
+        )
+        expect(requests).to eq(1)
+      end
 
-    it 'counts without a page, which Scout cannot' do
-      result = run(schema, '{ paged(first: 0, search: "great") { data { title } paginatorInfo { total } } }')
+      it 'counts without a page, which Scout cannot' do
+        result = run(schema, '{ paged(first: 0, search: "great") { data { title } paginatorInfo { total } } }')
 
-      expect(result.dig('data', 'paged')).to eq('data' => [], 'paginatorInfo' => { 'total' => 3 })
-    end
+        expect(result.dig('data', 'paged')).to eq('data' => [], 'paginatorInfo' => { 'total' => 3 })
+      end
 
-    it 'walks a connection by position' do
-      page = '{ feed(first: 2, %s search: "great") { edges { node { title } } pageInfo { hasNextPage endCursor total } } }'
-      first = run(schema, format(page, '')).dig('data', 'feed')
-      second = run(schema, format(page, "after: #{first.dig('pageInfo', 'endCursor').to_json},")).dig('data', 'feed')
+      it 'walks a connection by position' do
+        page = '{ feed(first: 2, %s search: "great") { edges { node { title } } pageInfo { hasNextPage endCursor total } } }'
+        first = run(schema, format(page, '')).dig('data', 'feed')
+        second = run(schema, format(page, "after: #{first.dig('pageInfo', 'endCursor').to_json},")).dig('data', 'feed')
 
-      expect(first['edges'].map { |edge| edge.dig('node', 'title') }).to eq(['Really great great title', 'Great title'])
-      expect(first['pageInfo']).to include('hasNextPage' => true, 'total' => 3)
-      expect(second['edges'].map { |edge| edge.dig('node', 'title') }).to eq(['Another great one'])
-    end
+        expect(first['edges'].map { |edge| edge.dig('node', 'title') }).to eq(['Really great great title', 'Great title'])
+        expect(first['pageInfo']).to include('hasNextPage' => true, 'total' => 3)
+        expect(second['edges'].map { |edge| edge.dig('node', 'title') }).to eq(['Another great one'])
+      end
 
-    it 'loads the records, and their authors, in one query each' do
-      result = nil
-      sql = sql_in { result = run(schema, '{ posts(search: "great") { title author { name } } }') }
+      it 'loads the records, and their authors, in one query each' do
+        result = nil
+        sql = sql_in { result = run(schema, '{ posts(search: "great") { title author { name } } }') }
 
-      expect(result.dig('data', 'posts').size).to eq(3)
-      expect(sql.grep(/FROM "posts"/).size).to eq(1)
-      expect(sql.grep(/FROM "users"/).size).to eq(1)
-    end
+        expect(result.dig('data', 'posts').size).to eq(3)
+        expect(sql.grep(from(:posts)).size).to eq(1)
+        expect(sql.grep(from(:users)).size).to eq(1)
+      end
 
-    it 'searches the index within: names' do
-      expect(titles(run(schema, '{ indexed(search: "bad") { title } }'), 'indexed')).to eq(['Bad title'])
-    end
+      it 'searches the index within: names' do
+        expect(titles(run(schema, '{ indexed(search: "bad") { title } }'), 'indexed')).to eq(['Bad title'])
+      end
 
-    it 'refuses what an engine cannot apply' do
-      result = run(schema, '{ filtered(search: "great", title: "x") { title } }')
+      it 'refuses what an engine cannot apply' do
+        result = run(schema, '{ filtered(search: "great", title: "x") { title } }')
 
-      expect(result['errors'].pluck('message')).to eq(['Found arg builder arguments that do not work with @search: @neq on title.'])
-    end
+        expect(result['errors'].pluck('message')).to eq(['Found arg builder arguments that do not work with @search: @neq on title.'])
+      end
 
-    it 'refuses, when the schema is built, what PHP Lighthouse drops silently' do
-      expect do
-        schema_from('type SearchedPost { id: ID! } type Query { posts(search: String @search): [SearchedPost!]! @all(scopes: ["published"]) }')
-      end.to raise_error(Lighthouse::DefinitionError, /Searchkick cannot apply `scopes:`/)
+      it 'refuses, when the schema is built, what PHP Lighthouse drops silently' do
+        expect do
+          schema_from('type SearchedPost { id: ID! } type Query { posts(search: String @search): [SearchedPost!]! @all(scopes: ["published"]) }')
+        end.to raise_error(Lighthouse::DefinitionError, /Searchkick cannot apply `scopes:`/)
+      end
+
+      describe "the app's Query.searchComments(search:)" do
+        include ActiveJob::TestHelper
+
+        let(:ada) { create(:user, name: 'Ada') }
+        let(:grace) { create(:user, name: 'Grace') }
+        let(:engines) { create(:post, author: ada, title: 'Engines') }
+        let(:compilers) { create(:post, author: grace, title: 'Compilers') }
+
+        before do
+          create(:comment, post: engines, author: grace, body: 'Brilliant work on the engine.')
+          create(:comment, post: engines, author: ada, body: 'Thank you, brilliant reader.')
+          create(:comment, post: compilers, author: ada, body: 'A brilliant compiler.')
+          create(:comment, post: compilers, author: ada, body: 'Nothing to see.')
+          create(:comment, post: create(:post, :draft, author: ada), author: grace, body: 'Brilliant draft!')
+          reindex_comments
+        end
+
+        def reindex_comments
+          Comment.reindex
+          Comment.search_index.refresh
+        end
+
+        def bodies(arguments, as: nil)
+          graphql("{ searchComments(#{arguments}) { data { body } } }", as: as).dig('data', 'searchComments', 'data').pluck('body')
+        end
+
+        it 'finds the comments on published posts, a typo forgiven' do
+          expect(bodies('search: "brillant"'))
+            .to contain_exactly('Brilliant work on the engine.', 'Thank you, brilliant reader.', 'A brilliant compiler.')
+        end
+
+        it 'narrows the search to a post with postId, a filter in the engine' do
+          expect(bodies(%(search: "brilliant", postId: "#{compilers.id}"))).to eq(['A brilliant compiler.'])
+        end
+
+        it 'pages the matches, with their total' do
+          page = graphql('{ searchComments(search: "brilliant", first: 2, page: 2) { data { body } paginatorInfo { total lastPage } } }')
+
+          expect(page.dig('data', 'searchComments', 'paginatorInfo')).to eq('total' => 3, 'lastPage' => 2)
+          expect(page.dig('data', 'searchComments', 'data').size).to eq(1)
+        end
+
+        it 'loads what the matches select below them without N+1' do
+          body = nil
+          sql = sql_in { body = graphql('{ searchComments(search: "brilliant") { data { author { name } post { title } } } }') }
+
+          expect(body.dig('data', 'searchComments', 'data').size).to eq(3)
+          expect(sql.grep(from(:users)).size).to eq(1)
+          expect(sql.grep(from(:posts)).size).to eq(1)
+        end
+
+        it "indexes a draft's comments once it is published, and removes them when it is unpublished" do
+          draft = create(:post, :draft, author: ada, title: 'Nanoseconds')
+          create(:comment, post: draft, author: grace, body: 'A wire of nanoseconds.')
+          reindex_comments
+          expect(bodies('search: "nanoseconds"')).to eq([])
+
+          perform_enqueued_jobs { Searchkick.callbacks(true) { graphql("mutation { publishPost(id: #{draft.id}) { id } }", as: ada) } }
+          Comment.search_index.refresh
+          expect(bodies('search: "nanoseconds"')).to eq(['A wire of nanoseconds.'])
+
+          perform_enqueued_jobs { Searchkick.callbacks(true) { draft.reload.update!(published: false) } }
+          Comment.search_index.refresh
+          expect(bodies('search: "nanoseconds"')).to eq([])
+        end
+
+        it 'answers an empty list for a term nothing matches' do
+          expect(bodies('search: "zzzz"')).to eq([])
+        end
+      end
     end
   end
 
