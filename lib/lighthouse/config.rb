@@ -26,7 +26,7 @@ module Lighthouse
     SETTINGS = %i[
       schema_path ide_helper resolver_namespaces namespaces transactional_mutations pagination_default_count pagination_max_count
       schema_cache schema_cache_path watch_sdl persisted_queries persisted_queries_store persisted_queries_ttl
-      persisted_queries_manifest persisted_queries_only on_error directive_map authenticated_user policy_user authorizer
+      persisted_queries_manifest persisted_queries_only on_error authenticated_user policy_user authorizer
       feature_checker feature_actor
       convert_empty_strings_to_null
       soft_deletes
@@ -77,8 +77,6 @@ module Lighthouse
         defined?(::Rails) && ::Rails.respond_to?(:env) && ::Rails.env.development? && ::Rails.root &&
           File.exist?(::Rails.root.join('graphql.config.yml'))
       end
-
-      def directive_map = @directive_map ||= {}
 
       # Namespaces tried (in order) when resolving a class name from a directive
       # argument, e.g. `@field(resolver: "ContactPerson")` or `@all(model: "X")`.

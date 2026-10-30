@@ -6,7 +6,7 @@ module Lighthouse
     Config: singleton(Lighthouse::Config)
 
     # A GraphQL::Schema subclass.
-    type schema = untyped
+    type schema = _Schema
 
     module RbLightHouse
       # The schema built from the SDL `schema_path` (default: Config.schema_path) and its imports.
@@ -16,7 +16,7 @@ module Lighthouse
     end
 
     module SchemaFactory
-      def self?.build_base_schema: (?schema_path: path?, ?sdl: String?, ?base_types: Hash[untyped, untyped],
+      def self?.build_base_schema: (?schema_path: path?, ?sdl: String?, ?base_types: Hash[Symbol, Module],
                                     ?schema_options: Hash[Symbol, untyped], **untyped extra_options) -> schema
       def self?.load_sdl: (?path? schema_path) -> String
     end
@@ -38,25 +38,25 @@ module Lighthouse
       KEYWORDS: Hash[Class, String]
       EXTENSIONS: Array[Class]
 
-      attr_reader types: Hash[String, untyped]
-      attr_reader type_extensions: Hash[String, Array[untyped]]
-      attr_reader directives: Hash[String, untyped]
-      attr_reader schema_definitions: Array[untyped]
+      attr_reader types: Hash[String, _NamedNode]
+      attr_reader type_extensions: Hash[String, Array[_NamedNode]]
+      attr_reader directives: Hash[String, _NamedNode]
+      attr_reader schema_definitions: Array[_Node]
 
       def self.from_source: (String sdl) -> DocumentAST
-      def self.from_document: (untyped document) -> DocumentAST
+      def self.from_document: (_Document document) -> DocumentAST
 
       def initialize: () -> void
-      def add: (untyped definition) -> untyped
+      def add: (_Node definition) -> void
       # Adds a type, or replaces the one of the same name.
-      def put_type: (untyped definition) -> self
+      def put_type: (_NamedNode definition) -> self
       def remove_type: (String name) -> self
       def remove_directive: (String name) -> self
       # Adds the type parsed from the SDL (or the block's), unless one of the name exists.
-      def define_type: (String name, ?String? sdl) ?{ () -> String } -> untyped
+      def define_type: (String name, ?String? sdl) ?{ () -> String } -> _NamedNode
       def type?: (String name) -> bool
       def type_names: () -> Array[String]
-      def to_document: () -> untyped
+      def to_document: () -> _Document
       def to_sdl: () -> String
     end
 
@@ -82,21 +82,26 @@ module Lighthouse
         attr_reader code: String
 
         def initialize: (String message, String code) -> void
-        def to_h: () -> Hash[String, untyped]
+        def to_h: () -> Hash[String, json]
       end
+
+      # `extensions` as a request carries it: a Hash, a JSON String (GET) or
+      # ActionController::Parameters.
+      type extensions = Hash[String | Symbol, untyped] | String | _Parameters
 
       # `extensions` as the request carries it: a Hash, a JSON String (GET) or
       # ActionController::Parameters.
       #
       # `schema.execute` with the query the request names: its result, or a
       # protocol error as a ready-to-render { "errors" => [...] } Hash.
-      def self?.execute: (schema schema, query: String?, ?extensions: untyped, **untyped options) -> untyped
+      def self?.execute: (schema schema, query: String?, ?extensions: extensions?, ?variables: Hash[String, untyped]?,
+                          ?operation_name: String?, ?context: Hash[Symbol, untyped], **untyped options) -> _Result
       # A batch: `schema.multiplex` with the query each operation (a Hash of
       # query, extensions, variables, operation_name, context) names. One result
       # per operation, in order; a protocol error is a ready-to-render Hash.
-      def self?.multiplex: (schema schema, Array[Hash[Symbol | String, untyped]] operations, **untyped options) -> Array[untyped]
+      def self?.multiplex: (schema schema, Array[Hash[Symbol | String, untyped]] operations, **untyped options) -> Array[_Result]
       # The query text to run for a request's `query` and `extensions`.
-      def self?.resolve: (String? query, untyped extensions) -> String?
+      def self?.resolve: (String? query, extensions? extensions) -> String?
       def self?.enabled?: () -> bool
       def self?.digest: (String query) -> String
       # Store a query ahead of time (e.g. from a deploy task); returns its hash.
@@ -110,10 +115,10 @@ module Lighthouse
     module Subscription
       # May this client subscribe? Called with the subscription request only.
       def authorize?: (**untyped args) -> boolish
-      # Should this subscriber receive the broadcast of `root`? `args` are the
-      # arguments it subscribed with.
+      # Should this subscriber receive the broadcast of `root` (what the
+      # mutation returned, the app's)? `args` are the arguments it subscribed with.
       def filter?: (untyped root, **untyped args) -> boolish
-      # The value an update resolves the field with.
+      # The value an update resolves the field with: the app's.
       def resolve_payload: (untyped root, **untyped args) -> untyped
 
       # The class methods the concern adds to its includer.
@@ -121,7 +126,7 @@ module Lighthouse
         # :field (default): every subscriber shares the field's topic and filter?
         # decides; :arguments: graphql-ruby's, subscribers match the trigger's arguments.
         def topic_by: (?(:field | :arguments)? mode) -> (:field | :arguments)
-        def topic_for: (arguments: untyped, field: untyped, scope: untyped) -> String
+        def topic_for: (arguments: arguments, field: _FieldDefinition, scope: untyped) -> String
         # What @broadcast triggers the subscription with, for the root a mutation returned.
         def trigger_arguments: (untyped root, context context) -> Hash[Symbol | String, untyped]
         def trigger_scope: (untyped root, context context) -> untyped
@@ -140,9 +145,9 @@ module Lighthouse
 
       # For an executed query (a GraphQL::Query::Result or GraphQL::Query);
       # nil when the schema does not use @cacheControl.
-      def self?.header: (untyped result) -> String?
-      # Set the header on a Rails (or Rack) response, and return it.
-      def self?.apply: (untyped response, untyped result) -> String?
+      def self?.header: (_Result | _Query result) -> String?
+      # Set the header on a Rails response, and return it.
+      def self?.apply: (_ResponseHeaders response, _Result | _Query result) -> String?
     end
 
     # What fields cost in graphql-ruby's complexity analysis (@complexity, and
@@ -153,9 +158,9 @@ module Lighthouse
 
       # Give the schema's fields their cost; `root_kinds` maps root type names to
       # :queries / :mutations / :subscriptions.
-      def self?.apply: (untyped schema, ?Hash[String, Symbol] root_kinds) -> untyped
+      def self?.apply: (_Schema schema, ?Hash[String, Symbol] root_kinds) -> void
       # A query's score, once scored for BuildExtensionsResponse; nil otherwise.
-      def self?.query_complexity: (untyped query) -> Integer?
+      def self?.query_complexity: (_Query query) -> Integer?
     end
 
     # A concern for a GraphQL::Analysis::Analyzer that @complexity(resolver:)

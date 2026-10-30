@@ -2,17 +2,180 @@
 # the classes a schema names (builders, validators), the configuration, the
 # directive extension points and the entrypoints. Internals are left out.
 #
-# graphql-ruby and Active Record ship no RBS every app has, so the values that
-# come from them are aliases of untyped, named for what they hold.
+# graphql-ruby, Active Record and Rails ship no RBS every app has, so what
+# Lighthouse takes from them is declared here as interfaces of the methods it
+# uses: GraphQL::Schema is a _Schema, GraphQL::Query::Context a _Context, an
+# ActiveRecord::Relation a _Relation. Any object answering those methods
+# conforms, the gem depends on no one else's signatures, and `rake rbs:test`
+# checks the real values against them. What stays `untyped` is the app's own
+# (a user, a record a resolver returns, a client's argument value).
 module Lighthouse
-  # An ActiveRecord::Relation, or anything with its query interface.
-  type relation = untyped
+  # --- graphql-ruby ----------------------------------------------------------
+
+  # A GraphQL::Schema subclass (the class itself), as Lighthouse builds it.
+  interface _Schema
+    def execute: (?String? query, **untyped options) -> _Result
+    def multiplex: (Array[Hash[Symbol, untyped]] queries, **untyped options) -> Array[_Result]
+    def validate: (String | _Document query, **untyped options) -> Array[_Error]
+    def to_definition: () -> String
+    def types: () -> Hash[String, _NamedType]
+  end
+
+  # A GraphQL::Query::Result, or a ready-to-render Hash ({ "errors" => [...] }).
+  interface _Result
+    def to_h: () -> Hash[String, json]
+  end
+
+  # A GraphQL::StaticValidation::Error, or any error graphql-ruby reports.
+  interface _Error
+    def message: () -> String
+  end
+
+  # A GraphQL::Query: one operation of a request.
+  interface _Query
+    def selected_operation_name: () -> String?
+    def context: () -> _Context
+  end
+
+  # The request's GraphQL::Query::Context, or a Hash standing in for one.
+  interface _Context
+    def []: (Symbol | String key) -> untyped
+  end
+
+  # A graphql-ruby type: an object, interface, input, enum, scalar or union class.
+  interface _NamedType
+    def graphql_name: (?String? name) -> String
+  end
+
+  # A GraphQL::Schema::Field or GraphQL::Schema::Argument, as built from the SDL.
+  interface _SchemaMember
+    def graphql_name: () -> String
+    def ast_node: () -> _Node?
+  end
+
+  # A GraphQL::Schema::Field: a member with arguments.
+  interface _FieldDefinition
+    include _SchemaMember
+    def arguments: () -> Hash[String, _SchemaMember]
+  end
+
+  # What resolves a field: graphql-ruby's resolver signature, (object, arguments,
+  # context). The object and the value are the app's.
+  interface _Resolver
+    def call: (untyped object, untyped arguments, context? context) -> untyped
+  end
+
+  # A field's arguments as graphql-ruby hands them over (GraphQL::Execution::
+  # Interpreter::Arguments), or a Hash.
+  interface _ArgumentSet
+    def to_h: () -> Hash[Symbol, untyped]
+  end
+
+  # A GraphQL::Language::Nodes node: a document, a definition, a directive, ...
+  interface _Node
+    def to_query_string: () -> String
+  end
+
+  # Anything with a name: an AST node, a directive's argument.
+  interface _Named
+    def name: () -> String
+  end
+
+  # A node with a name: a type or directive definition, a field, a directive.
+  interface _NamedNode
+    include _Node
+    include _Named
+  end
+
+  # A parsed GraphQL::Language::Nodes::Document.
+  interface _Document
+    include _Node
+    def definitions: () -> Array[_Node]
+  end
+
+  # A directive as the SDL applies it (`@paginate(defaultCount: 10)`): its
+  # name and its arguments (each a name and a value).
+  interface _DirectiveNode
+    include _Named
+    def arguments: () -> Array[_Named]
+  end
+
+  # --- Active Record ---------------------------------------------------------
+
+  # An ActiveRecord::Relation, or a model class (which answers the same).
+  interface _Relation
+    def where: (*untyped conditions) -> _Relation
+    def order: (*untyped orders) -> _Relation
+    def limit: (Integer? count) -> _Relation
+  end
+
+  type relation = _Relation
+
+  # An Arel attribute or SQL literal, which predicates build on.
+  interface _ArelNode
+    def eq: (untyped other) -> _ArelNode
+  end
+
+  # A model instance.
+  interface _Record
+    def id: () -> (Integer | String | Array[Integer | String])?
+    def persisted?: () -> bool
+  end
+
+  # --- Rails -----------------------------------------------------------------
+
+  # An ActionDispatch::Request.
+  interface _Request
+    def path: () -> String
+    def headers: () -> untyped
+  end
+
+  # What has response headers: an ActionDispatch::Response.
+  interface _ResponseHeaders
+    def headers: () -> Hash[String, untyped]
+  end
+
+  # An ActionDispatch::Response.
+  interface _Response
+    include _ResponseHeaders
+    def status: () -> Integer
+  end
+
+  # ActionController::Parameters, read whole.
+  interface _Parameters
+    def to_unsafe_h: () -> Hash[String, untyped]
+  end
+
+  # An ActiveSupport::Cache::Store, Rails.cache by default.
+  interface _CacheStore
+    def read: (String key, **untyped options) -> untyped
+    def write: (String key, untyped value, **untyped options) -> boolish
+  end
+
+  # A Logger, Rails.logger by default.
+  interface _Logger
+    def info: (?String? message) -> void
+    def warn: (?String? message) -> void
+    def error: (?String? message) -> void
+  end
+
+  # --- Values ----------------------------------------------------------------
 
   # A field's arguments, with snake_case Symbol keys as graphql-ruby passes them.
+  # A value is whatever the client sent for the argument's type.
   type arguments = Hash[Symbol, untyped]
 
-  # The request's GraphQL::Query::Context.
-  type context = untyped
+  type context = _Context
+
+  # A literal a directive is written with in the SDL: `@paginate(defaultCount: 10)`,
+  # `@can(ability: "x", args: [1, "a"])`. Enum values are Strings.
+  type literal = String | Integer | Float | bool | nil | Array[literal] | Hash[String, literal]
+
+  # What a response's extensions, or a JSON document, may hold.
+  type json = String | Integer | Float | bool | nil | Array[json] | Hash[String | Symbol, json]
+
+  # A @validator's errors: messages by key, nested for input objects.
+  type validation_errors = Hash[Symbol | String, Array[String] | validation_errors]
 
   # A path on disk: a String or a Pathname.
   type path = String | _ToPath
@@ -31,7 +194,7 @@ module Lighthouse
   # arguments (snake_case Symbol keys) and answers the errors by key,
   # { title: ["is missing"] }, nested for input objects; empty when valid.
   interface _Validator
-    def call: (Hash[Symbol, untyped] values) -> Hash[Symbol | String, untyped]
+    def call: (arguments values) -> validation_errors
   end
 
   # Config.on_error: called with an error a directive or resolver swallowed.
@@ -41,11 +204,12 @@ module Lighthouse
 
   # Config.global_id: encodes and decodes Relay global ids (@globalId, @node).
   interface _GlobalId
-    def encode: (String type, untyped id) -> String
+    def encode: (String type, String | Integer id) -> String
     def decode: (String global_id) -> Array[String]
   end
 
-  # Config.authenticated_user and Config.policy_user: the user of a request.
+  # Config.authenticated_user and Config.policy_user: the user of a request,
+  # an object of the app's own (nil for a guest).
   interface _UserReader
     def call: (context? context) -> untyped
   end
@@ -54,7 +218,7 @@ module Lighthouse
   # instance, or a model class for @canModel)? `args` are the @can* `args:`,
   # after the field's arguments with `injectArgs: true`.
   interface _Authorizer
-    def call: (untyped user, untyped record, String | Symbol ability, ?Array[untyped] args) -> boolish
+    def call: (untyped user, _Record | Class record, String | Symbol ability, ?Array[untyped] args) -> boolish
   end
 
   # Config.feature_checker: is the feature `name` (as written in @feature) on
@@ -72,8 +236,8 @@ module Lighthouse
     def only_trashed: (relation relation) -> relation
     def with_trashed: (relation relation) -> relation
     def without_trashed: (relation relation) -> relation
-    def restore: (untyped record) -> boolish
-    def force_delete: (untyped record) -> boolish
+    def restore: (_Record record) -> boolish
+    def force_delete: (_Record record) -> boolish
   end
 
   # What DirectiveRegistry#register_manipulator takes: it transforms the SDL
@@ -84,11 +248,17 @@ module Lighthouse
 
   def self.configure: () ?{ (singleton(Config) config) -> void } -> void
 
+  # Trusted operations: { sha256 => query }, or Apollo's manifest
+  # ({ "operations" => [{ "id" => sha256, "body" => query }] }).
+  type manifest = Hash[String | Symbol, String | Array[Hash[String | Symbol, String]] | Integer]
+  type manifest_source = path | manifest | ^() -> (path | manifest)?
+
   module Config
     DEFAULT_NAMESPACES: Hash[Symbol, Array[String]]
     SETTINGS: Array[Symbol]
 
     def self.configure: () ?{ (singleton(Config) config) -> void } -> void
+    # A setting by name: its value, of the setting's type.
     def self.[]: (Symbol | String key) -> untyped
     def self.reset!: () -> void
 
@@ -102,8 +272,8 @@ module Lighthouse
     def self.ide_helper=: (bool? enabled) -> bool?
 
     # The file development keeps the client schema in: a path, or { path:, schema: }; nil: none.
-    def self.schema_output: () -> (path | Hash[Symbol, untyped])?
-    def self.schema_output=: ((path | Hash[Symbol, untyped])? output) -> (path | Hash[Symbol, untyped])?
+    def self.schema_output: () -> (path | { path: path, ?schema: String })?
+    def self.schema_output=: ((path | { path: path, ?schema: String })? output) -> (path | { path: path, ?schema: String })?
 
     # Log the schema's build on boot and every reload; nil: in a development server.
     def self.schema_log: () -> bool
@@ -116,8 +286,6 @@ module Lighthouse
 
     def self.resolver_namespaces: () -> Array[String]
     def self.resolver_namespaces=: (Array[String] namespaces) -> Array[String]
-
-    def self.directive_map: () -> Hash[untyped, untyped]
 
     # An ActiveSupport::Cache::Store; Rails.cache by default.
 
@@ -138,13 +306,13 @@ module Lighthouse
 
     def self.persisted_queries: () -> bool
     def self.persisted_queries=: (bool? enabled) -> bool?
-    def self.persisted_queries_store: () -> untyped
-    def self.persisted_queries_store=: (untyped store) -> untyped
+    def self.persisted_queries_store: () -> _CacheStore
+    def self.persisted_queries_store=: (_CacheStore? store) -> _CacheStore?
     def self.persisted_queries_ttl: () -> Numeric?
     def self.persisted_queries_ttl=: (Numeric? seconds) -> Numeric?
     # A JSON file, a Hash of operations, or a callable answering either.
-    def self.persisted_queries_manifest: () -> (path | Hash[untyped, untyped] | ^() -> (path | Hash[untyped, untyped])?)?
-    def self.persisted_queries_manifest=: ((path | Hash[untyped, untyped] | ^() -> (path | Hash[untyped, untyped])?)? manifest) -> untyped
+    def self.persisted_queries_manifest: () -> manifest_source?
+    def self.persisted_queries_manifest=: (manifest_source? manifest) -> manifest_source?
     def self.persisted_queries_only: () -> bool
     def self.persisted_queries_only=: (bool? enabled) -> bool?
 
@@ -206,14 +374,14 @@ module Lighthouse
   class AuthorizationError < StandardError
     CODE: String
 
-    def initialize: (?String message, ?extensions: Hash[String, untyped], **untyped options) -> void
+    def initialize: (?String message, ?extensions: Hash[String, json], ?ast_node: _Node?, ?ast_nodes: Array[_Node]?, ?options: Hash[String, json]?) -> void
   end
 
   # A GraphQL::ExecutionError: @guard or @auth found no signed-in user (extensions.code UNAUTHENTICATED).
   class AuthenticationError < StandardError
     CODE: String
 
-    def initialize: (?String message, ?extensions: Hash[String, untyped], **untyped options) -> void
+    def initialize: (?String message, ?extensions: Hash[String, json], ?ast_node: _Node?, ?ast_nodes: Array[_Node]?, ?options: Hash[String, json]?) -> void
   end
 
   # A GraphQL::ExecutionError: invalid arguments, keyed by argument path

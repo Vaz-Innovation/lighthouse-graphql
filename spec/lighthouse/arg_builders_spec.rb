@@ -6,11 +6,11 @@ RSpec.describe 'Argument builder directives' do
   before do
     stub_const('ArgNode', Struct.new(:name))
     stub_const('DirArg', Struct.new(:name, :value))
-    stub_const('DirNode', Struct.new(:arguments))
+    stub_const('DirNode', Struct.new(:name, :arguments))
   end
 
   def arg(name) = ArgNode.new(name)
-  def directive(opts = {}) = DirNode.new(opts.map { |k, v| DirArg.new(k.to_s, v) })
+  def directive(opts = {}) = DirNode.new('eq', opts.map { |k, v| DirArg.new(k.to_s, v) })
 
   let(:relation) { Widget.all }
   let(:mod) { Lighthouse::GraphQL::Directives::Arguments }

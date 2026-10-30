@@ -6,13 +6,14 @@ module Lighthouse
       module ClassMethods
         # The schema the operations run on: a schema class, its name (constantized
         # per request) or a block (evaluated in the controller, per request).
-        def lighthouse_schema: (?(Class | String | Symbol)? schema) ?{ () -> untyped } -> untyped
+        def lighthouse_schema: (?(_Schema | String | Symbol)? schema) ?{ () -> _Schema } -> (_Schema | String | Symbol | Proc)?
       end
 
       private
 
       # The operation's result, or nil when a @throttle performed the response.
-      def lighthouse_execute: (String? query, ?variables: untyped, ?operation_name: String?, ?extensions: Hash[untyped, untyped]?, ?context: Hash[Symbol, untyped]) -> Hash[String, untyped]?
+      def lighthouse_execute: (String? query, ?variables: (Hash[String | Symbol, untyped] | String | _Parameters)?, ?operation_name: String?,
+                               ?extensions: GraphQL::PersistedQueries::extensions?, ?context: Hash[Symbol, untyped]) -> Hash[String, json]?
 
       # Dispatch StartRequest, yield, dispatch EndRequest; only the outermost call does.
       def lighthouse_request: [T] () { () -> T } -> T
@@ -24,10 +25,10 @@ module Lighthouse
       def lighthouse_context: () -> Hash[Symbol, untyped]
 
       # The schema class `lighthouse_schema` names.
-      def graphql_schema: () -> untyped
+      def graphql_schema: () -> _Schema
 
       # The `variables` parameter as a Hash: from a JSON String, a Hash or parameters.
-      def graphql_variables: (untyped param) -> Hash[String, untyped]
+      def graphql_variables: ((Hash[String | Symbol, untyped] | String | _Parameters)? param) -> Hash[String | Symbol, untyped]
     end
 
     module Controller
@@ -35,7 +36,7 @@ module Lighthouse
 
       # The action: dispatches StartRequest, runs the operation (or a batch),
       # sets Cache-Control, renders JSON, dispatches EndRequest.
-      def execute: () -> untyped
+      def execute: () -> void
     end
   end
 end

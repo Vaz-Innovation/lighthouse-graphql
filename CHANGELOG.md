@@ -6,6 +6,22 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **The RBS signatures are typed.** What Lighthouse takes from graphql-ruby, Active Record
+  and Rails, which ship no RBS, was `untyped`; it is now declared as interfaces of the methods
+  Lighthouse uses (`_Schema`, `_Result`, `_Context`, `_Query`, `_Relation`, `_DirectiveNode`,
+  `_Request`, ...), so Steep checks code that calls Lighthouse and `rake rbs:test` checks the
+  suite's real values against them. Results are `Hash[String, json]`, directive arguments
+  `literal`, `Events.listen` has an overload per event class, with the block's event and
+  answer typed. `untyped` is left for the app's own values (a user, a client's argument
+  value): 169 became 76. Typing found `BuilderApplier.apply` called without a context, which
+  the signature now allows.
+
+### Removed
+
+- `Config.directive_map`, a setting nothing read.
+
 ### Added
 
 - **`Unauthenticated.` and `This action is unauthorized.` carry an `extensions.code`** (#5):

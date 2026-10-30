@@ -6,19 +6,36 @@ module Lighthouse
     # to some events (BuildSchemaString, RegisterDirectiveNamespaces,
     # BuildExtensionsResponse), and is ignored by the rest.
     interface _Listener
-      def call: (untyped event) -> untyped
+      def call: (Object event) -> untyped
     end
 
     # Register a listener (a callable or a block) for an event class and its
-    # subclasses; answers the listener, for `forget`.
-    def self.listen: (Class event_class, ?_Listener? callable) ?{ (untyped event) -> untyped } -> _Listener
+    # subclasses; answers the listener, for `forget`. A block gets the event
+    # of the class it listens to: one of Lighthouse's, or of the app's own
+    # (what @event dispatches). What it answers is read for BuildSchemaString
+    # (SDL to add), RegisterDirectiveNamespaces (namespaces) and
+    # BuildExtensionsResponse (extensions), and ignored for the rest.
+    def self.listen: (singleton(StartRequest) event_class, ?_Listener? callable) ?{ (StartRequest event) -> void } -> _Listener
+                   | (singleton(StartOperationOrOperations) event_class, ?_Listener? callable) ?{ (StartOperationOrOperations event) -> void } -> _Listener
+                   | (singleton(BuildSchemaString) event_class, ?_Listener? callable) ?{ (BuildSchemaString event) -> String? } -> _Listener
+                   | (singleton(RegisterDirectiveNamespaces) event_class, ?_Listener? callable) ?{ (RegisterDirectiveNamespaces event) -> (Module | String | Array[Module | String])? } -> _Listener
+                   | (singleton(ManipulateAST) event_class, ?_Listener? callable) ?{ (ManipulateAST event) -> void } -> _Listener
+                   | (singleton(StartExecution) event_class, ?_Listener? callable) ?{ (StartExecution event) -> void } -> _Listener
+                   | (singleton(BuildExtensionsResponse) event_class, ?_Listener? callable) ?{ (BuildExtensionsResponse event) -> (ExtensionsResponse | Array[untyped])? } -> _Listener
+                   | (singleton(ManipulateResult) event_class, ?_Listener? callable) ?{ (ManipulateResult event) -> void } -> _Listener
+                   | (singleton(EndExecution) event_class, ?_Listener? callable) ?{ (EndExecution event) -> void } -> _Listener
+                   | (singleton(EndOperationOrOperations) event_class, ?_Listener? callable) ?{ (EndOperationOrOperations event) -> void } -> _Listener
+                   | (singleton(EndRequest) event_class, ?_Listener? callable) ?{ (EndRequest event) -> void } -> _Listener
+                   | (singleton(ValidateSchema) event_class, ?_Listener? callable) ?{ (ValidateSchema event) -> void } -> _Listener
+                   | (singleton(Event) event_class, ?_Listener? callable) ?{ (Event event) -> void } -> _Listener
+                   | (Class event_class, ?_Listener? callable) ?{ (Object event) -> untyped } -> _Listener
 
     def self.forget: (_Listener listener) -> nil
     def self.reset!: () -> nil
 
     # Call the listeners of the event's class and ancestors in registration
     # order; answers their non-nil return values.
-    def self.dispatch: (untyped event) -> Array[untyped]
+    def self.dispatch: (Object event) -> Array[untyped]
 
     # Whether dispatching an `event_class` event would reach a listener or an
     # ActiveSupport::Notifications subscriber.
@@ -35,9 +52,9 @@ module Lighthouse
     end
 
     class StartRequest < Event
-      attr_reader request: untyped
+      attr_reader request: _Request
 
-      def initialize: (untyped request) -> void
+      def initialize: (_Request request) -> void
     end
 
     class StartOperationOrOperations < Event
@@ -58,72 +75,73 @@ module Lighthouse
     end
 
     class ManipulateAST < Event
-      attr_accessor document_ast: untyped
+      attr_accessor document_ast: _Document
 
-      def initialize: (untyped document_ast) -> void
+      def initialize: (_Document document_ast) -> void
     end
 
     class StartExecution < Event
-      attr_reader schema: untyped
-      attr_reader query: untyped
+      attr_reader schema: _Schema
+      # The parsed document; nil when it does not parse.
+      attr_reader query: _Document?
       attr_reader variables: Hash[String, untyped]?
       attr_reader operation_name: String?
-      attr_reader context: untyped
+      attr_reader context: _Context
       # The GraphQL::Query, which the operation's EndExecution carries too.
-      attr_reader graphql_query: untyped
+      attr_reader graphql_query: _Query?
 
-      def initialize: (untyped schema, untyped query, Hash[String, untyped]? variables, String? operation_name, untyped context, ?untyped graphql_query) -> void
+      def initialize: (_Schema? schema, _Document? query, Hash[String, untyped]? variables, String? operation_name, _Context context, ?_Query? graphql_query) -> void
     end
 
     # A listener may answer an ExtensionsResponse, or an Array of them.
     class BuildExtensionsResponse < Event
-      attr_reader result: Hash[String, untyped]
+      attr_reader result: Hash[String, json]
       attr_reader query_complexity: Integer?
 
-      def initialize: (Hash[String, untyped] result, Integer? query_complexity) -> void
+      def initialize: (Hash[String, json] result, Integer? query_complexity) -> void
     end
 
     class ManipulateResult < Event
-      attr_accessor result: Hash[String, untyped]
+      attr_accessor result: Hash[String, json]
 
-      def initialize: (Hash[String, untyped] result) -> void
+      def initialize: (Hash[String, json] result) -> void
     end
 
     class EndExecution < Event
-      attr_reader result: Hash[String, untyped]
+      attr_reader result: Hash[String, json]
       # The GraphQL::Query its StartExecution carried.
-      attr_reader graphql_query: untyped
+      attr_reader graphql_query: _Query?
 
-      def initialize: (Hash[String, untyped] result, ?untyped graphql_query) -> void
+      def initialize: (Hash[String, json] result, ?_Query? graphql_query) -> void
       # The operation that ran; nil for an anonymous one.
       def operation_name: () -> String?
-      def context: () -> untyped
+      def context: () -> _Context?
     end
 
     class EndOperationOrOperations < Event
-      attr_reader result_or_results: untyped
+      attr_reader result_or_results: _Result | Array[_Result]
 
-      def initialize: (untyped result_or_results) -> void
+      def initialize: (_Result | Array[_Result] result_or_results) -> void
     end
 
     class EndRequest < Event
-      attr_reader response: untyped
+      attr_reader response: _Response
 
-      def initialize: (untyped response) -> void
+      def initialize: (_Response response) -> void
     end
 
     class ValidateSchema < Event
-      attr_reader schema: untyped
+      attr_reader schema: _Schema
 
-      def initialize: (untyped schema) -> void
+      def initialize: (_Schema schema) -> void
     end
 
     # A key and content merged into the "extensions" of a result.
     class ExtensionsResponse
       attr_reader key: String | Symbol
-      attr_reader content: untyped
+      attr_reader content: json
 
-      def initialize: (String | Symbol key, untyped content) -> void
+      def initialize: (String | Symbol key, json content) -> void
     end
   end
 end
