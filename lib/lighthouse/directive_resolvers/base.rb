@@ -33,12 +33,14 @@ class Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
   # `ctx`: the query's context, for @builder on an argument.
   # `search_results`: the caller can take a Search::Result in place of a relation,
   # which a search outside the database (Searchkick) answers with.
-  def apply_where_filters(relation, args, ctx = nil, search_results: false)
+  # `model_relation`: the caller built `relation` as the model's own (`Model.all`,
+  # with its `scopes:`); otherwise an engine refuses one that selects other records.
+  def apply_where_filters(relation, args, ctx = nil, search_results: false, model_relation: false)
     return relation unless relation.respond_to?(:where)
 
     args_h = args.respond_to?(:to_h) ? args.to_h : (args || {})
     builders = arg_builders(args_h) if searching?
-    searched = apply_search(relation, builders, ctx, search_results)
+    searched = apply_search(relation, builders, ctx, search_results: search_results, model_relation: model_relation)
     return searched if searched.is_a?(Lighthouse::Search::Result)
 
     filtered = apply_query_filters(searched, args_h, ctx, builders)
@@ -129,14 +131,14 @@ class Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
   # rank, and sort, alike come back in one order, whatever the field resolves with.
   # `builders`: the field's arg_builders, walked once for the search and the
   # filters after it; nil when the field has no @search.
-  def apply_search(relation, builders, ctx, results)
+  def apply_search(relation, builders, ctx, search_results:, model_relation:)
     return relation unless builders
 
     arguments = builders.map do |values, node, dnode, builder_class|
       path = [node.name]
       Lighthouse::Search::Enhancer::Argument.new(node, dnode, builder_class, dig_arg(values, path), arg_present?(values, path))
     end
-    Lighthouse::Search::Enhancer.new(arguments, relation, results: results, context: ctx).enhance
+    Lighthouse::Search::Enhancer.new(arguments, relation, results: search_results, context: ctx, model_relation: model_relation).enhance
   end
 
   # Does the field have an argument or input field with @search? Known when the schema is built.

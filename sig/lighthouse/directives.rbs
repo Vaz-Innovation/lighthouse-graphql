@@ -158,7 +158,8 @@ module Lighthouse
 
         # `ctx`: the query's context, which @builder on an argument receives.
         # `search_results`: the caller takes a Search::Result in place of a relation, which a search outside the database answers with.
-        def apply_where_filters: (relation relation, _ArgumentSet? args, ?context? ctx, ?search_results: bool) -> (relation | Search::Result)
+        # `model_relation`: the caller built the relation as the model's own; otherwise an engine refuses one that selects other records.
+        def apply_where_filters: (relation relation, _ArgumentSet? args, ?context? ctx, ?search_results: bool, ?model_relation: bool) -> (relation | Search::Result)
         def apply_arg_builders: (relation relation, arguments args_h, ?context? ctx) -> relation
         def apply_field_builders: (relation relation, ?arguments args_h, ?context? ctx) -> relation
         def constantize_model: (String? name) -> Class?

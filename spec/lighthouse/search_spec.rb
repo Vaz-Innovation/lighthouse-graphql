@@ -29,6 +29,14 @@ class SearchSpecNarrowed
   def self.call(_obj, _args, _ctx, resolve_info) = resolve_info.enhance_builder(SearchPost.where(author_id: 1))
 end
 
+# One that searches the relation the spec puts in the context, and reads what the engine finds.
+class SearchSpecGiven
+  def self.call(_obj, _args, ctx, resolve_info)
+    found = resolve_info.enhance_builder(ctx[:relation].call)
+    found.is_a?(Lighthouse::Search::Result) ? found.records : found.to_a
+  end
+end
+
 class Builders::SearchSpecOptions
   def self.call(query, value, _context)
     query.options[:fields] = [value]
@@ -493,6 +501,53 @@ RSpec.describe '@search' do
       it 'refuses a relation narrowed beforehand, whose conditions the engine would drop' do
         expect { run(schema, '{ narrowed(search: "great") { title } }') }
           .to raise_error(Lighthouse::DefinitionError, /searches the whole index of SearchPost: it cannot apply the conditions of the relation/)
+      end
+
+      describe 'on a model whose default scope hides records (paranoia)' do
+        let(:model) { SearchkickParanoidPost }
+        let(:given) do
+          search_with(FakeSearch::Engine.new([model], great))
+          given_schema(model.name)
+        end
+
+        # A field resolved by SearchSpecGiven, which searches the relation the context holds.
+        def given_schema(model)
+          build_schema(<<~GRAPHQL)
+            type #{model} { title: String! }
+            type Query { found(search: String @search): [#{model}!]! @field(resolver: "SearchSpecGiven") }
+          GRAPHQL
+        end
+
+        def search(relation) = given.execute('{ found(search: "great") { title } }', context: { relation: relation }).to_h
+
+        it 'refuses any relation that selects other records than the model, even with as many conditions as its own' do
+          {
+            'with_deleted, then a condition' => -> { model.with_deleted.where(author_id: 1) },
+            'unscoped, then a condition' => -> { model.unscoped.where(author_id: 1) },
+            'one condition swapped for another' => -> { model.unscope(where: :deleted_at).where(author_id: 1) },
+            'rewhere' => -> { model.rewhere(deleted_at: Time.current) },
+            'merge' => -> { model.merge(model.unscoped.where(author_id: 1)) },
+            'joins with a condition' => -> { model.joins('INNER JOIN search_posts authors ON authors.id = search_posts.author_id') },
+            'none' => -> { model.none },
+            'from' => -> { model.from('search_posts AS search_posts') }
+          }.each do |form, relation|
+            expect { search(relation) }.to raise_error(Lighthouse::DefinitionError, /cannot apply the conditions/), form
+          end
+        end
+
+        it 'refuses, when in doubt, a model whose default scope reads the clock: its own relation cannot be told from another' do
+          search_with(FakeSearch::Engine.new([SearchTimedPost], great))
+          timed = given_schema('SearchTimedPost')
+
+          expect { timed.execute('{ found(search: "great") { title } }', context: { relation: -> { SearchTimedPost.all } }) }
+            .to raise_error(Lighthouse::DefinitionError, /cannot apply the conditions/)
+        end
+
+        it "searches the model's own relation, or the relation in another order" do
+          [-> { model.all }, -> { model.order(:title) }].each do |relation|
+            expect(search(relation).dig('data', 'found').pluck('title')).to eq(['great title', 'Really great title'])
+          end
+        end
       end
     end
 

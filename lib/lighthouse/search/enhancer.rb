@@ -21,11 +21,15 @@ class Lighthouse::Search::Enhancer
     builder == :builder || builder.include?(Lighthouse::Contracts::SearchBuilder)
   end
 
-  def initialize(arguments, relation, results:, context:)
+  # `model_relation`: the caller built the relation as the model's own (`Model.all`,
+  # with the `scopes:` Search::FieldCheck refuses for an engine), so an engine may
+  # search the model's whole index without checking it was not narrowed.
+  def initialize(arguments, relation, results:, context:, model_relation: false)
     @arguments = arguments
     @relation = relation
     @results = results
     @context = context
+    @model_relation = model_relation
   end
 
   # The relation, searched; or a Search::Result. The relation itself if the client sent no search.
@@ -62,7 +66,7 @@ class Lighthouse::Search::Enhancer
             "@search with #{adapter.class.name.demodulize} answers outside the database: only @all and @paginate on a root field can use it."
     end
 
-    whole_index!(adapter)
+    whole_index!(adapter) unless @model_relation
     reject_incompatible
     query = @arguments.reject { |argument| search?(argument) }.reduce(query) { |narrowed, argument| narrow(narrowed, argument) }
     Lighthouse::Search::Result.new(adapter, query)
@@ -70,8 +74,8 @@ class Lighthouse::Search::Enhancer
 
   # The engine searches the model's whole index: the conditions of a relation
   # narrowed beforehand (`resolve_info.enhance_builder(Post.where(...))`) would be
-  # lost, and the search could find records the relation leaves out. The fields
-  # Search::FieldCheck lets through search the model's own relation.
+  # lost, and the search could find records the relation leaves out. A relation
+  # the app's code gives (enhance_builder) must select what the model's own does.
   def whole_index!(adapter)
     model = @relation.klass
     return if unnarrowed?(@relation, model.all)
@@ -81,16 +85,21 @@ class Lighthouse::Search::Enhancer
           "of the relation it was given. Search #{model.name}.all, and narrow the search with the field's arguments."
   end
 
-  # The parts of a relation that narrow what it selects, besides its conditions.
-  NARROWING = %i[joins_values left_outer_joins_values group_values limit_value offset_value].freeze
+  # The parts of a relation that decide which records it selects.
+  SELECTING = %i[where_clause having_clause from_clause joins_values left_outer_joins_values group_values limit_value offset_value].freeze
 
-  # Does the relation select what the model's own does? Compared by structure,
-  # without compiling SQL, on every search: as many conditions as the model's
-  # default scope adds (whose values may read the clock), and nothing else.
+  # Does the relation select what the model's own does? Each part equals the
+  # model's, conditions and their values included; anything else is refused, a
+  # default scope whose values read the clock too, since it cannot be told apart.
   def unnarrowed?(relation, base)
-    relation.where_clause.send(:predicates).size == base.where_clause.send(:predicates).size &&
-      relation.from_clause.empty? && relation.having_clause.empty? &&
-      NARROWING.all? { |part| relation.public_send(part) == base.public_send(part) }
+    !null_relation?(relation) && SELECTING.all? { |part| relation.public_send(part) == base.public_send(part) }
+  end
+
+  # `none`: a null relation (Rails 7.1+ answers null_relation?).
+  def null_relation?(relation)
+    return relation.null_relation? if relation.respond_to?(:null_relation?)
+
+    defined?(::ActiveRecord::NullRelation) && relation.is_a?(::ActiveRecord::NullRelation)
   end
 
   # The directives of an argument the client sent that a search engine cannot apply.
