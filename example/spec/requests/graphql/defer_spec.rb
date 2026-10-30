@@ -92,6 +92,36 @@ RSpec.describe 'Deferring fields', type: :request do
     expect(response.parsed_body['errors'].first['message']).to include('label "a"')
   end
 
+  it 'refuses a document that breaks the rules to a JSON client too, before anything runs' do
+    body = graphql('{ posts(first: 1) { data { ... @defer(label: "a") { title } ... @defer(label: "a") { id } } } }')
+
+    expect(body).not_to have_key('data')
+    expect(error_messages(body)).to eq(['The label "a" is used by more than one @defer or @stream in the document.'])
+  end
+
+  it 'refuses @defer on a root mutation field, through a named fragment too, and runs no mutation' do
+    query = 'mutation { ...M } fragment M on Mutation { ... @defer { createTag(name: "deferred") { name } } }'
+
+    stream(query)
+    expect(error_messages(response.parsed_body)).to eq(['The @defer directive cannot be used on a root mutation field.'])
+    expect(error_messages(graphql(query))).to eq(['The @defer directive cannot be used on a root mutation field.'])
+    expect(Tag.where(name: 'deferred')).to be_empty
+  end
+
+  # PHP Lighthouse's DeferDBTest#testDeferNestedListFields, over HTTP: a round of fragments is one
+  # query, however many objects it runs on (PHP Lighthouse puts @defer on the fields).
+  it 'costs one query a round for nested fragments under a list' do
+    query = '{ posts(first: 10) { data { title ... @defer { author { name ... @defer { posts { title } } } } } } }'
+    plain = query.gsub(' @defer', '')
+    whole = sql_queries { graphql(plain) }
+    payloads = nil
+    deferred = sql_queries { payloads = stream(query) }
+
+    expect(payloads.size).to eq(3)
+    expect(payloads.last['incremental'].size).to eq(3)
+    expect(deferred.size).to eq(whole.size)
+  end
+
   it 'streams the items of a paginated list after the first ones' do
     initial, later = stream('{ posts(first: 10) { data @stream(initialCount: 1, label: "rest") { title } } }')
 
