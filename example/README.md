@@ -36,15 +36,18 @@ curl -s localhost:3000/graphql -H 'Content-Type: application/json' -H 'Authoriza
 Run the end-to-end suite with `bundle exec rspec`, or `bin/ci`, which also
 checks `persisted-queries.json` against the schema.
 
-It runs on SQLite by default. `DATABASE_URL` runs it on PostgreSQL or MySQL, and
-`REDIS_URL` adds a Redis cache store to the `@throttle` specs, as CI does:
+It runs on SQLite by default. `DATABASE_URL` runs it on PostgreSQL or MySQL,
+`REDIS_URL` adds a Redis cache store to the `@throttle` specs, and `OPENSEARCH_URL` runs the
+`@search` specs on Searchkick against OpenSearch (the pg_search ones run on PostgreSQL), as CI does:
 
 ```shell
 docker run -d -p 5433:5432 -e POSTGRES_PASSWORD=postgres postgres:16
 docker run -d -p 3307:3306 -e MYSQL_ROOT_PASSWORD=root mysql:8.4
 docker run -d -p 6380:6379 redis:7
+docker run -d -p 9200:9200 -e discovery.type=single-node -e DISABLE_SECURITY_PLUGIN=true \
+  -e DISABLE_INSTALL_DEMO_CONFIG=true opensearchproject/opensearch:2
 
-export REDIS_URL=redis://127.0.0.1:6380/0 RAILS_ENV=test
+export REDIS_URL=redis://127.0.0.1:6380/0 OPENSEARCH_URL=http://127.0.0.1:9200 RAILS_ENV=test
 DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5433/lighthouse_example_test bin/rails db:create db:schema:load
 DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5433/lighthouse_example_test bundle exec rspec
 DATABASE_URL=trilogy://root:root@127.0.0.1:3307/lighthouse_example_test bin/rails db:create db:schema:load

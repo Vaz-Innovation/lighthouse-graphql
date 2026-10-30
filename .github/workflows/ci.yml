@@ -131,7 +131,9 @@ jobs:
     # The end-to-end suite again, on the databases apps run in production, with a
     # Redis cache store: SQL that differs per database (@whereJsonContains, the
     # batched relation queries), Solid Queue for @async, and @throttle's counts
-    # (spec/requests/graphql/real_backends_spec.rb).
+    # (spec/requests/graphql/real_backends_spec.rb); and OpenSearch, which Searchkick
+    # answers @search from (spec/requests/graphql/search_spec.rb, which pg_search's
+    # cases join on PostgreSQL).
     strategy:
       fail-fast: false
       matrix:
@@ -158,11 +160,21 @@ jobs:
         image: redis:7
         ports: ['6379:6379']
         options: --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 5s --health-retries 10
+      opensearch:
+        image: opensearchproject/opensearch:2
+        env:
+          discovery.type: single-node
+          DISABLE_SECURITY_PLUGIN: 'true'
+          DISABLE_INSTALL_DEMO_CONFIG: 'true'
+          OPENSEARCH_JAVA_OPTS: -Xms512m -Xmx512m
+        ports: ['9200:9200']
+        options: --health-cmd "curl -sf localhost:9200" --health-interval 10s --health-timeout 5s --health-retries 20
 
     env:
       RAILS_ENV: test
       DATABASE_URL: ${{ matrix.url }}
       REDIS_URL: redis://127.0.0.1:6379/0
+      OPENSEARCH_URL: http://127.0.0.1:9200
 
     defaults:
       run:
