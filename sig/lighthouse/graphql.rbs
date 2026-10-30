@@ -202,8 +202,10 @@ module Lighthouse
 
       # graphql-ruby's plugin hook.
       def self?.use: (schema schema, **untyped options) -> void
-      # Does the schema use the plugin?
+      # Does the schema use the plugin? `use` extends the schema class with Used.
       def self?.enabled?: (schema schema) -> bool
+      module Used
+      end
       # The Content-Type of the streamed response to `accept`, or nil when the client does not
       # prefer one to JSON.
       def self?.stream_type: (String? accept) -> String?

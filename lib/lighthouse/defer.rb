@@ -59,7 +59,11 @@ module Lighthouse::GraphQL::Defer
     schema.directive(Lighthouse::GraphQL::Incremental::StreamDirective)
     schema.query_analyzer(Lighthouse::GraphQL::Incremental::Rules)
     schema.trace_with(Lighthouse::GraphQL::Incremental::StreamTrace)
+    schema.extend(Used)
   end
+
+  # What a schema class that uses the plugin is extended with, which its subclasses inherit.
+  module Used; end
 
   # Where a request's stream_type is kept, so the header is read once.
   ENV_KEY = 'lighthouse.defer.stream_type'
@@ -81,9 +85,9 @@ module Lighthouse::GraphQL::Defer
     request.env.fetch(ENV_KEY) { request.env[ENV_KEY] = stream_type(request.headers['Accept']) }
   end
 
-  def enabled?(schema)
-    schema.directives['defer'] == Lighthouse::GraphQL::Incremental::DeferDirective
-  end
+  # Does `schema` use the plugin? Decided once a schema class (Schema.directives builds a Hash on
+  # every call), as `use` marks it.
+  def enabled?(schema) = schema.is_a?(Used)
 
   # The Content-Type of the streamed response to `accept`, or nil when the client does not prefer
   # one in this gem's format to JSON. It names the format when the client did.

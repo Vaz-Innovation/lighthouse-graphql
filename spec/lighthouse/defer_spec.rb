@@ -965,6 +965,18 @@ RSpec.describe 'Deferring fields' do
       expect(Lighthouse::GraphQL::Defer.enabled?(schema)).to be(true)
     end
 
+    it "tells a schema that uses the plugin, and its subclasses, without building the schema's directives" do
+      calls = 0
+      [schema, build_schema(sdl, dataloader: true)].each do |subject|
+        allow(subject).to receive(:directives).and_wrap_original { |original| (calls += 1) && original.call }
+      end
+      plain = build_schema(sdl, dataloader: true)
+
+      expect(3.times.map { Lighthouse::GraphQL::Defer.enabled?(schema) }).to eq([true] * 3)
+      expect([Lighthouse::GraphQL::Defer.enabled?(Class.new(schema)), Lighthouse::GraphQL::Defer.enabled?(plain)]).to eq([true, false])
+      expect(calls).to eq(0)
+    end
+
     it 'prints the directive as the specification declares it' do
       printed = schema.to_definition.gsub(/"""[^"]*"""\s*/m, '').gsub(/\s+/, ' ')
 
