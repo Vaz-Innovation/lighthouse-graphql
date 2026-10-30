@@ -100,13 +100,15 @@ class Lighthouse::GraphQL::Incremental::Document
   # The selections the later items of a streamed list run: those of each declaration of the field
   # at `path` that holds for the parent object (of type `parent_type`). nil when that cannot be
   # told (a declaration under a type condition of an object above the parent, or under another
-  # @defer that `deferring` would defer): the list is then answered whole.
+  # @defer that `deferring` would defer; or the streamed field's node is declared there under
+  # different @defer, through a named fragment spread at several places, so which of them runs
+  # is not known): the list is then answered whole.
   def merged(directive, path, parent_type, query, deferring)
     field = owner(directive)
     declarations = declarations(path.grep_v(Integer))
-    own = declarations.find { |declaration| declaration.field.equal?(field) } or return nil
-    declarations.each_with_object(field.selections.dup) do |declaration, selections|
-      next if declaration.equal?(own)
+    owns, others = declarations.partition { |declaration| declaration.field.equal?(field) }
+    own = own(owns) or return nil
+    others.each_with_object(field.selections.dup) do |declaration, selections|
       return nil if unknowable?(declaration, own, query, deferring)
 
       selections.concat(declaration.field.selections) if holds?(declaration, parent_type, query)
@@ -114,6 +116,12 @@ class Lighthouse::GraphQL::Incremental::Document
   end
 
   private
+
+  # The streamed field's declaration, unless it is declared under different @defer.
+  def own(owns)
+    defers = owns.map { |declaration| declaration.defers.map(&:object_id).sort }
+    owns.first if defers.uniq.one?
+  end
 
   def holds?(declaration, parent_type, query)
     (declaration.gates + declaration.around + [declaration.field]).all? { |node| included?(node, query) } &&
