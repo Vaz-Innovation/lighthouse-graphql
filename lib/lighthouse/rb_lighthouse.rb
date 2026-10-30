@@ -24,6 +24,7 @@ require_relative 'namespaces'
   reference_resolver
   support/naming
   support/directive_args
+  support/argument_walk
   support/model_resolver
   support/authorization
   support/arguments

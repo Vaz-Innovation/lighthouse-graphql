@@ -688,14 +688,23 @@ RSpec.describe '@search' do
       schema
       walks = 0
       count = ->(original, *args) { (walks += 1) && original.call(*args) }
-      allow(Lighthouse::Search).to receive(:directives).and_call_original
+      allow(Lighthouse::Support::ArgumentWalk).to receive(:definitions).and_call_original
       allow_any_instance_of(Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver) # rubocop:disable RSpec/AnyInstance
         .to receive(:arg_builders).and_wrap_original(&count)
 
       2.times { run(schema, '{ posts(search: "great", authorId: 1) { title } }') }
 
       expect(walks).to eq(2)
-      expect(Lighthouse::Search).not_to have_received(:directives)
+      expect(Lighthouse::Support::ArgumentWalk).not_to have_received(:definitions)
+    end
+
+    it 'walks the arguments of a searched field once for its searches when the schema is built, as for its @canModel' do
+      allow(Lighthouse::Support::ArgumentWalk).to receive(:definitions).and_call_original
+
+      built = build_schema('type SearchPost { id: ID! } type Query { posts(search: String @search, id: ID @eq): [SearchPost!]! @all }')
+
+      arguments = built.query.fields['posts'].arguments
+      expect(Lighthouse::Support::ArgumentWalk).to have_received(:definitions).with(arguments).twice
     end
 
     it 'ends the order with the primary key, after the orders that decide ties, once' do

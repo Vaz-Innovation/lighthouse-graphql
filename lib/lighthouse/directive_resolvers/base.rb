@@ -191,27 +191,31 @@ class Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
   # as PHP Lighthouse's applyArgBuilderDirectives goes through them. `values`
   # holds the node's value: the arguments, or the input object it is a field of.
   def arg_builders(args_h)
-    builders_in(@field_def.ast_node.arguments || [], @field_def.arguments, args_h)
+    builders_in(@field_def.arguments, args_h)
   end
 
-  def builders_in(nodes, arguments, values)
+  # The argument definitions and their directives are Support::ArgumentWalk's, as
+  # the schema's build sees them; the values guide the walk into input objects.
+  def builders_in(arguments, values)
     registry = Lighthouse::DirectiveRegistry.default
-    nodes.flat_map do |node|
-      own = (node.directives || []).filter_map do |dnode|
+    walk = Lighthouse::Support::ArgumentWalk
+    arguments.each_value.flat_map do |argument|
+      node = argument.ast_node
+      next [] unless node
+
+      own = walk.directives(argument).filter_map do |dnode|
         builder_class = dnode.name == 'builder' ? :builder : registry.arg_builder_class(dnode.name)
         [values, node, dnode, builder_class] if builder_class
       end
-      own + nested_builders(arguments[node.name], dig_arg(values, [node.name]))
+      own + nested_builders(argument, dig_arg(values, [node.name]))
     end
   end
 
   def nested_builders(argument, value)
-    return [] if argument.nil? || value.nil?
+    fields = Lighthouse::Support::ArgumentWalk.input_fields(argument)
+    return [] if value.nil? || fields.empty?
 
-    type = argument.type.unwrap
-    return [] unless type.kind.input_object?
-
-    [value].flatten.compact.flat_map { |input| builders_in(type.arguments.values.filter_map(&:ast_node), type.arguments, input) }
+    [value].flatten.compact.flat_map { |input| builders_in(fields, input) }
   end
 
   # The client's value at `path` (an argument, then input fields), or nil.

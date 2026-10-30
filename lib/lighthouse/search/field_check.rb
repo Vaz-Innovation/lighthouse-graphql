@@ -27,9 +27,8 @@ class Lighthouse::Search::FieldCheck
   end
 
   def check!
-    return unless Lighthouse::Search.searching?(@field_def)
-
     searches = Lighthouse::Search.directives(@field_def)
+    return if searches.empty?
 
     searches.each { |path, directive| within_string!(path, directive) }
     model = model_class
@@ -98,8 +97,7 @@ class Lighthouse::Search::FieldCheck
   def resolving_directive
     return @resolving_directive if defined?(@resolving_directive)
 
-    registry = Lighthouse::DirectiveRegistry.default
-    @resolving_directive = @directives.find { |directive| registry.resolution_class(directive.name) && !registry.wrapper?(directive.name) }
+    @resolving_directive = Lighthouse::GraphQL::FieldResolverStack.resolving_directive(@directives)
   end
 
   def can_queries = @directives.select { |directive| directive.name == 'canQuery' }

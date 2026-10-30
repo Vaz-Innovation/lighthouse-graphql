@@ -39,12 +39,14 @@ module Lighthouse::GraphQL::FieldResolverStack
     end
   end
 
-  # Whether a directive resolves the field itself (a wrapper only decorates
-  # another resolver), so the field needs no conventional one.
-  def resolving_directive?(directives)
+  # The directive that resolves the field itself (a wrapper only decorates
+  # another resolver), or nil: then the field needs a conventional one.
+  def resolving_directive(directives)
     registry = Lighthouse::DirectiveRegistry.default
-    directives.any? { |d| registry.resolution_class(d.name) && !registry.wrapper?(d.name) }
+    directives.find { |d| registry.resolution_class(d.name) && !registry.wrapper?(d.name) }
   end
+
+  def resolving_directive?(directives) = !resolving_directive(directives).nil?
 
   def convention_step(type, field_def, root_kind, bases = {})
     resolvers = Lighthouse::GraphQL::DirectiveResolvers
@@ -124,23 +126,12 @@ module Lighthouse::GraphQL::FieldResolverStack
   end
 
   # [dot path ("filter.trashed", "inputs.*.status"), @canModel node] for every
-  # argument and input field carrying @canModel; an input type is not walked
-  # twice on one path.
-  def authorized_arguments(arguments, prefix = nil, seen = Set.new)
-    arguments.each_value.flat_map do |argument|
-      path = [prefix, argument.graphql_name].compact.join('.')
-      own = (argument.ast_node&.directives || []).select { |d| d.name == 'canModel' }.map { |dnode| [path, dnode] }
-      own + authorized_input_fields(argument, path, seen)
+  # argument and input field carrying @canModel (Support::ArgumentWalk).
+  def authorized_arguments(arguments)
+    walk = Lighthouse::Support::ArgumentWalk
+    walk.definitions(arguments).flat_map do |path, argument|
+      walk.directives(argument).select { |d| d.name == 'canModel' }.map { |dnode| [path, dnode] }
     end
-  end
-
-  # Those of the input type an argument takes; `*` steps into each of a list.
-  def authorized_input_fields(argument, path, seen)
-    type = argument.type.unwrap
-    return [] unless type.kind.input_object? && seen.exclude?(type.graphql_name)
-
-    list = (argument.type.non_null? ? argument.type.of_type : argument.type).list?
-    authorized_arguments(type.arguments, list ? "#{path}.*" : path, seen | [type.graphql_name])
   end
 
   # Around whatever resolves the field, as @lazyLoad: the result is cut to the client's @limit.

@@ -48,33 +48,19 @@ module Lighthouse::Search
   end
 
   # [path, @search directive node] for every argument and input field of the
-  # field carrying @search, at any depth; an input type is not walked twice on one path.
-  def directives(field_def)
-    in_arguments(field_def.arguments, nil, Set.new)
-  end
-
-  # Does the field have an argument or input field with @search? Walked once per
+  # field carrying @search, at any depth (Support::ArgumentWalk). Walked once per
   # field, the first time it is asked (Search::FieldCheck, when the schema is
   # built), and kept on the field: a schema built again on reload starts afresh.
-  def searching?(field_def)
-    return field_def.instance_variable_get(:@lighthouse_searching) if field_def.instance_variable_defined?(:@lighthouse_searching)
+  def directives(field_def)
+    return field_def.instance_variable_get(:@lighthouse_searches) if field_def.instance_variable_defined?(:@lighthouse_searches)
 
-    field_def.instance_variable_set(:@lighthouse_searching, directives(field_def).any?)
-  end
-
-  def in_arguments(arguments, prefix, seen)
-    arguments.each_value.flat_map do |argument|
-      path = [prefix, argument.graphql_name].compact.join('.')
-      own = (argument.ast_node&.directives || []).select { |d| d.name == 'search' }.map { |dnode| [path, dnode] }
-      own + in_input_fields(argument.type.unwrap, path, seen)
+    walk = Lighthouse::Support::ArgumentWalk
+    searches = walk.definitions(field_def.arguments).flat_map do |path, argument|
+      walk.directives(argument).select { |d| d.name == 'search' }.map { |dnode| [path, dnode] }
     end
+    field_def.instance_variable_set(:@lighthouse_searches, searches.freeze)
   end
-  private_class_method :in_arguments
 
-  def in_input_fields(type, path, seen)
-    return [] unless type.kind.input_object? && seen.exclude?(type.graphql_name)
-
-    in_arguments(type.arguments, path, seen | [type.graphql_name])
-  end
-  private_class_method :in_input_fields
+  # Does the field have an argument or input field with @search?
+  def searching?(field_def) = directives(field_def).any?
 end
