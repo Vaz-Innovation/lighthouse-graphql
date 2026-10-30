@@ -96,13 +96,14 @@ module Lighthouse
       # protocol error as a ready-to-render { "errors" => [...] } Hash.
       def self?.execute: (schema schema, query: String?, ?extensions: extensions?, ?variables: Hash[String, untyped]?,
                           ?operation_name: String?, ?context: Hash[Symbol, untyped], **untyped options) -> _Result
-      # `execute` for a response that may be streamed (Defer): the started
-      # Incremental::Run, or a protocol error as a ready-to-render Hash.
-      def self?.incremental: (schema schema, query: String?, ?extensions: extensions?, ?variables: Hash[String, untyped]?,
-                              ?operation_name: String?, ?context: Hash[Symbol, untyped], **untyped options) -> (Incremental::Run | Hash[String, json])
+      # `execute` for a response that may be streamed (Defer): yields the started
+      # Incremental::Run and answers what the block does, or a protocol error as a
+      # ready-to-render Hash. The operation ends once the run is done, or the block.
+      def self?.incremental: [T] (schema schema, query: String?, ?extensions: extensions?, ?variables: Hash[String, untyped]?,
+                                  ?operation_name: String?, ?context: Hash[Symbol, untyped], **untyped options) { (Incremental::Run run) -> T } -> (T | Hash[String, json])
       # What execute and incremental share: the block runs the query text the request names,
       # between the operation events; a protocol error comes back as its Hash.
-      def self?.operation: [T] (String? query, extensions? extensions, Hash[Symbol, untyped] options) { (String? text) -> T } -> (T | Hash[String, json])
+      def self?.operation: [T] (String? query, extensions? extensions, Hash[Symbol, untyped] options) { (String? text, ^(untyped) -> void ended) -> T } -> (T | Hash[String, json])
       # A batch: `schema.multiplex` with the query each operation (a Hash of
       # query, extensions, variables, operation_name, context) names. One result
       # per operation, in order; a protocol error is a ready-to-render Hash.
@@ -235,16 +236,16 @@ module Lighthouse
         # `options` are `schema.execute`'s: variables:, operation_name:, context:.
         # A nil query string (a request without one) is answered as graphql-ruby answers it.
         def initialize: (schema schema, String? query_string, **untyped options) -> void
-        # Runs the first pass; returns self.
-        def start: () -> Run
+        # Runs the first pass; returns self. The block gets what ends the operation (see finish).
+        def start: () ?{ (untyped result) -> void } -> Run
+        # Calls start's block, once: with the first pass's result when nothing was deferred, else the response so far.
+        def finish: () -> void
         # The first pass's result.
         def result: () -> _Result
         # Are fragments pending?
         def deferred?: () -> bool
         # The initial payload, then one per round of deferred fragments, until `hasNext` is false.
         def each_payload: () { (Hash[String, json]) -> void } -> void
-        # The block each_payload calls with the whole response once it is done.
-        def on_finish: () { (Hash[String, untyped]) -> void } -> void
         # The whole response: the data and the errors of every round.
         def response: () -> Hash[String, untyped]
       end

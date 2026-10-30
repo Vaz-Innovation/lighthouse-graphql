@@ -119,9 +119,15 @@ module Lighthouse::GraphQL::Controller
   # fragment is deferred, else streams the payloads as `multipart/mixed` parts
   # (not cacheable, whatever @cacheControl says).
   def lighthouse_incremental(operation)
-    run = Lighthouse::GraphQL::PersistedQueries.incremental(graphql_schema, **lighthouse_arguments(operation))
-    return render json: run if run.is_a?(Hash)
+    error = Lighthouse::GraphQL::PersistedQueries.incremental(graphql_schema, **lighthouse_arguments(operation)) do |run|
+      lighthouse_answer(run)
+      nil
+    end
+    render json: error if error
+  end
 
+  # A run that defers streams; one that does not is rendered, as the JSON path renders a result.
+  def lighthouse_answer(run)
     return lighthouse_stream(run) if run.deferred?
 
     Lighthouse::GraphQL::CacheControl.apply(response, run.result)

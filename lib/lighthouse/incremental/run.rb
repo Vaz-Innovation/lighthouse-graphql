@@ -50,10 +50,16 @@ class Lighthouse::GraphQL::Incremental::Run
     @open = {}
   end
 
-  def start
+  # Runs the first pass. The block, if given, gets what ends the operation (`finish`): the first
+  # pass's result when nothing is deferred, at once; else the whole response, once the last
+  # payload is out (or `finish` is called).
+  def start(&finished)
     seconds = Lighthouse::Config.defer_max_execution_ms / 1000.0
     @deadline = clock + seconds if seconds.positive?
     @result = execute
+    @finished = finished
+    @streams = deferred?
+    finish unless @streams
     self
   end
 
@@ -66,7 +72,7 @@ class Lighthouse::GraphQL::Incremental::Run
   # fails, to run or to be written (the block raised: its app values did not encode), ends the
   # stream with a last payload, which completes, with an error, every id the client was sent and
   # has not seen completed, then raises again. A first payload that fails raises, nothing being
-  # sent. However it ends, the `on_finish` block gets the response.
+  # sent. However it ends, `finish` follows.
   def each_payload(&block)
     emit(Serializer.initial(@result, @announced, has_next: deferred?), &block)
     until @queue.empty?
@@ -81,17 +87,20 @@ class Lighthouse::GraphQL::Incremental::Run
     finish
   end
 
-  # The block to call with the whole response once the last payload is out.
-  def on_finish(&block)
-    @finished = block
-  end
-
   # The whole response as the client puts it together: the data of every round, the errors of
   # every round (the first pass's first), the first pass's extensions.
   def response
     first = @result.to_h
     { 'data' => @tree ? @tree.data : first['data'], 'errors' => (first['errors'].to_a + @errors).presence,
       'extensions' => first['extensions'] }.compact
+  end
+
+  # Calls the block `start` was given, once: with the first pass's result when nothing was
+  # deferred, else with the response so far.
+  def finish
+    finished = @finished
+    @finished = nil
+    finished&.call(@streams ? response : @result)
   end
 
   private
@@ -226,12 +235,6 @@ class Lighthouse::GraphQL::Incremental::Run
 
   # Does `path` lead to a value in the response's data so far?
   def present?(path) = @tree.present?(path)
-
-  def finish
-    finished = @finished
-    @finished = nil
-    finished&.call(response)
-  end
 
   # Yields a payload, and keeps the ids the client was sent and has not seen completed.
   def emit(payload)

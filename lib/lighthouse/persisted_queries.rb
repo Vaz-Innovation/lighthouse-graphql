@@ -55,36 +55,38 @@ module Lighthouse::GraphQL::PersistedQueries
   # comes back as a ready-to-render { "errors" => [...] } Hash. Dispatches
   # StartOperationOrOperations before and EndOperationOrOperations after.
   def execute(schema, query:, extensions: nil, **options)
-    operation(query, extensions, options) { |text| schema.execute(text, **options) }
+    operation(query, extensions, options) { |text, ended| schema.execute(text, **options).tap { |result| ended.call(result) } }
   end
 
-  # `execute` for a response that may be streamed (Defer): the Incremental::Run
-  # of the query, started (its first pass has run), or the ready-to-render Hash
-  # of a protocol error. Dispatches the same events as `execute`; for a run
-  # that defers, EndOperationOrOperations comes once its last round has run,
-  # with the whole response (Incremental::Run#response): the data of every
-  # round, and the errors of every round.
+  # `execute` for a response that may be streamed (Defer): yields the
+  # Incremental::Run of the query, started (its first pass has run), and answers
+  # what the block answers; or answers the ready-to-render Hash of a protocol
+  # error, without yielding. Dispatches the same events as `execute`: for a run
+  # that defers nothing, EndOperationOrOperations with its result at once; for one
+  # that defers, with the whole response (Incremental::Run#response, the data and
+  # errors of every round) once its last round has run, or, if the block streams
+  # none, once the block is done.
   def incremental(schema, query:, extensions: nil, **options)
-    operation(query, extensions, options) { |text| Lighthouse::GraphQL::Incremental::Run.new(schema, text, **options).start }
+    operation(query, extensions, options) do |text, ended|
+      run = Lighthouse::GraphQL::Incremental::Run.new(schema, text, **options).start(&ended)
+      begin
+        yield run
+      ensure
+        run.finish
+      end
+    end
   end
 
   # What `execute` and `incremental` share: the block runs the query the request names
-  # (`text`), between StartOperationOrOperations and EndOperationOrOperations (which a
-  # Run that defers dispatches when it is done); a protocol error comes back as its Hash.
+  # (`text`) after StartOperationOrOperations, and calls `ended` with what EndOperationOrOperations
+  # carries, once it is done; a protocol error comes back as its Hash, and ends the operation.
   def operation(query, extensions, options)
     operation = { query: query, variables: options[:variables], operation_name: options[:operation_name], extensions: extensions }
     Lighthouse::Events.dispatch(Lighthouse::Events::StartOperationOrOperations.new(operation))
-    result =
-      begin
-        yield resolve(query, extensions)
-      rescue Error => e
-        e.to_h
-      end
-    ended = ->(response) { Lighthouse::Events.dispatch(Lighthouse::Events::EndOperationOrOperations.new(response)) }
-    return result.tap { |run| run.on_finish(&ended) } if result.is_a?(Lighthouse::GraphQL::Incremental::Run) && result.deferred?
-
-    ended.call(result.is_a?(Lighthouse::GraphQL::Incremental::Run) ? result.result : result)
-    result
+    ended = ->(result) { Lighthouse::Events.dispatch(Lighthouse::Events::EndOperationOrOperations.new(result)) }
+    yield resolve(query, extensions), ended
+  rescue Error => e
+    e.to_h.tap { |error| ended.call(error) }
   end
 
   # A batch (a JSON array in the request) through `schema.multiplex`; see Batch.

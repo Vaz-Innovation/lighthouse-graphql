@@ -1061,24 +1061,41 @@ RSpec.describe 'Deferring fields' do
   end
 
   describe 'the operation events of a streamed response' do
+    let(:ended) { [] }
+
+    before { Lighthouse::Events.listen(Lighthouse::Events::EndOperationOrOperations) { |event| (ended << event.result_or_results) && nil } }
+
+    def incremental(query, &block) = Lighthouse::GraphQL::PersistedQueries.incremental(schema, query: query, &block)
+
     it 'ends the operation after the last round, with the data and the errors of every round' do
       log = []
-      Lighthouse::Events.listen(Lighthouse::Events::EndOperationOrOperations) { |event| (log << [:end, event.result_or_results.to_h]) && nil }
-      run = Lighthouse::GraphQL::PersistedQueries.incremental(schema, query: '{ user(id: 1) { id ... @defer { name broken } } }')
-      run.each_payload { |payload| log << [:payload, payload['hasNext']] }
+      incremental('{ user(id: 1) { id ... @defer { name broken } } }') do |run|
+        run.each_payload { |payload| log << [payload['hasNext'], ended.size] }
+      end
 
-      expect(log.map(&:first)).to eq(%i[payload payload end])
-      expect(log.last.last['data']).to eq('user' => { 'id' => '1', 'name' => 'u0', 'broken' => nil })
-      expect(log.last.last['errors'].pluck('message', 'path')).to eq([['no u0', %w[user broken]]])
+      expect(log).to eq([[true, 0], [false, 0]])
+      expect(ended.last.to_h['data']).to eq('user' => { 'id' => '1', 'name' => 'u0', 'broken' => nil })
+      expect(ended.last.to_h['errors'].pluck('message', 'path')).to eq([['no u0', %w[user broken]]])
     end
 
     it 'ends one that defers nothing at once, with its result, as schema.execute' do
-      ended = []
-      Lighthouse::Events.listen(Lighthouse::Events::EndOperationOrOperations) { |event| (ended << event.result_or_results) && nil }
+      result = incremental('{ user(id: 1) { id } }') { |run| [run.result, ended.dup] }
 
-      run = Lighthouse::GraphQL::PersistedQueries.incremental(schema, query: '{ user(id: 1) { id } }')
+      expect(result).to eq([ended.first, [ended.first]])
+    end
 
-      expect(ended).to eq([run.result])
+    it 'ends one the block never streams, once the block is done, with what it holds' do
+      incremental('{ user(id: 1) { id ... @defer { name } } }') { |run| expect(run).to be_deferred }
+
+      expect(ended.map { |response| response.to_h['data'] }).to eq([{ 'user' => { 'id' => '1' } }])
+    end
+
+    it 'ends one with a protocol error at once, with that error' do
+      Lighthouse.configure { |config| config.persisted_queries = true }
+
+      result = Lighthouse::GraphQL::PersistedQueries.incremental(schema, query: nil, extensions: { 'persistedQuery' => { 'version' => 1, 'sha256Hash' => 'a' * 64 } }) { raise 'not run' }
+
+      expect(ended).to eq([result])
     end
   end
 
