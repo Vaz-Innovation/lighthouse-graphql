@@ -90,7 +90,8 @@ class Lighthouse::GraphQL::Incremental::Run
   # every round (the first pass's first), the first pass's extensions.
   def response
     first = @result.to_h
-    { 'data' => @tree, 'errors' => (first['errors'].to_a + @errors).presence, 'extensions' => first['extensions'] }.compact
+    { 'data' => @tree ? @tree.data : first['data'], 'errors' => (first['errors'].to_a + @errors).presence,
+      'extensions' => first['extensions'] }.compact
   end
 
   private
@@ -100,13 +101,13 @@ class Lighthouse::GraphQL::Incremental::Run
   # may use @defer or @stream (INCREMENTAL, on the text: a false positive costs an unused
   # State); it reads the document once it is parsed.
   def execute
-    @state = State.new if @stream && INCREMENTAL.match?(@query_string.to_s)
+    @state = State.new if @stream && INCREMENTAL.match?(@query_string.to_s) && traced?
     query = ::GraphQL::Query.new(@schema, @query_string, **@options.except(:context), context: query_context)
     @state&.query = query
-    result = @schema.multiplex([query], max_complexity: nil, context: multiplex_context).first
+    result = running { @schema.multiplex([query], max_complexity: nil, context: multiplex_context).first }
     return result unless @state
 
-    @tree = result.to_h['data']
+    @tree = Lighthouse::GraphQL::Incremental::Tree.new(result.to_h['data'])
     announce(@state.drain(query))
     result
   end
@@ -118,13 +119,30 @@ class Lighthouse::GraphQL::Incremental::Run
     @state ? (context || {}).merge(State::CONTEXT_KEY => @state) : context
   end
 
-  # What Schema.execute hands its multiplex of the query's context, and the trace mode with
-  # Recorder when the response streams, unless the app picked one: a new Hash each time, where
+  # What Schema.execute hands its multiplex of the query's context: a new Hash each time, where
   # graphql-ruby puts the multiplex's dataloader and trace, so each round gets its own.
   def multiplex_context
     context = @options[:context] || {}
-    mode = context[:trace_mode] || (Lighthouse::GraphQL::Incremental::Recorder::MODE if @state && @schema.default_trace_mode == :default)
-    { backtrace: context[:backtrace], tracers: context[:tracers], trace: context[:trace], dataloader: context[:dataloader], trace_mode: mode }
+    { backtrace: context[:backtrace], tracers: context[:tracers], trace: context[:trace], dataloader: context[:dataloader],
+      trace_mode: context[:trace_mode] }
+  end
+
+  # Does the trace the request runs with hold StreamTrace (in every mode, unless the app gave a
+  # trace class of its own that leaves out the schema's trace modules)? Without it nothing is
+  # streamed: the response comes whole.
+  def traced?
+    context = @options[:context] || {}
+    trace = context[:trace] || @schema.trace_class_for(context[:trace_mode] || @schema.default_trace_mode, build: true)
+    (trace.is_a?(Module) ? trace : trace.class).include?(Lighthouse::GraphQL::Incremental::StreamTrace)
+  end
+
+  # Runs a multiplex with the State in StreamTrace's fiber-local RUNNING.
+  def running
+    previous = Thread.current[Lighthouse::GraphQL::Incremental::StreamTrace::RUNNING]
+    Thread.current[Lighthouse::GraphQL::Incremental::StreamTrace::RUNNING] = @state
+    yield
+  ensure
+    Thread.current[Lighthouse::GraphQL::Incremental::StreamTrace::RUNNING] = previous
   end
 
   # The next round: every pending fragment and list, run together.
@@ -180,7 +198,7 @@ class Lighthouse::GraphQL::Incremental::Run
   # The first pass analyzed the whole document: no max_complexity again, which analysis
   # cannot apply to a Partial.
   def run(partials)
-    @schema.multiplex(partials, context: multiplex_context, max_complexity: nil).map(&:to_h)
+    running { @schema.multiplex(partials, context: multiplex_context, max_complexity: nil).map(&:to_h) }
   end
 
   # The payload's `incremental`, `completed` and `extensions` for the units' responses, which
@@ -221,40 +239,10 @@ class Lighthouse::GraphQL::Incremental::Run
 
   def empty?(entry) = entry.size == 2 && (entry['data'] || entry['items']).empty?
 
-  # The response's data so far, with (a copy of) a unit's: a stream's items after the list's, a
-  # fragment's fields in its object.
-  #
-  # Nothing is copied whole, and no payload changes: the response holds the first payload's
-  # data and the entries' as they are, and each Hash or list later data goes in is copied
-  # (shallowly) the first time it does, with the ones above it (@own).
+  # The response's data so far, with a unit's: a stream's items after the list's, a fragment's
+  # fields in its object.
   def merge(unit, data)
-    target = own_path(unit.path) or return
-    unit.stream? ? target.concat(data) : merge_into(target, data)
-  end
-
-  # The containers along `path`, copied into the response where they are not its own yet; the last.
-  def own_path(path)
-    return nil unless @tree.is_a?(Hash)
-
-    container = @tree = own(@tree)
-    path.each do |key|
-      child = State.at(container, [key])
-      return nil unless child.is_a?(Hash) || child.is_a?(Array)
-
-      container = container[key] = own(child)
-    end
-    container
-  end
-
-  def merge_into(target, data)
-    return unless target.is_a?(Hash)
-
-    data.each { |key, value| target[key].is_a?(Hash) && value.is_a?(Hash) ? merge_into(target[key] = own(target[key]), value) : target[key] = value }
-  end
-
-  def own(container)
-    @own ||= {}.compare_by_identity
-    @own.key?(container) ? container : container.dup.tap { |copy| @own[copy] = true }
+    unit.stream? ? @tree.append(unit.path, data) : @tree.merge(unit.path, data)
   end
 
   # The paths of a stream's errors, as the response's.
@@ -276,7 +264,7 @@ class Lighthouse::GraphQL::Incremental::Run
   end
 
   # Does `path` lead to a value in the response's data so far?
-  def present?(path) = !State.at(@tree, path).nil?
+  def present?(path) = @tree.present?(path)
 
   def finish
     finished = @finished

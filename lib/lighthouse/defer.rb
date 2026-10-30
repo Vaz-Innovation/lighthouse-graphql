@@ -54,7 +54,6 @@ module Lighthouse::GraphQL::Defer
     schema.directive(Lighthouse::GraphQL::Incremental::StreamDirective)
     schema.query_analyzer(Lighthouse::GraphQL::Incremental::Rules)
     schema.trace_with(Lighthouse::GraphQL::Incremental::StreamTrace)
-    schema.trace_with(Lighthouse::GraphQL::Incremental::Recorder, mode: Lighthouse::GraphQL::Incremental::Recorder::MODE)
   end
 
   # Where a request's stream_type is kept, so the header is read once.

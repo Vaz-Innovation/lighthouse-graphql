@@ -5,7 +5,7 @@ require 'set'
 # What one request's incremental delivery knows while it runs, kept in the
 # context (CONTEXT_KEY): the client's Document, the fragments @defer and the
 # lists @stream left pending, whether they may still be deferred, and the
-# objects the fragments will need (Recorder keeps them).
+# objects the fragments will need (StreamTrace keeps them).
 #
 # graphql-ruby asks DeferDirective.include? (and StreamDirective.resolve) with a
 # directive's arguments, not its AST node. It takes those arguments from
@@ -16,11 +16,6 @@ require 'set'
 class Lighthouse::GraphQL::Incremental::State
   CONTEXT_KEY = :lighthouse_incremental
   MISSING = Object.new.freeze
-
-  # What `path` leads to in a response's `data` (Hashes and lists), or nil where it leads nowhere.
-  def self.at(data, path)
-    path.reduce(data) { |value, key| (value.is_a?(Array) && key.is_a?(Integer)) || value.is_a?(Hash) ? value[key] : nil }
-  end
 
   # A deferred fragment waiting to run on `object` (the application value, not graphql-ruby's
   # wrapper) of the object type `type`, at `path` of the response; or, with a `list_type`, the
@@ -112,11 +107,12 @@ class Lighthouse::GraphQL::Incremental::State
     @recorded.delete(query) || []
   end
 
-  # Recorder: is a field of response key `key` one a pending fragment may need the object of?
-  def wanted?(key) = @keys.include?(key)
+  # StreamTrace: the value the field of `ast_node` resolved to in `query`, if a pending fragment
+  # of this request may need it.
+  def keep(query, ast_node, value)
+    return unless @keys.include?(ast_node.alias || ast_node.name) && query.context[CONTEXT_KEY].equal?(self)
 
-  # Recorder: the value a field of `query` resolved to at `path`, if a pending fragment may need it.
-  def keep(query, path, value)
+    path = query.context[:current_path]
     @objects[absolute(query, path)] = value if @needed.include?(path.grep_v(Integer))
   end
 
@@ -155,10 +151,15 @@ class Lighthouse::GraphQL::Incremental::State
   # of the query asked for them too.
   def need(fragment, path)
     base = path.grep_v(Integer)
-    object_fields(document.selections(fragment), [], Set.new).each do |relative|
+    relative(fragment).each do |relative|
       @needed << (base + relative)
       @keys << relative.last
     end
+  end
+
+  # The fragment's object fields, walked once a request.
+  def relative(fragment)
+    (@relative ||= {}.compare_by_identity)[fragment] ||= object_fields(document.selections(fragment), [], Set.new)
   end
 
   def object_fields(selections, prefix, seen)

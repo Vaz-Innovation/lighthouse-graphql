@@ -14,6 +14,13 @@ class DeferSpecNames
   def self.call(*) = %w[ann bob cat dan]
 end
 
+# A value graphql-ruby syncs later (Schema.lazy_resolve), as a promise would be.
+DeferSpecLazy = Struct.new(:value)
+
+class DeferSpecLater
+  def self.call(*) = DeferSpecLazy.new(%w[ann bob cat dan])
+end
+
 class DeferSpecNothing
   def self.call(*) = nil
 end
@@ -272,6 +279,20 @@ RSpec.describe 'Deferring fields' do
       expect(calls).to eq(LH::Post.count)
     end
 
+    it 'walks a deferred fragment once for the objects it needs, however many objects it is deferred on' do
+      walks = lambda do |count|
+        LH::User.where.not(id: LH::User.order(:id).limit(count).select(:id)).find_each { |user| user.posts.each(&:delete) && user.delete }
+        calls = 0
+        allow_any_instance_of(Lighthouse::GraphQL::Incremental::State).to receive(:object_fields).and_wrap_original do |original, *args| # rubocop:disable RSpec/AnyInstance
+          (calls += 1) && original.call(*args)
+        end
+        payloads('{ users { company { name } ... @defer { name company { id } } } }')
+        calls
+      end
+
+      expect(walks.call(3)).to eq(walks.call(1))
+    end
+
     it 'parses the query once' do
       allow(GraphQL).to receive(:parse).and_call_original
 
@@ -343,14 +364,26 @@ RSpec.describe 'Deferring fields' do
         expect(deferred.size).to eq(queries_in { schema.execute('{ users { company { name } name company { id } } }') }.size)
       end
 
-      it 'resolves a shared object again for what a fragment adds where the app picked its own trace mode' do
-        all = payloads('{ users { company { name } ... @defer { name company { id } } } }', context: { trace_mode: :app_mode })
-
-        expect(all.last['incremental'].first).to eq('id' => '0', 'data' => { 'name' => 'u0', 'company' => { 'id' => '1' } })
-      end
-
-      describe 'where the app picked its own trace mode' do
+      describe 'where the app picked its own trace mode, or asked for a backtrace' do
         def fallback(query) = payloads(query, context: { trace_mode: :app_mode })
+
+        it 'resolves a shared object once all the same, and the whole response is the query without the directives' do
+          query = '{ user(id: 1) { posts { id } ... @defer { posts { title } } } }'
+          started = run(query, context: { trace_mode: :app_mode })
+          all = []
+          deferred = queries_in { started.each_payload { |payload| all << payload } }
+          plain = schema.execute('{ user(id: 1) { posts { id title } } }').to_h['data']
+
+          expect(all.last['incremental']).to eq([{ 'id' => '0', 'subPath' => ['posts', 0], 'data' => { 'title' => 'p0' } }])
+          expect([assembled(all), started.response['data']]).to eq([plain, plain])
+          expect(deferred).to be_empty
+        end
+
+        it "keeps graphql-ruby's backtrace of an error" do
+          LH::User.define_method(:loud) { raise 'boom' }
+
+          expect { run('{ users { id ... @defer { name } loud } }', context: { backtrace: true }) }.to raise_error(GraphQL::Backtrace::TracedError)
+        end
 
         it 'does not resolve a shared object again when the fragment adds nothing to it' do
           query = '{ user(id: 1) { company { name } ... @defer { company { name } } } }'
@@ -528,6 +561,19 @@ RSpec.describe 'Deferring fields' do
         streamed = queries_in { payloads('{ users @stream(initialCount: 1) { posts { id } ... @defer { posts { title } } } }') }
 
         expect(streamed.size).to eq(queries_in { payloads('{ users @stream(initialCount: 1) { posts { id title } } }') }.size)
+      end
+    end
+
+    describe 'on a lazy list' do
+      let(:sdl) { super().sub('type Query {', 'type Query { later: [String!]! @field(resolver: "DeferSpecLater")') }
+
+      before { schema.lazy_resolve(DeferSpecLazy, :value) }
+
+      it 'cuts each alias where its own @stream says' do
+        all = payloads('{ a: later @stream(initialCount: 1) b: later @stream(initialCount: 3) c: later }')
+
+        expect(all.first['data']).to eq('a' => %w[ann], 'b' => %w[ann bob cat], 'c' => %w[ann bob cat dan])
+        expect(all.last['incremental']).to contain_exactly({ 'id' => '0', 'items' => %w[bob cat dan] }, { 'id' => '1', 'items' => %w[dan] })
       end
     end
 
@@ -974,7 +1020,7 @@ RSpec.describe 'Deferring fields' do
     end
   end
 
-  describe Lighthouse::GraphQL::Incremental::State do
+  describe Lighthouse::GraphQL::Incremental::Tree do
     it 'walks a response path, in Hashes and lists, to nil where it leads nowhere' do
       data = { 'users' => [{ 'posts' => [{ 'title' => 'p0' }] }, nil] }
 

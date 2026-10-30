@@ -361,9 +361,10 @@ that completes, with an error, every id the client was sent.
   (`GraphQL::Query::Partial`), never by running their parents again, and leaves out what the
   response already holds. `@throttle`, `@guard`, `@cache`, events and the rest of a field's
   directives run in the pass that resolves the field; a mutation does not run twice. To reach an
-  object field the response already holds, a streamed response runs in a graphql-ruby trace mode
-  of the plugin's, which keeps those objects; where the app picks its own `trace_mode`, the field
-  resolves again for what the fragment adds.
+  object field the response already holds, the plugin's trace module keeps, while a streamed
+  response runs, the objects its fragments will need, in whatever trace mode the app picks. An app
+  that gives a trace class of its own, leaving out the schema's trace modules, gets every response
+  whole.
 - **No N+1.** All the fragments of a round run in one multiplex, so the Dataloader batches across
   them: a deferred fragment under a list of 50 costs the queries it costs without `@defer`.
 - **Validation and complexity cover the whole document**, before the first pass: the deferred

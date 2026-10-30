@@ -9,10 +9,8 @@
 # field resolves once. The fragments of a round at one path make one unit, with
 # what none of them was sent yet; a field two of them select is sent once. An
 # object field the response already holds, to which a fragment adds selections,
-# is not resolved again either: its object (kept by Recorder when it resolved)
-# gets a unit of its own, sent at its `subPath`. Without the object (Recorder
-# could not run: the app chose its own trace mode), the field resolves again
-# for the selections it adds.
+# is not resolved again either: its object (kept by StreamTrace when it
+# resolved) gets a unit of its own, sent at its `subPath`.
 #
 # The deferred fragments nested in a unit's fragments, at the same path, are found
 # here and pending for the next round, without a pass to find them.
@@ -20,6 +18,10 @@ class Lighthouse::GraphQL::Incremental::Plan
   Nodes = ::GraphQL::Language::Nodes
   State = Lighthouse::GraphQL::Incremental::State
   KNOWN = %w[skip include defer].freeze
+
+  # The object a fragment adds selections to was not kept (StreamTrace keeps every one a fragment
+  # may need before it resolves): a bug, which fails the round.
+  class Lost < StandardError; end
 
   # A Partial's work: `selections` on `object` (of `type`) at `path`, delivered for `owner`
   # (with the other `pendings` of its path, which complete with it). A stream's: its items.
@@ -59,13 +61,9 @@ class Lighthouse::GraphQL::Incremental::Plan
     held = at(spot.path)
     held = nil unless held.is_a?(Hash)
     kept, shared = split(selections, held, spot)
-    found, lost = shared.reject { |key, _| held[key].nil? }.partition { |key, _| kept?(spot.path + [key]) }
-    lost.each { |key, fields| kept.concat(again(fields, held[key])) }
     claim(spot, kept, group) unless kept.empty?
-    found.each { |key, fields| descend(key, fields, held[key], spot, group) }
+    shared.each { |key, fields| descend(key, fields, held[key], spot, group) unless fields.empty? || held[key].nil? }
   end
-
-  def kept?(path) = !@state.object_at(path).equal?(State::MISSING)
 
   # The selections the response does not hold yet (`kept`), and, by response key, the object
   # fields it holds to which they add selections (`shared`). Fragments are evaluated here and
@@ -118,28 +116,13 @@ class Lighthouse::GraphQL::Incremental::Plan
     []
   end
 
-  # Where the response's object can no longer be had: the field, again, for the selections it adds,
-  # but those every object of it the response holds holds already (in a list, an item of one type
-  # may lack what another holds); none when nothing is left to add.
-  def again(fields, held)
-    items = (held.is_a?(Array) ? held : [held]).grep(Hash)
-    return [] if items.empty?
-
-    fields.filter_map do |field|
-      selections = field.selections.reject { |selection| items.all? { |item| held?(selection, item) } }
-      field.merge(selections: selections) unless selections.empty?
-    end
-  end
-
-  def held?(selection, held)
-    selection.is_a?(Nodes::Field) && selection.selections.empty? && held.key?(selection.alias || selection.name)
-  end
-
   # The units of the selections `fields` add to the object (or each object of the list) the
   # response holds at `key`.
   def descend(key, fields, held, spot, group)
     type = @schema.get_field(spot.type, fields.first.name)&.type&.unwrap or return
     value = @state.object_at(spot.path + [key])
+    raise Lost, "Lighthouse kept no object at #{(spot.path + [key]).join('.')}" if value.equal?(State::MISSING)
+
     selections = fields.flat_map(&:selections)
     targets(spot.path + [key], value, held).each { |path, object| plan(selections, Spot.new(path, object, concrete(type, object)), group) }
   end
@@ -168,5 +151,5 @@ class Lighthouse::GraphQL::Incremental::Plan
     unit.selections.each { |selection| keys[selection.alias || selection.name] ||= unit if selection.is_a?(Nodes::Field) }
   end
 
-  def at(path) = State.at(@tree, path)
+  def at(path) = @tree.at(path)
 end
