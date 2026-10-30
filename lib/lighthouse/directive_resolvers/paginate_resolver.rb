@@ -20,10 +20,15 @@ class Lighthouse::GraphQL::DirectiveResolvers::PaginateDirectiveResolver < Light
   def self.applies_search? = true
 
   # The model's whole table takes the records an engine answers with: on a root
-  # field, with `model:`, or where the parent has no association of its name.
+  # field, with `model:`, or where the parent type's model has no association of
+  # its name. What a parent whose type is no model pages is only known from a
+  # query's records (nested?), so it is not taken; nor, at run time, a parent
+  # record that has the association its type's model lacks (Search::Enhancer).
   def self.takes_search_results?(type, field_def, directive, root_kind)
-    parent = root_kind ? nil : Lighthouse::GraphQL::Directives::ModelDirective.model_for(type)
-    !pages_association?(parent, Lighthouse::Support::Naming.attribute(field_def.name), directive)
+    return true if root_kind || Lighthouse::Support::DirectiveArgs.literal(directive, 'model')
+
+    parent = Lighthouse::Support::ModelResolver.model_class(Lighthouse::GraphQL::Directives::ModelDirective.model_for(type))
+    !parent.nil? && !pages_association?(parent, Lighthouse::Support::Naming.attribute(field_def.name), directive)
   end
 
   # Does the field page `parent`'s association of its name, rather than the

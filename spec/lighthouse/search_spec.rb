@@ -826,6 +826,31 @@ RSpec.describe '@search' do
           .not_to raise_error
       end
 
+      it "refuses a nested @paginate whose parent type is no model: what it pages is not known until a query's records" do
+        expect do
+          build_schema(<<~GRAPHQL)
+            type SearchPost { id: ID! }
+            type Writer { id: ID! paged(search: String @search): [SearchPost!]! @paginate }
+            type Query { writers: [Writer!]! @all(model: "SearchPost") }
+          GRAPHQL
+        end.to raise_error(Lighthouse::DefinitionError, /Writer.paged\(search\): .*needs @all, @paginate of the model's whole table/)
+      end
+
+      it "fails a page safely when a parent's record pages an association its type's model does not have" do
+        SearchPost.delete_all
+        SearchPlainPostWithPaged.create!(title: 'parent')
+        schema = build_schema(<<~GRAPHQL)
+          type SearchPost { id: ID! }
+          type SearchPlainPost { title: String! paged(search: String @search): [SearchPost!]! @paginate }
+          type Query { parents: [SearchPlainPost!]! @all(model: "SearchPlainPostWithPaged") }
+        GRAPHQL
+
+        result = run(schema, '{ parents { title paged(first: 5, search: "great") { data { id } } } }')
+
+        expect(result['errors'].pluck('message'))
+          .to eq(['@search with Engine answers outside the database, and SearchPlainPost.paged pages a relation here: it cannot search it.'])
+      end
+
       it 'accepts a field your own class resolves, which reads the search through resolve_info.enhance_builder' do
         expect do
           build_posts('a(search: String @search): [SearchPost!]! @field(resolver: "SearchSpecEnhanced") b(search: String @search): [SearchPost!]!')

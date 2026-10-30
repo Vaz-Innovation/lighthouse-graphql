@@ -164,7 +164,8 @@ class Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
       path = [node.name]
       Lighthouse::Search::Enhancer::Argument.new(node, dnode, builder_class, dig_arg(values, path), arg_present?(values, path))
     end
-    Lighthouse::Search::Enhancer.new(arguments, relation, search: search, context: ctx).enhance
+    field = "#{@type_def.graphql_name}.#{@field_def.name}"
+    Lighthouse::Search::Enhancer.new(arguments, relation, search: search, context: ctx, field: field).enhance
   end
 
   # Does the field have an argument or input field with @search? Known when the schema is built.

@@ -210,3 +210,13 @@ class PgSearchOrderedPost < PgSearchPost
 
   scope :search_results, -> { order(author_id: :desc) }
 end
+
+# A model without the `paged` association, and a subclass that has it: what the
+# schema's type tells of a parent is not always what a query's records are.
+class SearchPlainPost < ApplicationRecord
+  self.table_name = 'search_posts'
+end
+
+class SearchPlainPostWithPaged < SearchPlainPost
+  has_many :paged, class_name: 'SearchPost', foreign_key: :author_id, primary_key: :id, inverse_of: false, dependent: nil
+end

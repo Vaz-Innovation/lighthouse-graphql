@@ -25,11 +25,13 @@ class Lighthouse::Search::Enhancer
   # nil, a relation only; :model, a Search::Result for the model's own relation it
   # built (with the `scopes:` Search::FieldCheck refuses for an engine), searched
   # whole without a check; :given, one for a relation the app's code gave, checked.
-  def initialize(arguments, relation, search:, context:)
+  # `field`: "Type.field", for the client's errors.
+  def initialize(arguments, relation, search:, context:, field: 'the field')
     @arguments = arguments
     @relation = relation
     @search = search
     @context = context
+    @field = field
   end
 
   # The relation, searched; or a Search::Result. The relation itself if the client sent no search.
@@ -62,8 +64,8 @@ class Lighthouse::Search::Enhancer
 
   def result(adapter, query)
     unless @search
-      raise Lighthouse::DefinitionError,
-            "@search with #{adapter.class.name.demodulize} answers outside the database: only @all and @paginate on a root field can use it."
+      raise ::GraphQL::ExecutionError,
+            "@search with #{adapter.class.name.demodulize} answers outside the database, and #{@field} pages a relation here: it cannot search it."
     end
 
     whole_index!(adapter) if @search == :given
