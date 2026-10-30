@@ -21,12 +21,24 @@ class Lighthouse::Search::PgSearch
 
   def relational? = true
 
-  # The relation narrowed to the records that match and ordered by rank.
+  # The relation narrowed to the records that match and ordered by rank. pg_search
+  # breaks the ties of rank by the primary key unless the scope names
+  # `order_within_rank:`; that tie-break is dropped, so the client's `orderBy` and the
+  # field's @orderBy, applied after, decide between equal ranks (@paginate still ends
+  # the order with the key).
   def scope(relation, query)
-    relation.public_send(scope_name(query.index), query.term)
+    searched = relation.public_send(scope_name(query.index), query.term)
+    added = searched.order_values.drop(relation.order_values.size)
+    return searched unless primary_key_order?(added.last, relation.klass)
+
+    searched.reorder(*relation.order_values, *added[0...-1])
   end
 
   private
 
   def scope_name(index) = (index || DEFAULT_SCOPE).to_sym
+
+  def primary_key_order?(order, model)
+    order.is_a?(::Arel::Nodes::Ascending) && order.expr == model.arel_table[model.primary_key]
+  end
 end

@@ -284,6 +284,8 @@ query), `@count`, `@first` and `@find`.
 `@orderBy(column:)` and the primary key break its ties. A search is ordered by relevance, so a client
 that sorts by date gets the best matches first and, among equally ranked ones, the newest. A
 `scopes:` entry that orders the relation sorts before the rank, since it is applied first.
+pg_search's own tie-break, the primary key, is dropped so that these orders decide; an
+`order_within_rank:` the scope names is kept, before them.
 
 ### With Searchkick (outside the database)
 
