@@ -60,7 +60,11 @@ module Lighthouse::GraphQL::DirectiveResolvers
       GRAPHQL
     end
 
+    # Which @can* act on a model (model_class), told when the schema is built.
+    def self.model? = false
+
     def define_resolver(target_type_class)
+      model_class if self.class.model? # a field whose model cannot be told fails the build, not a query
       me = self
       inner = capture_inner(target_type_class)
       install(target_type_class, lambda do |obj, args, ctx|
@@ -115,6 +119,7 @@ module Lighthouse::GraphQL::DirectiveResolvers
   end
 
   class CanFindDirectiveResolver < CanDirectiveResolver
+    def self.model? = true
     def self.directive_name = 'canFind'
 
     def self.definition
@@ -166,6 +171,7 @@ module Lighthouse::GraphQL::DirectiveResolvers
   end
 
   class CanModelDirectiveResolver < CanDirectiveResolver
+    def self.model? = true
     def self.directive_name = 'canModel'
 
     def self.definition
@@ -189,6 +195,7 @@ module Lighthouse::GraphQL::DirectiveResolvers
   end
 
   class CanQueryDirectiveResolver < CanDirectiveResolver
+    def self.model? = true
     def self.directive_name = 'canQuery'
 
     def self.definition

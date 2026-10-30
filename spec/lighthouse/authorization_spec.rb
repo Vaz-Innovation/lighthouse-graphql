@@ -143,6 +143,14 @@ RSpec.describe 'Authorization directives (@guard and the @can* family)' do
   end
 
   describe '@canQuery' do
+    it 'refuses a field whose model it cannot tell when the schema is built, not when a query runs' do
+      %w[canQuery canFind canModel].each do |directive|
+        can = %(@#{directive}(ability: "show"#{', find: "id"' if directive == 'canFind'}))
+        expect { build_schema(%(type Hit { id: ID! } type Query { hits(id: ID): [Hit!]! @field(resolver: "AuthSpecNoPosts") #{can} })) }
+          .to raise_error(Lighthouse::DefinitionError, /@#{directive} on Query.hits: no model Hit/)
+      end
+    end
+
     it 'authorizes every record the field arguments select' do
       expect(run('{ postCount(title: "Live") }', reader)).to eq('data' => { 'postCount' => 1 })
       expect(messages(run('{ postCount }', reader))).to eq(['This action is unauthorized.'])
