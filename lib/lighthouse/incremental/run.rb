@@ -78,6 +78,7 @@ class Lighthouse::GraphQL::Incremental::Run
   # the operation ends with what the client was sent. An error of the app's stays the error
   # raised, even if the client has gone by the time its last payload is written.
   def each_payload(&block)
+    @streaming = true
     emit(Serializer.initial(@result, @announced, has_next: deferred?), &block)
     until @queue.empty?
       begin
@@ -93,8 +94,11 @@ class Lighthouse::GraphQL::Incremental::Run
   end
 
   # The whole response as the client put it together: the data and the errors of every payload
-  # it was sent (the first pass's first), the first pass's extensions.
+  # it was sent (the first pass's first), the first pass's extensions. Nothing (an empty Hash) when
+  # the payloads went out and the client left before the first.
   def response
+    return {} if @streaming && !@delivered
+
     first = @result.to_h
     { 'data' => @sent || first['data'], 'errors' => (first['errors'].to_a + @errors).presence, 'extensions' => first['extensions'] }.compact
   end
@@ -261,6 +265,7 @@ class Lighthouse::GraphQL::Incremental::Run
   # A failure's payload sends no data (`data: false`).
   def emit(payload, data: true)
     yield payload
+    @delivered = true
     payload['pending'].to_a.each { |entry| @open[entry['id']] = true }
     payload['completed'].to_a.each { |entry| @open.delete(entry['id']) }
     @sent = @tree&.snapshot if data

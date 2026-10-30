@@ -251,7 +251,7 @@ module Lighthouse
         def deferred?: () -> bool
         # The initial payload, then one per round of deferred fragments, until `hasNext` is false.
         def each_payload: () { (Hash[String, json]) -> void } -> void
-        # The whole response: the data and the errors of every round.
+        # The whole response: the data and the errors of every round the client was sent ({} if none).
         def response: () -> Hash[String, json]
       end
 
