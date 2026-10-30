@@ -55,11 +55,17 @@ class Lighthouse::GraphQL::ResolveInfo
   # client used (@eq, @where, @in, @like, @orderBy, @whereConditions, @trashed,
   # ...), then the field's @builder, @whereAuth and @orderBy(column:), as
   # @all / @paginate apply them and as PHP Lighthouse's enhanceBuilder does.
+  #
+  # When the client searches (@search) through an engine outside the database
+  # (Searchkick), the answer is a Lighthouse::Search::Result instead, as PHP
+  # Lighthouse's is Scout's builder: `records(first:, offset:)`, `count`. The
+  # engine searches the model's whole index, so `relation` must be the model's
+  # (`Post.all`), with no `scopes`.
   def enhance_builder(relation, scopes: [])
     resolver = Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver.new(field, parent_type, nil)
     args = arguments.respond_to?(:to_h) ? arguments.to_h : {}
     relation = Array(scopes).reduce(relation) { |acc, scope| acc.public_send(scope) }
-    resolver.apply_where_filters(relation, args, context)
+    resolver.apply_where_filters(relation, args, context, search_results: true)
   end
 
   # `resolve_info`, for the classes that resolve a field.

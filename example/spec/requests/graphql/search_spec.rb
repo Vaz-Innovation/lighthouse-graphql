@@ -19,6 +19,9 @@ postgres = ActiveRecord::Base.connection_db_config.adapter.match?(/postg/i)
 class SearchedPost < Post
   searchkick index_name: 'lighthouse_example_searched_posts', callbacks: false
 
+  # Pundit's: who may edit it (@canQuery(ability: "update")) is who may edit a post, its author or an admin.
+  def self.policy_class = PostPolicy
+
   def search_data = { title: title, body: body, author_id: author_id, published: published }
 end
 
@@ -142,6 +145,7 @@ RSpec.describe 'GraphQL @search', type: :request do
             feed(search: String @search): [SearchedPost!]! @paginate(type: CONNECTION)
             indexed(search: String @search(within: "lighthouse_example_searched_posts")): [SearchedPost!]! @all
             filtered(search: String @search, title: String @neq): [SearchedPost!]! @all
+            editable(search: String @search, authorId: Int @eq(key: "author_id")): [SearchedPost!]! @paginate @canQuery(ability: "update")
           }
         GRAPHQL
       end
@@ -226,6 +230,14 @@ RSpec.describe 'GraphQL @search', type: :request do
         result = run(schema, '{ filtered(search: "great", title: "x") { title } }')
 
         expect(result['errors'].pluck('message')).to eq(['Found arg builder arguments that do not work with @search: @neq on title.'])
+      end
+
+      it 'checks @canQuery against every post the search finds, not only the page' do
+        query = '{ editable(first: 1, search: "great"%s) { data { title } } }'
+
+        expect(run(schema, format(query, ''), { current_user: author })['errors'].pluck('message')).to eq(['This action is unauthorized.'])
+        expect(run(schema, format(query, ", authorId: #{author.id}"), { current_user: author }).dig('data', 'editable', 'data'))
+          .to eq([{ 'title' => 'Really great great title' }])
       end
 
       it 'refuses, when the schema is built, what PHP Lighthouse drops silently' do

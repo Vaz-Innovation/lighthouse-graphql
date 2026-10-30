@@ -10,6 +10,8 @@
 #   @builder, @whereAuth or @orderBy(column:), which the engine cannot apply.
 #   PHP Lighthouse drops them silently, so a search could return records the
 #   user must not see. A relational adapter (pg_search) applies them.
+# - An @canQuery, which runs the search to check the records it finds, searches
+#   a searchable model, and without `scopes:` when the engine cannot apply them.
 class Lighthouse::Search::FieldCheck
   HINT = 'it needs searchkick or pg_search, or an adapter in Config.search'
   DATA_DIRECTIVES = %w[all paginate].freeze
@@ -33,6 +35,7 @@ class Lighthouse::Search::FieldCheck
     searches.each do |path, directive|
       index = Lighthouse::Support::DirectiveArgs.literal(directive, 'within')
       field_searched!(path, model, index) if model
+      can_queries.each { |can_query| can_query_searched!(path, can_query, index) }
     end
   end
 
@@ -64,6 +67,17 @@ class Lighthouse::Search::FieldCheck
                 'remove them, or search with a relational adapter (pg_search)')
   end
 
+  # @canQuery checks each record the search finds (CanQueryDirectiveResolver): its
+  # model must be searchable, and its `scopes:` applied by the engine.
+  def can_query_searched!(path, can_query, index)
+    model = record_class(Lighthouse::Support::ModelResolver.field_model_name(@field_def, can_query)) || return
+    adapter = adapter!(path, model, index)
+    return if adapter.relational? || Lighthouse::Support::DirectiveArgs.literal(can_query, 'scopes').blank?
+
+    fail!(path, "#{adapter.class.name.demodulize} cannot apply the `scopes:` of @canQuery, which checks the records the search finds " \
+                '(PHP Lighthouse drops them silently); remove them, or search with a relational adapter (pg_search)')
+  end
+
   # @all, or @paginate of the model's whole table (its own `model:`, not the parent's association).
   def whole_table?
     name = resolving_directive&.name
@@ -87,10 +101,28 @@ class Lighthouse::Search::FieldCheck
     @resolving_directive = @directives.find { |directive| registry.resolution_class(directive.name) && !registry.wrapper?(directive.name) }
   end
 
-  # The field's model, as its resolving directive tells it (BaseDirectiveResolver#model_class);
-  # nil when it cannot be told (a custom resolver).
+  def can_queries = @directives.select { |directive| directive.name == 'canQuery' }
+
+  # The field's model, as its resolving directive tells it (BaseDirectiveResolver#model_class),
+  # else the model of the parent's association it reads (@count(relation:)); nil when it cannot
+  # be told (a custom resolver).
   def model_class
-    model = Lighthouse::Support::ModelResolver.constantize(Lighthouse::Support::ModelResolver.field_model_name(@field_def, resolving_directive))
+    record_class(Lighthouse::Support::ModelResolver.field_model_name(@field_def, resolving_directive)) || association_model
+  end
+
+  def association_model
+    return if @root_kind
+
+    parent = record_class(Lighthouse::GraphQL::Directives::ModelDirective.model_for(@type)) || return
+    name = Lighthouse::Support::DirectiveArgs.literal(resolving_directive, 'relation') || Lighthouse::Support::Naming.attribute(@field_def.name)
+    record_class(parent.reflect_on_association(name.to_sym)&.klass)
+  rescue ArgumentError, NameError # a polymorphic association, or one whose class does not exist
+    nil
+  end
+
+  # The Active Record model `name_or_class` names, or nil.
+  def record_class(name_or_class)
+    model = name_or_class.is_a?(Class) ? name_or_class : Lighthouse::Support::ModelResolver.constantize(name_or_class)
     model if defined?(::ActiveRecord::Base) && model.is_a?(Class) && model < ::ActiveRecord::Base
   end
 

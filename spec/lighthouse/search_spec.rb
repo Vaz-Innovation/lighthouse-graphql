@@ -9,6 +9,19 @@ class Builders::SearchSpecCustom
   def self.call(query, value, _context) = query.where('from_custom_builder', value[:id])
 end
 
+# A resolver of the app's own, which reads the first record the search finds.
+class SearchSpecEnhanced
+  def self.call(_obj, _args, _ctx, resolve_info)
+    found = resolve_info.enhance_builder(SearchPost.all)
+    found.is_a?(Lighthouse::Search::Result) ? found.records(first: 1) : found.limit(1)
+  end
+end
+
+# One that narrows the relation before the search, which an engine outside the database cannot apply.
+class SearchSpecNarrowed
+  def self.call(_obj, _args, _ctx, resolve_info) = resolve_info.enhance_builder(SearchPost.where(author_id: 1))
+end
+
 class Builders::SearchSpecOptions
   def self.call(query, value, _context)
     query.options[:fields] = [value]
@@ -268,6 +281,63 @@ RSpec.describe '@search' do
       end
     end
 
+    describe 'with @canQuery' do
+      let(:schema) do
+        build_schema(<<~GRAPHQL)
+          type SearchPost { id: ID! title: String! }
+          type Query { posts(search: String @search): [SearchPost!]! @paginate @canQuery(ability: "view") }
+        GRAPHQL
+      end
+
+      # A post titled "secret" may not be viewed.
+      before { Lighthouse::Config.authorizer = ->(_user, record, _ability) { record.title != 'secret' } }
+
+      it 'checks each record the search finds, then pages them, as PHP Lighthouse checks the hits of the Scout builder' do
+        result = run(schema, '{ posts(first: 1, search: "great") { data { title } } }')
+
+        expect(result).to eq('data' => { 'posts' => { 'data' => [{ 'title' => 'great title' }] } })
+        expect(engine.requests.map { |request| request.slice(:offset, :limit) })
+          .to eq([{ offset: 0, limit: Lighthouse::Search::Result::MAX_WINDOW }, { offset: 0, limit: 1 }])
+      end
+
+      it 'denies the field when the search finds a record the user may not see, on any page' do
+        search_with(FakeSearch::Engine.new([SearchPost], great + [SearchPost.new(title: 'secret')]))
+
+        result = run(schema, '{ posts(first: 1, search: "great") { data { title } } }')
+
+        expect(result['errors'].pluck('message')).to eq(['This action is unauthorized.'])
+      end
+
+      it 'checks the records of the database when the client does not search' do
+        SearchPost.create!(title: 'secret')
+
+        expect(run(schema, '{ posts(first: 1) { data { title } } }')['errors'].pluck('message')).to eq(['This action is unauthorized.'])
+        expect(engine.requests).to be_empty
+      end
+    end
+
+    describe 'through resolve_info.enhance_builder' do
+      let(:schema) do
+        build_schema(<<~GRAPHQL)
+          type Found { title: String! }
+          type Query {
+            found(search: String @search): [Found!]! @field(resolver: "SearchSpecEnhanced")
+            narrowed(search: String @search): [Found!]! @field(resolver: "SearchSpecNarrowed")
+          }
+        GRAPHQL
+      end
+
+      it "answers the search, as PHP Lighthouse's enhanceBuilder answers Scout's builder" do
+        expect(titles(run(schema, '{ found(search: "great") { title } }'), 'found')).to eq(['great title'])
+        expect(engine.requests.last).to include(offset: 0, limit: 1)
+      end
+
+      it 'refuses a relation narrowed beforehand, whose conditions the engine would drop' do
+        expect { run(schema, '{ narrowed(search: "great") { title } }') }
+          .to raise_error(Lighthouse::DefinitionError, /searches the whole index of SearchPost: it cannot apply the conditions of the relation/)
+      end
+    end
+
     describe 'when the client asks for what an engine cannot do' do
       it 'sends two searches' do
         schema = build_schema(<<~GRAPHQL)
@@ -383,6 +453,22 @@ RSpec.describe '@search' do
         }.each do |field, dropped|
           expect { build_posts(field) }.to raise_error(Lighthouse::DefinitionError, /Engine cannot apply .*#{Regexp.escape(dropped)}/)
         end
+      end
+
+      it 'refuses an @canQuery whose scopes the engine cannot apply, or whose model it cannot search' do
+        expect { build_posts('posts(search: String @search): [SearchPost!]! @all @canQuery(ability: "view", scopes: ["recent"])') }
+          .to raise_error(Lighthouse::DefinitionError, /Engine cannot apply the `scopes:` of @canQuery/)
+        expect { build_posts('posts(search: String @search): [SearchPost!]! @all @canQuery(ability: "view", model: "Widget")') }
+          .to raise_error(Lighthouse::DefinitionError, /Widget is not searchable/)
+      end
+
+      it "refuses a field that reads an association of a searchable model, which the field's type does not name" do
+        expect do
+          build_schema(<<~GRAPHQL)
+            type SearchPost { id: ID! relatedCount(search: String @search): Int! @count(relation: "related") }
+            type Query { posts: [SearchPost!]! @all }
+          GRAPHQL
+        end.to raise_error(Lighthouse::DefinitionError, /SearchPost.relatedCount\(search\): .*needs @all or @paginate/)
       end
 
       it 'accepts @all and @paginate on a root field' do
