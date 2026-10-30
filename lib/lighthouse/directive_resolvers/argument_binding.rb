@@ -25,9 +25,7 @@ class Lighthouse::GraphQL::DirectiveResolvers::ArgumentBinding
     Lighthouse::Support::DirectiveArgs.literal(@directive, name)
   end
 
-  def model?(klass)
-    defined?(::ActiveRecord::Base) && klass.is_a?(Class) && klass < ::ActiveRecord::Base
-  end
+  def model?(klass) = Lighthouse::Support::ModelResolver.model?(klass)
 
   def call(klass, value, ctx)
     bound = (klass.respond_to?(:call) ? klass : klass.new).call(value, ctx)

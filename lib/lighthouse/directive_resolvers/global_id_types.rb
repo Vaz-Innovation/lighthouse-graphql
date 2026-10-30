@@ -48,8 +48,7 @@ class Lighthouse::GraphQL::DirectiveResolvers::GlobalIdTypes
 
   # The field's model, when it has one: a field returning a scalar has none.
   def field_model
-    model = @resolver.send(:model_class)
-    model if defined?(::ActiveRecord::Base) && model < ::ActiveRecord::Base
+    Lighthouse::Support::ModelResolver.model_class(@resolver.send(:model_class))
   rescue Lighthouse::DefinitionError
     nil
   end

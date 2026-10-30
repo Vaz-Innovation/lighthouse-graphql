@@ -97,7 +97,7 @@ class Lighthouse::Search::FieldCheck
   # @canQuery checks each record the search finds (CanQueryDirectiveResolver): its
   # model must be searchable, and its `scopes:` applied by the engine.
   def can_query_searched!(path, can_query, index)
-    model = record_class(Lighthouse::Support::ModelResolver.field_model_name(@field_def, can_query)) || return
+    model = model_of(Lighthouse::Support::ModelResolver.field_model_name(@field_def, can_query)) || return
     adapter = adapter!(path, model, index)
     return if adapter.relational? || Lighthouse::Support::DirectiveArgs.literal(can_query, 'scopes').blank?
 
@@ -136,24 +136,20 @@ class Lighthouse::Search::FieldCheck
   # else the model of the parent's association it reads (@count(relation:)); nil when it cannot
   # be told.
   def model_class
-    record_class(Lighthouse::Support::ModelResolver.field_model_name(@field_def, resolving_directive)) || association_model
+    model_of(Lighthouse::Support::ModelResolver.field_model_name(@field_def, resolving_directive)) || association_model
   end
 
   def association_model
     return if @root_kind
 
-    parent = record_class(Lighthouse::GraphQL::Directives::ModelDirective.model_for(@type)) || return
+    parent = model_of(Lighthouse::GraphQL::Directives::ModelDirective.model_for(@type)) || return
     name = Lighthouse::Support::DirectiveArgs.literal(resolving_directive, 'relation') || Lighthouse::Support::Naming.attribute(@field_def.name)
-    record_class(parent.reflect_on_association(name.to_sym)&.klass)
+    model_of(parent.reflect_on_association(name.to_sym)&.klass)
   rescue ArgumentError, NameError # a polymorphic association, or one whose class does not exist
     nil
   end
 
-  # The Active Record model `name_or_class` names, or nil.
-  def record_class(name_or_class)
-    model = name_or_class.is_a?(Class) ? name_or_class : Lighthouse::Support::ModelResolver.constantize(name_or_class)
-    model if defined?(::ActiveRecord::Base) && model.is_a?(Class) && model < ::ActiveRecord::Base
-  end
+  def model_of(name_or_class) = Lighthouse::Support::ModelResolver.model_class(name_or_class)
 
   def fail!(path, message)
     raise Lighthouse::DefinitionError, "@search on #{@type.graphql_name}.#{@field_def.name}(#{path}): #{message}."

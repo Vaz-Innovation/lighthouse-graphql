@@ -69,7 +69,7 @@ class Lighthouse::GraphQL::Directives::ModelDirective
       next unless name
 
       model = declared_model(type)
-      next if model.is_a?(Class) && defined?(::ActiveRecord::Base) && model < ::ActiveRecord::Base
+      next if Lighthouse::Support::ModelResolver.model?(model)
 
       raise Lighthouse::DefinitionError, "@model(class: #{name.inspect}) on #{type.graphql_name} names no ActiveRecord model."
     end

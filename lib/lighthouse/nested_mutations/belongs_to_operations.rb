@@ -41,8 +41,8 @@ module Lighthouse::GraphQL::NestedMutations::BelongsToOperations
   # model name, or an enum value such as TASK for Task.
   def morph_model(type)
     [type, type.to_s.downcase.camelize].uniq.each do |name|
-      model = Lighthouse::Support::ModelResolver.constantize(name)
-      return model if model.is_a?(Class) && model < ::ActiveRecord::Base
+      model = Lighthouse::Support::ModelResolver.model_class(name)
+      return model if model
     end
 
     raise ::GraphQL::ExecutionError, "Unknown type #{type} to connect."

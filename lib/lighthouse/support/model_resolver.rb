@@ -26,6 +26,17 @@ module Lighthouse::Support::ModelResolver
       field_def.type.unwrap.graphql_name.sub(PAGINATION_SUFFIX, '')
   end
 
+  # Is `value` an Active Record model class (not ActiveRecord::Base itself)?
+  def model?(value)
+    !!(defined?(::ActiveRecord::Base) && value.is_a?(Class) && value < ::ActiveRecord::Base)
+  end
+
+  # The Active Record model a class, or a class name, names; nil for anything else.
+  def model_class(name_or_class)
+    model = name_or_class.is_a?(Class) ? name_or_class : constantize(name_or_class)
+    model if model?(model)
+  end
+
   def namespaces
     if defined?(Lighthouse::Config) &&
        Lighthouse::Config.respond_to?(:resolver_namespaces) &&
