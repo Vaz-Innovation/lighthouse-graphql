@@ -124,10 +124,11 @@ class Lighthouse::GraphQL::DirectiveResolvers::ThrottleDirectiveResolver < Light
   # The controller's `with` method, else rate_limit's default `with`; a field error once the
   # response has `committed` (performed? before this call: streaming).
   def limited(controller, with, location, committed)
-    raise ::GraphQL::ExecutionError, "Rate limit for #{location} exceeded. Try again later." if committed
-    return call_with(controller, with, location) if with && controller
-    raise ::ActionController::TooManyRequests if defined?(::ActionController::TooManyRequests)
-    return controller.head(:too_many_requests) if controller
+    unless committed
+      return call_with(controller, with, location) if with && controller
+      raise ::ActionController::TooManyRequests if defined?(::ActionController::TooManyRequests)
+      return controller.head(:too_many_requests) if controller
+    end
 
     raise ::GraphQL::ExecutionError, "Rate limit for #{location} exceeded. Try again later."
   end
