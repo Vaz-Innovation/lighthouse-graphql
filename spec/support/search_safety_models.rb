@@ -4,7 +4,24 @@
 # the search_posts table, each searched by a fake Searchkick whose index is the
 # database: a search's hits are the rows (all of them, whatever the model's
 # scopes) whose title holds the term, narrowed by the engine's `where:`. So what
-# a search may answer and count is known from the database alone.
+# a search may answer and count is known from the database alone. Or the index
+# lags the database (FakeSearch::Indexed.stale): it holds the rows as they were
+# (safety_stale_index), before the database changed some.
+
+# The rows as an index that lags the database holds them.
+ActiveRecord::Schema.define do
+  create_table :safety_stale_index, force: true do |t|
+    t.string :title
+    t.string :body
+    t.integer :author_id
+    t.datetime :deleted_at
+    t.datetime :discarded_at
+  end
+end
+
+class SafetyStaleRow < ApplicationRecord
+  self.table_name = 'safety_stale_index'
+end
 
 # What a request runs as: the tenant a default scope reads.
 module SafetyCurrent
@@ -30,19 +47,35 @@ module FakeSearch
     end
   end
 
-  # A model's searchkick_search over an index that is the database.
+  # A model's searchkick_search over an index that is the database, or lags it.
   module Indexed
+    class << self
+      # Does the index lag the database (safety_stale_index)?
+      attr_accessor :stale
+
+      def as(stale)
+        previous = self.stale
+        self.stale = stale
+        yield
+      ensure
+        self.stale = previous
+      end
+    end
+
     def searchkick_index = Struct.new(:name).new(table_name)
     def searchkick_options = {}
 
     def searchkick_search(term, **options)
-      hits = matching(unscoped.order(:id), options[:where] || {})
+      hits = matching(index_rows.order(:id), options[:where] || {})
       hits = hits.where('title LIKE ?', "%#{term}%") unless term.to_s.empty?
       ids = hits.offset(options[:offset]).limit(options[:limit]).pluck(:id)
       records = options[:scope_results] ? options[:scope_results].call(self) : self
       loaded = records.where(id: ids).sort_by { |record| ids.index(record.id) }
       IndexResponse.new(ids.map { |id| { '_index' => table_name, '_id' => id.to_s } }, loaded, hits.count)
     end
+
+    # The rows the index holds: the database's, or as they were.
+    def index_rows = FakeSearch::Indexed.stale ? SafetyStaleRow.all : unscoped
 
     # The rows the engine's `where:` keeps: `_and`, `{ not: value }`, a list, a value.
     def matching(hits, where)

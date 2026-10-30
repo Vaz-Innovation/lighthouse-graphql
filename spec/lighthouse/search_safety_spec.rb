@@ -12,10 +12,13 @@ require 'spec_helper'
 # search_results guard) and a search value ("a", "", null, none), EITHER the
 # schema refuses to build, OR the request answers a client error, OR the
 # records it answers with the search are a subset of those it answers without
-# it (the same arguments, user and tenant), none of them another tenant's, and
-# its total counts no more than the records it can load. The engine is a fake
-# Searchkick whose index is the database, or a relational one, so the stale
-# index window the guide documents does not arise.
+# it (the same arguments, user and tenant), none of them another tenant's, its
+# total counts no more than the records it can load, and it answers the same in
+# a multiplex with another search that shares its context Hash. The engine is a
+# fake Searchkick whose index is the database, or lags it (an author changed, a
+# record trashed, one restored, one hidden, one gone, one new), or a relational
+# one. A stale index may leave a record out, never answer one the field would
+# not; its total may count each record that changed, the window the guide documents.
 #
 # Deterministic: SEARCH_SAFETY_SEED picks the cases, SEARCH_SAFETY_CASES how
 # many (420 by default, 30 of each shape); SEARCH_SAFETY_REPORT names a file for every violation.
@@ -27,17 +30,14 @@ RSpec.describe 'search safety, over generated fields' do
     stub_const('Searchkick', Module.new)
     Lighthouse::Config.authorizer = ->(_user, record, _ability) { !record.title.to_s.start_with?('secret') }
     Lighthouse::Config.on_error = ->(_error, _context) {}
-    [['alpha', 1, nil, nil], ['apple', 2, nil, nil], ['avocado', 1, Time.current, nil], ['beta', 1, nil, 'hidden'],
-     ['secret apple', 2, nil, 'invisible'], ['amber', 2, nil, nil]].each do |title, author, deleted_at, body|
-      SafetyPlainPost.unscoped.create!(title: title, author_id: author, deleted_at: deleted_at, body: body)
-    end
+    SearchSafety.seed!
   end
 
   # :refused, :held, or what the case broke.
   def outcome(kase)
     Lighthouse::Config.search = kase.adapter
     schema = build_schema(kase.sdl)
-    SearchSafety.violation(schema, kase) || :held
+    SearchSafety::Invariant.violation(schema, kase) || :held
   rescue Lighthouse::DefinitionError => e
     schema ? "raised #{e.message[0, 160]}" : :refused
   rescue StandardError => e
