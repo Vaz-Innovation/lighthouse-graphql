@@ -16,6 +16,8 @@ module DeferProperty
   # An object of the schema: a record (`id`) at a place of the response (`position`, the path of
   # response keys and indices to it), so a field's resolution is counted where it happens.
   Node = Struct.new(:id, :position)
+  # Another object type of the interface Thing and the union Piece.
+  Label = Struct.new(:id, :position)
   # A value graphql-ruby syncs later (Schema.lazy_resolve).
   Lazy = Struct.new(:block) do
     def value = block.call
@@ -29,6 +31,8 @@ module DeferProperty
     Node.new(id, [*parent&.position, context[:current_path].last, *index])
   end
 
+  def self.label(parent, context, index) = Label.new(parent.id * 10, [*parent.position, context[:current_path].last, index])
+
   def self.list(parent, context, ids) = ids.each_with_index.map { |id, index| child(parent, context, id, index) }
 
   # The friends of a record: two others, as Dataloader would load them.
@@ -36,8 +40,31 @@ module DeferProperty
     def fetch(ids) = ids.map { |id| [(id % 4) + 1, ((id + 1) % 4) + 1] }
   end
 
+  module ThingType
+    include GraphQL::Schema::Interface
+
+    graphql_name 'Thing'
+
+    field :id, Int, null: false
+
+    definition_methods do
+      def resolve_type(object, _context) = object.is_a?(Label) ? LabelType : NodeType
+    end
+  end
+
+  class LabelType < GraphQL::Schema::Object
+    graphql_name 'Label'
+    implements ThingType
+
+    field :text, String, null: true
+
+    def id = DeferProperty.count(object, context) && object.id
+    def text = DeferProperty.count(object, context) && "x#{object.id}"
+  end
+
   class NodeType < GraphQL::Schema::Object
     graphql_name 'Node'
+    implements ThingType
 
     field :id, Int, null: false
     field :name, String, null: true
@@ -49,6 +76,9 @@ module DeferProperty
     field :friends, [NodeType], null: false
     field :maybe_friends, [NodeType, { null: true }], null: true
     field :matrix, [[Int]], null: false
+    field :tags, [String], null: false
+    field :things, [ThingType], null: false
+    field :pieces, ['DeferProperty::PieceType', { null: true }], null: true
 
     def id = DeferProperty.count(object, context) && object.id
     def name = DeferProperty.count(object, context) && "n#{object.id}"
@@ -81,6 +111,26 @@ module DeferProperty
     end
 
     def matrix = DeferProperty.count(object, context) && [[object.id, 1], [object.id, 2], [object.id, 3]]
+    def tags = DeferProperty.count(object, context) && %W[g#{object.id}a g#{object.id}b g#{object.id}c]
+
+    # A Node and a Label, under an interface.
+    def things
+      DeferProperty.count(object, context)
+      [DeferProperty.child(object, context, (object.id % 4) + 1, 0), DeferProperty.label(object, context, 1)]
+    end
+
+    # A Label, a null and a Node, under a union.
+    def pieces
+      DeferProperty.count(object, context)
+      [DeferProperty.label(object, context, 0), nil, DeferProperty.child(object, context, ((object.id + 1) % 4) + 1, 2)]
+    end
+  end
+
+  class PieceType < GraphQL::Schema::Union
+    graphql_name 'Piece'
+    possible_types NodeType, LabelType
+
+    def self.resolve_type(object, _context) = object.is_a?(Label) ? LabelType : NodeType
   end
 
   class QueryType < GraphQL::Schema::Object
@@ -99,6 +149,7 @@ module DeferProperty
 
   class Schema < GraphQL::Schema
     query QueryType
+    orphan_types LabelType
     use GraphQL::Dataloader
     lazy_resolve Lazy, :value
     use Lighthouse::GraphQL::Defer
@@ -157,7 +208,7 @@ module DeferProperty
   # A query, as a tree that prints with its directives, or without @defer and @stream (and
   # without the fragments of some labels).
   Field = Struct.new(:name, :args, :key, :selections, :stream, :gate, keyword_init: true)
-  Fragment = Struct.new(:selections, :defer, :gate, :spread, keyword_init: true)
+  Fragment = Struct.new(:selections, :defer, :gate, :spread, :on, keyword_init: true)
 
   # Builds a random query (and its named fragments) from a seed.
   class Generator
@@ -230,8 +281,19 @@ module DeferProperty
 
     def fragments(depth, streamed, deferred)
       [0.5, 0.3].select { |probability| chance(probability) }.map do
-        fragment(depth) { |defers| selections(depth - 1, streamed: streamed, deferred: deferred || defers) }
+        fragment(depth, on: pick([nil, nil, 'Node'])) { |defers| selections(depth - 1, streamed: streamed, deferred: deferred || defers) }
       end
+    end
+
+    # The selections of a Thing or a Piece (`union`): under type conditions on Node, Label and
+    # the interface, each maybe deferred.
+    def abstract(depth, streamed, deferred, union:)
+      list = union ? [] : [Field.new(name: 'id')]
+      list << fragment(depth, on: 'Node') { |defers| selections(depth, streamed: streamed, deferred: deferred || defers) } if chance(0.8)
+      list << fragment(depth, on: 'Label') { [Field.new(name: 'id'), Field.new(name: 'text')] } if chance(0.5)
+      list << fragment(depth, on: 'Thing') { [Field.new(name: 'id')] } if chance(0.3)
+      list << Field.new(name: '__typename') if list.empty?
+      list
     end
 
     def leaf(deferred)
@@ -250,7 +312,15 @@ module DeferProperty
         list << named('friends', selections: selections(depth - 1, streamed: streamed || !streams.nil?, deferred: false), stream: streams)
       end
       list << Field.new(name: 'maybeFriends', selections: selections(depth - 1, streamed: true), stream: stream) if chance(0.3)
-      list << Field.new(name: 'matrix', stream: stream) if chance(0.3)
+      list.concat(lists(depth))
+    end
+
+    # Lists of scalars, and of a Thing or a Piece (whose items start afresh: a stream may fail
+    # them apart from the fragment around it).
+    def lists(depth)
+      list = %w[matrix tags].select { chance(0.3) }.map { |name| Field.new(name: name, stream: stream) }
+      list << Field.new(name: 'things', selections: abstract(depth - 1, true, false, union: false), stream: stream) if chance(0.3)
+      list << Field.new(name: 'pieces', selections: abstract(depth - 1, true, false, union: true), stream: stream) if chance(0.2)
       list
     end
 
@@ -260,10 +330,10 @@ module DeferProperty
       { initial: pick([0, 1, 2, 5]), label: label }
     end
 
-    # The block gets whether the fragment is deferred.
-    def fragment(_depth)
+    # The block gets whether the fragment is deferred; `on`, its type condition.
+    def fragment(_depth, on: nil)
       defer = chance(0.85) ? { label: label, if: condition } : nil
-      Fragment.new(selections: yield(defers?(defer)), defer: defer, gate: (gate if chance(0.15)))
+      Fragment.new(selections: yield(defers?(defer)), defer: defer, gate: (gate if chance(0.15)), on: on)
     end
 
     def defers?(defer)
@@ -309,10 +379,12 @@ module DeferProperty
       text
     end
 
+    def on(fragment) = fragment.on ? " on #{fragment.on}" : ''
+
     def fragment_text(fragment)
       return nil if fragment.defer && @without.include?(fragment.defer[:label])
 
-      text = fragment.spread ? "...#{fragment.spread}" : +'...'
+      text = fragment.spread ? "...#{fragment.spread}" : "...#{on(fragment)}"
       text << directive('defer', label: fragment.defer[:label].inspect, if: fragment.defer[:if]) if fragment.defer && !@plain
       text << gate_text(fragment.gate)
       text << " { #{body(fragment.selections)} }" unless fragment.spread
