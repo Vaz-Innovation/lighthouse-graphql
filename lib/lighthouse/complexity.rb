@@ -60,8 +60,11 @@ module Lighthouse::GraphQL::Complexity
   end
 
   # A query's score, once Analyzer has run on it; nil otherwise.
+  # The score of the operation `query` runs. A GraphQL::Query::Partial (a deferred fragment's
+  # run, see Defer) copies the operation's context, but is not analyzed: the operation's score
+  # is reported once, with its first pass, and a Partial has none.
   def query_complexity(query)
-    query.context[CONTEXT_KEY]
+    query.context[CONTEXT_KEY] unless query.is_a?(::GraphQL::Query::Partial)
   end
 
   # graphql-ruby asks the field for its cost through `complexity_for`, which wins

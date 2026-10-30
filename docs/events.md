@@ -134,7 +134,8 @@ end
 
 `query_complexity` is the query's complexity score, the number graphql-ruby
 checks against `max_complexity` (see [security.md](security.md#reading-the-score)).
-It is `nil` for a query that failed validation.
+It is `nil` for a query that failed validation, and for the later parts of a response streamed
+with `@defer`: the operation's score comes once, with the first part.
 
 **`ManipulateResult`**: change `event.result` (the Hash with `data`, `errors` and
 `extensions`) in place, or assign a new Hash to `event.result=`:

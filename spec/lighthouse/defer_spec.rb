@@ -859,6 +859,16 @@ RSpec.describe 'Deferring fields' do
       expect(all.last['incremental'].pluck('extensions')).to eq([{ 'ran' => ['name'] }] * 3)
     end
 
+    it "reports the operation's complexity once, with the first pass, and not again with each unit" do
+      scores = []
+      Lighthouse::Events.listen(Lighthouse::Events::BuildExtensionsResponse) { |event| (scores << event.query_complexity) && nil }
+
+      payloads('{ users { id ... @defer { name } } }')
+
+      expect(scores.first).to be_a(Integer)
+      expect(scores.drop(1)).to eq([nil] * 3)
+    end
+
     it 'delivers those of streamed items on their entry' do
       expect(payloads('{ names @stream(initialCount: 1) }').last['incremental'].first['extensions']).to eq('ran' => 'items')
     end
