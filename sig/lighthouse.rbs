@@ -105,6 +105,10 @@ module Lighthouse
     def self.schema_output: () -> (path | Hash[Symbol, untyped])?
     def self.schema_output=: ((path | Hash[Symbol, untyped])? output) -> (path | Hash[Symbol, untyped])?
 
+    # Log the schema's build on boot and every reload; nil: in a development server.
+    def self.schema_log: () -> bool
+    def self.schema_log=: (bool? enabled) -> bool?
+
     # { queries:, mutations:, subscriptions:, builders:, validators:, events: } => [namespace, ...].
     # Assigning a partial hash overrides only the kinds it names.
     def self.namespaces: () -> Hash[Symbol, Array[String]]

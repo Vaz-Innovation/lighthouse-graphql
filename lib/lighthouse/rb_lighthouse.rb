@@ -54,6 +54,7 @@ require_relative 'namespaces'
   ast_builder
   server_directives
   schema_printer
+  schema_report
   schema_generator
   schema_cache
   persisted_queries

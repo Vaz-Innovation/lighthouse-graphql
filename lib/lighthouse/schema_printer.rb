@@ -11,8 +11,8 @@ require 'json'
 # alphabetically: what PHP Lighthouse's `--sort` asks webonyx for.
 #
 # Config.schema_output keeps a file of it in development, as NestJS's
-# autoSchemaFile does: rewritten on boot and on every reload, only when it
-# changed, so a codegen watching it runs only then.
+# autoSchemaFile does: rewritten on boot and on every reload (SchemaReport),
+# only when it changed, so a codegen watching it runs only then.
 #
 #   Lighthouse.configure { |config| config.schema_output = 'schema.graphql' }
 #   Lighthouse.configure { |config| config.schema_output = { path: 'schema.json', schema: 'Admin::Schema' } }
@@ -96,18 +96,5 @@ module Lighthouse::GraphQL::SchemaPrinter
   # Is the file at schema_output missing or out of date?
   def stale?(setting = output)
     !(setting[:path].file? && setting[:path].read == output_content(setting))
-  end
-
-  # Config.schema_output's rewrite, on boot and every reload in development.
-  # A schema that does not build is the next request's error to raise; here
-  # it only warns.
-  def refresh
-    setting = output
-    return false unless setting && defined?(::Rails) && ::Rails.env.development?
-
-    write(setting[:path], output_content(setting))
-  rescue StandardError => e
-    warn("Lighthouse: #{setting && setting[:path]} was not refreshed: #{e.message}")
-    false
   end
 end

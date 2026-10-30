@@ -32,19 +32,28 @@ module Lighthouse
       soft_deletes
       queue_broadcasts broadcast_queue
       global_id
-      schema_output
+      schema_output schema_log
     ].freeze
 
     class << self
       attr_writer :schema_path, :ide_helper, :resolver_namespaces, :on_error, :authenticated_user, :policy_user, :authorizer,
                   :transactional_mutations, :schema_cache, :watch_sdl, :persisted_queries, :persisted_queries_store, :persisted_queries_only,
                   :queue_broadcasts,
-                  :convert_empty_strings_to_null, :feature_checker, :feature_actor, :global_id
+                  :convert_empty_strings_to_null, :feature_checker, :feature_actor, :global_id, :schema_log
 
       # A file development keeps the client schema in (SchemaPrinter): a path
       # (under Rails.root; `.json` for the introspection result), or
       # { path:, schema: 'AppSchema' }. nil (the default): none.
       attr_accessor :schema_output
+
+      # Log the schema's build on boot and on every reload (SchemaReport): it
+      # built (in how long, what changed, the files written) or why not. nil
+      # (the default): in a development server, not in rake tasks or the console.
+      def schema_log
+        return @schema_log unless @schema_log.nil?
+
+        defined?(::Rails::Server) ? ::Rails.env.development? : false
+      end
 
       # The schema's entrypoint, as PHP Lighthouse's `schema_path`: the one file
       # the schema is read from, importing the others (`#import user.graphql`,

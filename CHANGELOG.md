@@ -8,6 +8,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`config.schema_log` reports the schema on boot and on every reload in development**: a
+  pretty-printed `✓` with the build time, the number of types and root fields, what the reload
+  added and removed (`+ User.nickname   − Post.legacyTitle`) and the files written, or a `✗`
+  with the error the next request would raise, plus the persisted operations the schema no
+  longer accepts. On by default in a development server (not rake tasks or the console),
+  through the Rails logger, and on the terminal from boot.
 - **`@attachment` answers the URL of an ActiveStorage attachment**, or the URLs of a
   `has_many_attached`: the read side of `@upload`. Every parent's attachments and blobs load
   at once (two queries for any number of parents), the name defaults to the field's without

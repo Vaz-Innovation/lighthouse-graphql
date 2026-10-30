@@ -27,7 +27,7 @@ RSpec.describe Lighthouse::Railtie do
     expect(initializer.before).to eq(:set_clear_dependencies_hook)
   end
 
-  it 'refreshes the IDE helper files whenever the app is prepared' do
-    expect(described_class.initializers.map(&:name)).to include('lighthouse.ide_helper')
+  it 'refreshes the IDE helper files, and reports the schema, whenever the app is prepared' do
+    expect(described_class.initializers.map(&:name)).to include('lighthouse.ide_helper', 'lighthouse.schema_report')
   end
 end

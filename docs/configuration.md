@@ -38,11 +38,32 @@ content is unchanged is left alone. `nil` (the default) turns it on in
 development when the app has a `graphql.config.yml`, which `lighthouse:install`
 writes. Set `true` or `false` to decide yourself.
 
+### `schema_log`
+
+Log what development learns of the schema on boot and on every reload: it built (in
+how long, how big, what the reload added and removed, the files it wrote), or why it
+did not, and the persisted operations it no longer accepts:
+
+```text
+[Lighthouse] ✓ AppSchema built in 61 ms: 47 types, 16 queries, 9 mutations, 3 subscriptions
+[Lighthouse]   + User.nickname   − Post.legacyTitle
+[Lighthouse]   wrote schema.graphql
+
+[Lighthouse] ✗ The schema does not build: Lighthouse::DefinitionError
+[Lighthouse]   No directive found for `@can` on User.nickname.
+[Lighthouse]   The next GraphQL request raises it: save a fix to reload.
+```
+
+The schema is checked as `bin/rails lighthouse:validate_schema` checks it (the
+`ValidateSchema` event, then every type), through the Rails logger, in colour when
+`config.colorize_logging` is on. `nil` (the default) logs in a development server,
+not in rake tasks or the console; `true` or `false` decide.
+
 ### `schema_output`
 
 A file development keeps the schema clients see in, for a codegen to read, as
 NestJS's `autoSchemaFile`: rewritten on boot and on every reload, and only when it
-changed, so a watcher runs only then. A path under the app's root, whose extension
+changed, so a watcher runs only then ([`schema_log`](#schema-log) says when it did). A path under the app's root, whose extension
 picks the format (`.json` for the introspection result, else SDL), or a Hash naming
 the schema class too (`<App>Schema`, graphql-ruby's install's name, by default):
 

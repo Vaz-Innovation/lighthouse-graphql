@@ -70,12 +70,5 @@ RSpec.describe Lighthouse::GraphQL::SchemaPrinter do
       described_class.write(setting[:path], described_class.output_content(setting))
       expect(described_class.stale?(setting)).to be(false)
     end
-
-    it 'is not refreshed outside development' do
-      Lighthouse::Config.schema_output = { path: dir.join('schema.graphql'), schema: 'PrinterSpecSchema' }
-
-      expect(described_class.refresh).to be(false)
-      expect(dir.join('schema.graphql')).not_to exist
-    end
   end
 end

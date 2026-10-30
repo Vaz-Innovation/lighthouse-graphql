@@ -102,7 +102,16 @@ module Lighthouse
       # Writes unless the file holds `content` already; true when it wrote.
       def self?.write: (path path, String content) -> bool
       def self?.stale?: (?Hash[Symbol, untyped]? setting) -> bool
-      def self?.refresh: () -> bool
+    end
+
+    # Development's report on the schema, on boot and every reload: logged
+    # with Config.schema_log; schema_output's file rewritten.
+    module SchemaReport
+      LIST_LIMIT: Integer
+
+      # The report's [level, text] lines; nil when there is nothing to do.
+      def self?.refresh: (?logger: untyped) -> Array[[Symbol, String]]?
+      def self?.report: (Hash[Symbol, untyped]? output) -> Array[[Symbol, String]]
     end
   end
 
