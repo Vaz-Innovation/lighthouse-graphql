@@ -313,6 +313,13 @@ RSpec.describe 'Deferring fields' do
       expect(lookups.call(3)).to eq(lookups.call(1))
     end
 
+    it "builds the operation's query with the schema's query_class, as schema.execute does" do
+      query_class = Class.new(GraphQL::Query)
+      schema.query_class(query_class)
+
+      expect(run('{ users { ... @defer { name } } }').result.query).to be_a(query_class)
+    end
+
     it 'parses the query once' do
       allow(GraphQL).to receive(:parse).and_call_original
 

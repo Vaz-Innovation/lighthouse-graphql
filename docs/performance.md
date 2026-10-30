@@ -371,6 +371,10 @@ error, every id the client was sent and has not seen completed; the error goes t
   whole.
 - **No N+1.** All the fragments of a round run in one multiplex, so the Dataloader batches across
   them: a deferred fragment under a list of 50 costs the queries it costs without `@defer`.
+- **graphql-ruby's standard engine.** A streamed request runs as `schema.execute` runs one, with the
+  schema's `query_class`, on graphql-ruby's standard execution engine, where the deferred rounds'
+  `GraphQL::Query::Partial`s run, even when the schema opts into graphql-ruby 2.6's new engine
+  (`default_execution_next`) for its other requests.
 - **Validation and complexity cover the whole document**, before the first pass: the deferred
   fragments count for `max_complexity` and `max_depth`, as they would without `@defer`.
 - **Events.** `StartExecution` and `EndExecution` fire for the first pass, and again for each unit a
