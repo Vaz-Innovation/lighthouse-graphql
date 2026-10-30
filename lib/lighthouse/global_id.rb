@@ -11,8 +11,10 @@ require 'base64'
 # A schema that implements graphql-ruby's Relay ids, `id_from_object` and
 # `object_from_id` (graphql-ruby's install writes them, on Rails' GlobalID),
 # has one kind of global id: @globalId encodes an object's own id with
-# `id_from_object`, and decodes with `object_from_id`, as graphql-ruby's
-# Query.node and Node's `id` do.
+# `id_from_object`, as graphql-ruby's Node `id` does. It decodes one as PHP
+# Lighthouse's GlobalId does, without reading the database: Rails' GlobalID
+# names the model and the id. Only an id of another format is decoded
+# through `object_from_id`, which loads the record.
 module Lighthouse::GraphQL::GlobalId
   module_function
 
@@ -26,11 +28,11 @@ module Lighthouse::GraphQL::GlobalId
     []
   end
 
-  # [type, id] for a global id a client sent, through the schema's
-  # object_from_id (schema_ids?) or Config.global_id; a
+  # [type, id] for a global id a client sent, from Rails' GlobalID or the
+  # schema's object_from_id (schema_ids?), else Config.global_id; a
   # GraphQL::ExecutionError when it is not one.
   def decode!(global_id, context = nil)
-    type, id = schema_ids?(context&.schema) ? decode_object(global_id, context) : Lighthouse::Config.global_id.decode(global_id)
+    type, id = schema_ids?(context&.schema) ? decode_schema_id(global_id, context) : Lighthouse::Config.global_id.decode(global_id)
     return [type, id] if type.present? && !id.nil?
 
     raise ::GraphQL::ExecutionError, "#{global_id.inspect} is not a valid global id."
@@ -47,6 +49,15 @@ module Lighthouse::GraphQL::GlobalId
   # Does `schema` define graphql-ruby's object_from_id (GraphQL::Schema's own raises)?
   def schema_ids?(schema)
     schema.respond_to?(:object_from_id) && schema.method(:object_from_id).owner != ::GraphQL::Schema.singleton_class
+  end
+
+  # A Rails GlobalID (`to_gid_param`, graphql-ruby's install's
+  # id_from_object) names its model and id, so the record needs no SELECT,
+  # and one a default scope hides (a soft-deleted record @restore looks for)
+  # decodes too. Any other id goes through object_from_id.
+  def decode_schema_id(global_id, context)
+    gid = defined?(::GlobalID) && global_id.is_a?(String) ? ::GlobalID.parse(global_id) : nil
+    gid ? [gid.model_name.demodulize, gid.model_id] : decode_object(global_id, context)
   end
 
   # [type, id] of the object the schema's object_from_id finds.

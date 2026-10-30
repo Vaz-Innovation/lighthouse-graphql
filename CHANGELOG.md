@@ -33,6 +33,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`@globalId(decode:)` no longer loads the record to read its id.** On a schema with
+  graphql-ruby's `object_from_id` (Rails' GlobalID, as its install writes it), decoding went
+  through `object_from_id`: a SELECT before `@find`'s own, under the model's default scope,
+  so a soft-deleted record's id did not decode for `@restore` / `@forceDelete` with an
+  `object_from_id` that kept the scope. A Rails GlobalID now decodes without the database,
+  as PHP Lighthouse's `decodeID` does; only an id of another format goes through
+  `object_from_id`.
 - A directive the SDL uses that is neither built in, Lighthouse's nor declared fails the build
   with ``No directive found for `@can` on Query.a.``, as PHP Lighthouse names it. On a root type
   it failed with a `NoMethodError` from inside graphql-ruby.

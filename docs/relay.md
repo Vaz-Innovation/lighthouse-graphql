@@ -156,8 +156,12 @@ directives then work on them. The schema has one kind of global id and one `Node
 - `@globalId` on a field that resolves an object's own id encodes it with
   `id_from_object`: `Tag.id` answers `tag.to_gid_param`, as graphql-ruby's `Node.id`
   does. Any other value is encoded as before.
-- `@globalId` on an argument decodes with `object_from_id`, which loads the object.
-  `ID` gives its id, and `ARRAY` / `TYPE` its class name (`["Tag", 1]`, `"Tag"`).
+- `@globalId` on an argument decodes a Rails GlobalID without reading the database,
+  as PHP Lighthouse decodes its ids: `ID` gives its id, and `ARRAY` / `TYPE` its
+  model's name (`["Tag", "1"]`, `"Tag"`). So `tag(id: ID! @globalId(decode: ID) @eq):
+  Tag @find` runs the one query of `@find`, and a soft-deleted record's id decodes for
+  `@restore`. An id of another format (an `id_from_object` of your own) is decoded
+  with `object_from_id`, which loads the object.
 - `node:` is the SDL's `Node` interface: `interface Node`, which `@node` adds, and
   `implements Node` refer to `Types::NodeType`. A `@node` type implements it.
 - `Query.node` and `nodes` find objects with `object_from_id`, through the
