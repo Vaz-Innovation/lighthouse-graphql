@@ -27,7 +27,6 @@ class Lighthouse::GraphQL::Incremental::Plan
   # (with the other `pendings` of its path, which complete with it). A stream's: its items.
   Unit = Struct.new(:owner, :pendings, :path, :object, :type, :selections, keyword_init: true) do
     def stream? = owner.stream?
-    def sub_path = path.drop(owner.path.size)
   end
 
   # Where a unit runs: on `object`, of the object type `type`, at `path`, for the pending `group`.

@@ -884,6 +884,15 @@ RSpec.describe 'Deferring fields' do
       expect(all.last['completed'].first['errors'].pluck('path')).to eq([%w[user company strict]])
     end
 
+    it 'fails a fragment for its own units only: one that shares a field with a fragment that fails still sends it' do
+      all = payloads('{ user(id: 1) { id ... @defer(label: "b") { name required } } ... @defer(label: "a") { user(id: 1) { name } } }')
+      ids = all.first['pending'].to_h { |entry| [entry['label'], entry['id']] }
+
+      expect(all.last['incremental']).to eq([{ 'id' => ids['a'], 'subPath' => ['user'], 'data' => { 'name' => 'u0' } }])
+      expect(all.last['completed'].find { |entry| entry['id'] == ids['a'] }).to eq('id' => ids['a'])
+      expect(all.last['completed'].find { |entry| entry['id'] == ids['b'] }['errors'].pluck('path')).to eq([%w[user required]])
+    end
+
     it 'sends no entry that carries nothing: its extensions go on the payload' do
       allow_any_instance_of(Lighthouse::GraphQL::Incremental::Run).to receive(:run).and_wrap_original do |original, partials| # rubocop:disable RSpec/AnyInstance
         original.call(partials).map { |response| response.merge('data' => {}, 'extensions' => { 'seen' => true }) }
