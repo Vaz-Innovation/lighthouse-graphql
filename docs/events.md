@@ -103,9 +103,13 @@ what the client was sent (no error says so: the client left, the server did not 
 defers nothing gets its result at once, as without `@defer`.
 
 The fragments deferred with [`@defer`](performance.md#deferring-fields-experimental) run after the
-first response, a round of them in a multiplex of its own: the events fire again for each unit the
-round runs (the fragments of one path on its object), with the operation's `query` (the client's
-document, never rewritten), `variables` and `operation_name`, and the result of that unit.
+first response, in rounds, a payload each. A round runs its units (the fields the same fragments
+select at one path, on its object, or a stream's items) in one multiplex, and, when two fragments
+select different fields of an object field that resolves in it, the fields below that field in
+another multiplex after it (a pass), so a round is one multiplex or more. The execution events fire
+again for each unit of each pass, as a multiplex fires them for each of its queries, with the
+operation's `query` (the client's document, never rewritten), `variables` and `operation_name`, and
+the result of that unit.
 
 `StartExecution#query` is the parsed `GraphQL::Language::Nodes::Document`, and
 `operation_name` the one the client gave. Both events carry the `GraphQL::Query` as
