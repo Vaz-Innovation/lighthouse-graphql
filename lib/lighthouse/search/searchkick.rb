@@ -66,16 +66,16 @@ class Lighthouse::Search::Searchkick
     end
   end
 
-  # Why the model cannot be searched as it is, or nil: a default scope that
-  # narrows the records it loads (a tenant's, a soft delete's), or a
-  # search_results scope, needs `search_where`, the engine's `where:` for the
-  # same records. Without it the engine would count, and page through, records
+  # Why the model cannot be searched as it is, or nil: a default scope (a
+  # tenant's, a soft delete's; any, as declared, since what one selects may
+  # depend on the request), or a search_results scope, needs `search_where`, the
+  # engine's `where:` for the same records (`{}` when they narrow nothing). Without it the engine would count, and page through, records
   # that do not load: its totals would include other tenants' matches.
   # Search::FieldCheck asks when the schema is built; a search asks too.
   def model_error(model)
     return nil if model.respond_to?(:search_where)
 
-    narrowing = ("#{model.name}'s default scope" if Lighthouse::Support::Relations.narrowing_default_scope?(model)) ||
+    narrowing = ("#{model.name}'s default scope" if Lighthouse::Support::Relations.default_scope?(model)) ||
                 ("#{model.name}.search_results" if Lighthouse::Search.results_scope?(model))
     return nil unless narrowing
 

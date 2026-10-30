@@ -549,9 +549,12 @@ them out (`should_index?` returning false once trashed) finds none with `ONLY`.
 engine knows nothing of the database. What narrows the records a search loads must narrow the engine's
 hits the same way, or a total would count what the client cannot see: with `default_scope {
 where(tenant_id: Current.tenant_id) }`, one tenant's search would load its own records but count every
-tenant's matches. So a Searchkick model whose default scope narrows its records (conditions, joins), or
-that has a `search_results` scope (below), must define **`search_where`**: the engine's `where:` for the
-same records, from what `search_data` indexes. Every search of the model ANDs it in. Without it the
+tenant's matches. So a Searchkick model with a default scope, or a `search_results` scope (below), must
+define **`search_where`**. Any default scope counts, as declared: what one selects may depend on the
+request (`where(tenant_id: Current.tenant_id) if Current.tenant_id` narrows nothing when the schema is
+built, outside one), so Lighthouse does not judge it by what it selects. `search_where` is the engine's
+`where:` for the same records, from what `search_data` indexes (`{}` for a default scope that only
+orders). Every search of the model ANDs it in. Without it the
 model is a schema error (or, for a field whose model Lighthouse cannot tell, an error at the first
 search):
 
@@ -668,7 +671,7 @@ is: a schema error). This protocol is experimental.
 | `enhance_builder` given a narrowed relation | conditions dropped | `Lighthouse::DefinitionError` |
 | A `@search` nothing applies (the default reader, `@create`, ...) | ignored | schema error |
 | A directive of your own on a searched field, which does not say it applies a search | (no such contract) | schema error |
-| A Searchkick model whose default scope or `search_results` narrows what loads, without `search_where` | the engine counts what does not load | schema error |
+| A Searchkick model with a default scope or `search_results`, without `search_where` | the engine counts what does not load | schema error |
 | A nested `@paginate` whose record pages an association its type's model lacks | `ScoutException` at run time | client error |
 | A filter raises (on any field) | the error | the error, reported to `Config.on_error`, for the schema's `rescue_from` |
 | A search the field's own directives would narrow, on a field whose model the build could not tell | directives dropped silently | client error, reported |

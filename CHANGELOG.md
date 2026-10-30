@@ -20,8 +20,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (`max_result_window`, read from the model, whatever its settings' keys; left to the engine for
   another index `within:` names): a page past it is an error the client reads, and `@all` without
   `first` reads 10,000 records at most, even with `deep_paging`, with an error next to them when the
-  search finds more. A search counts only what it can load: a Searchkick model whose default scope or
-  `search_results` scope narrows its records defines `search_where`, the engine's `where:` for the
+  search finds more. A search counts only what it can load: a Searchkick model with a default scope
+  (any, as declared, since what one selects may depend on the request) or a `search_results` scope
+  defines `search_where`, the engine's `where:` for the
   same records (a tenant's, a published flag's), which every search ANDs in; and pages follow the
   engine's positions, so a hit that does not load (a stale index) is neither shown twice nor skips
   another, in `SIMPLE` and `CONNECTION` alike. **pg_search** (2.3 and 2.4) is a
