@@ -160,8 +160,13 @@ class Lighthouse::GraphQL::DirectiveResolvers::ArgumentTransformsResolver < Ligh
     send(TRANSFORMS.fetch(directive.name), directive, argument, value, ctx)
   end
 
-  def decode_global_id(directive, _argument, value, ctx)
-    decode(value, Lighthouse::Support::DirectiveArgs.literal(directive, 'decode') || 'ARRAY', ctx)
+  def decode_global_id(directive, argument, value, ctx)
+    mode = Lighthouse::Support::DirectiveArgs.literal(directive, 'decode') || 'ARRAY'
+    decode(value, mode, ctx, global_id_types.model(directive, argument, mode, ctx))
+  end
+
+  def global_id_types
+    @global_id_types ||= Lighthouse::GraphQL::DirectiveResolvers::GlobalIdTypes.new(self, @field_def)
   end
 
   def trim_value(_directive, _argument, value, _ctx) = trim(value)
@@ -175,10 +180,15 @@ class Lighthouse::GraphQL::DirectiveResolvers::ArgumentTransformsResolver < Ligh
     Lighthouse::GraphQL::UploadStore.call(value, argument: argument.graphql_name, **options)
   end
 
-  def decode(value, mode, ctx = nil)
-    return value.map { |item| decode(item, mode, ctx) } if value.is_a?(Array)
+  # `model`: the class the id must be of, if any (GlobalIdTypes).
+  def decode(value, mode, ctx = nil, model = nil)
+    return value.map { |item| decode(item, mode, ctx, model) } if value.is_a?(Array)
 
     type, id = Lighthouse::GraphQL::GlobalId.decode!(value, ctx)
+    if model && !Lighthouse::GraphQL::GlobalId.of_model?(value, type, model, ctx)
+      raise ::GraphQL::ExecutionError, "#{value.inspect} is not a valid global id for #{model.name}."
+    end
+
     { 'TYPE' => type, 'ID' => id }.fetch(mode.to_s, [type, id])
   end
 

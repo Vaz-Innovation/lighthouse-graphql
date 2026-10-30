@@ -6,6 +6,10 @@ require_relative 'base'
 # encodes the value with the type's name (`id: ID! @globalId` answers
 # "VXNlcjox" for User 1); on an argument or input field it decodes what the
 # client sent (ArgumentTransformsResolver). Config.global_id does the encoding.
+# Unlike PHP Lighthouse's, a decoded id is checked to be of the type it is
+# for: `type:`, or with decode: ID the field's model when the argument filters
+# its key (GlobalIdTypes), so another type's id fails rather than finds the
+# record of the same number.
 class Lighthouse::GraphQL::DirectiveResolvers::GlobalIdDirectiveResolver < Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
   NAME = 'globalId'
 
@@ -25,6 +29,8 @@ class Lighthouse::GraphQL::DirectiveResolvers::GlobalIdDirectiveResolver < Light
         This setting controls which of those is passed along.
         """
         decode: GlobalIdDecode = ARRAY
+        "The type (GraphQL type or model) a decoded id must be of. Inferred for a key of the field's model."
+        type: String
       ) on FIELD_DEFINITION | INPUT_FIELD_DEFINITION | ARGUMENT_DEFINITION
     GRAPHQL
   end

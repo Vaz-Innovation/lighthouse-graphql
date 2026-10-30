@@ -132,6 +132,7 @@ require_relative 'namespaces'
   directive_resolvers/async_resolver
   directive_resolvers/global_id_resolver
   directive_resolvers/argument_binding
+  directive_resolvers/global_id_types
   directive_resolvers/argument_transforms_resolver
   directives/arguments/base
   directives/arguments/filters

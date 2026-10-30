@@ -286,7 +286,10 @@ type User {
 ### `@globalId` and `@node`
 
 `@globalId` encodes a field's value as a Relay global id (base64 of `Type:id`), and
-decodes an argument or input field (`decode: ARRAY | TYPE | ID`). `@node` on a type
+decodes an argument or input field (`decode: ARRAY | TYPE | ID`). A decoded id must be
+of the type it is for: `type:` names it, and with `decode: ID` an argument filtering
+the field's model by its key is checked against that model, so another type's id
+fails the field ([relay.md](relay.md#the-type-of-a-decoded-id)). `@node` on a type
 makes it implement `Node` and adds `Query.node(id:)`, which finds the type's model
 record, or calls `@node(resolver:)`. See [relay.md](relay.md).
 

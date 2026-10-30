@@ -6,6 +6,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`@globalId(decode: ID)` checks the type of the id** (#6). It kept the id and dropped the
+  type, so another type's global id found the record with the same number:
+  `user(id: <a Post's id>)` answered user 1, and `@delete` / `@forceDelete` could act on a
+  record the client did not name. An argument that filters the field's model by its key
+  (`@whereKey`, `@eq`/`@in` on the primary key, or `id`), on the field or in an input it
+  takes, now fails with `"…" is not a valid global id for User.` given another type's id;
+  a subclass (STI) or a type whose `@model` is the field's model passes. The new
+  `@globalId(type: "User")` names the type anywhere else. PHP Lighthouse does not check.
+
 ## [0.8.1] - 2026-10-30
 
 ### Changed

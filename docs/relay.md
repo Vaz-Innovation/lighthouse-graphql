@@ -47,6 +47,33 @@ type Mutation {
 Lists of ids decode item by item. A value that is not a global id makes the field
 fail with `"…" is not a valid global id.`
 
+### The type of a decoded id
+
+Relay ids are unique across types, so a decoded id is checked to be of the type it is
+for: another type's id makes the field fail with `"…" is not a valid global id for
+User.`, where it would find the record that happens to have the same number (a
+`Post`'s id finding user 1, or `@delete` removing it). PHP Lighthouse does not check.
+
+- **Inferred** with `decode: ID`, when the argument filters the field's model by its
+  key: `@whereKey`, an `@eq` or `@in` on the primary key, or an argument named after
+  it (`id`). That is an argument of the field, or a field of an input one of its
+  arguments takes (`user(by: UserBy!)`), unless that argument is an association of
+  the model. The field's model is its `model:`, else its return type's.
+- **Explicit** with `type:`, a GraphQL type or model name, for any other argument and
+  any `decode:`:
+
+```graphql
+type Query {
+  user(id: ID! @globalId(decode: ID) @eq): User @find   # a User's id, inferred
+  posts(authorId: ID! @globalId(decode: ID, type: "User") @eq(key: "author_id")): [Post!]! @all
+}
+```
+
+An id of a subclass (STI) passes, and so does the id of a type whose
+[`@model`](directives.md#model) is the field's model. `authorId` above, without
+`type:`, is not checked: it holds another model's id, as the inputs of nested
+mutations do.
+
 ## Nodes
 
 `@node` registers a type for refetching:

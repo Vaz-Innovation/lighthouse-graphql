@@ -60,6 +60,34 @@ module Lighthouse::GraphQL::GlobalId
     gid ? [gid.model_name.demodulize, gid.model_id] : decode_object(global_id, context)
   end
 
+  # Is `global_id`, decoded as `type`, an id of `model` or of a subclass (STI)?
+  # A Rails GlobalID names its model class; another names a GraphQL type, whose
+  # model is its @model(class:), else the class of its name.
+  def of_model?(global_id, type, model, context)
+    klass = rails_model(global_id) || type_model(type, context)
+    klass.is_a?(Class) && klass <= model
+  end
+
+  def rails_model(global_id)
+    return unless defined?(::GlobalID) && global_id.is_a?(String)
+
+    ::GlobalID.parse(global_id)&.model_class
+  rescue NameError
+    nil
+  end
+
+  # The model of the GraphQL type (or model) named `name`.
+  def type_model(name, context)
+    Lighthouse::Support::ModelResolver.constantize(declared_model(name, context) || name)
+  end
+
+  # The @model(class:) of the schema's type of that name.
+  def declared_model(name, context)
+    schema_type = context.schema.get_type(name.to_s) if context.respond_to?(:schema) && context.schema
+    directives = schema_type.respond_to?(:ast_node) ? schema_type.ast_node&.directives : nil
+    Lighthouse::Support::DirectiveArgs.literal(directives&.find { |d| d.name == 'model' }, 'class')
+  end
+
   # [type, id] of the object the schema's object_from_id finds.
   def decode_object(global_id, context)
     object = context.schema.object_from_id(global_id, context)
