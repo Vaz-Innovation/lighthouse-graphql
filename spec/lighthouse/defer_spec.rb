@@ -31,6 +31,8 @@ RSpec.describe 'Deferring fields' do
         names: [String!]! @field(resolver: "DeferSpecNames")
         maybe: [String!] @field(resolver: "DeferSpecNothing")
         someNames: [String!] @field(resolver: "DeferSpecNames")
+        limited: String @throttle(maxAttempts: 0) @field(resolver: "DeferSpecNames")
+        noted: String @throttle(maxAttempts: 0, with: "note_it") @field(resolver: "DeferSpecNames")
       }
       type Mutation {
         createUser(name: String!): User @create(model: "LH::User")
@@ -591,6 +593,68 @@ RSpec.describe 'Deferring fields' do
 
       expect(seen.map(&:first)).to eq(%i[start end] + (%i[start] * 3) + (%i[end] * 3))
       expect(seen.map(&:last).uniq).to eq(['Names', ['data']])
+    end
+  end
+
+  describe 'a failure in a later round' do
+    # A controller whose response is on its way once the first payload is written, as
+    # ActionController::Live's is: it has performed, and can render nothing more.
+    let(:controller) do
+      Class.new do
+        attr_reader :cache_store, :notes
+        attr_writer :committed
+
+        def initialize = (@cache_store = ActiveSupport::Cache::MemoryStore.new) && (@notes = [])
+        def controller_path = 'graphql'
+        def request = nil
+        def performed? = @committed || false
+        def head(*) = raise(ActionDispatch::IllegalStateError, 'header already sent')
+
+        private
+
+        def note_it = @notes << :limited
+      end.new
+    end
+
+    def streamed(query)
+      run = run(query, context: { lighthouse_controller: controller, remote_ip: '10.0.0.1' })
+      [].tap { |all| run.each_payload { |payload| (all << payload) && (controller.committed = true) } }
+    end
+
+    it 'answers a @throttle past its limit with a field error, where the response can no longer be refused' do
+      stub_const('ActionDispatch::IllegalStateError', Class.new(StandardError)) unless defined?(ActionDispatch::IllegalStateError)
+      all = streamed('{ ... @defer { limited noted } }')
+      entry = all.last['incremental'].first
+
+      expect(entry['data']).to eq('limited' => nil, 'noted' => nil)
+      expect(entry['errors'].pluck('message')).to eq(['Rate limit for Query.limited exceeded. Try again later.',
+                                                      'Rate limit for Query.noted exceeded. Try again later.'])
+      expect(all.last).to include('completed' => [{ 'id' => '0' }], 'hasNext' => false)
+      expect(controller.notes).to eq([])
+    end
+
+    it 'ends the stream with every announced id completed, whatever ends the round' do
+      LH::User.define_method(:loud) { raise Lighthouse::GraphQL::Controller::Performed }
+      run = run('{ users { ... @defer { loud } } }')
+      all = []
+
+      expect { run.each_payload { |payload| all << payload } }.to raise_error(Lighthouse::GraphQL::Controller::Performed)
+      expect(all.last).to include('completed' => %w[0 1 2].map { |id| { 'id' => id, 'errors' => [{ 'message' => 'Internal server error' }] } },
+                                  'hasNext' => false)
+    end
+
+    it 'completes only the ids the client was sent' do
+      calls = 0
+      allow(Lighthouse::GraphQL::Incremental::Serializer).to receive(:subsequent).and_wrap_original do |original, **payload|
+        raise 'boom' if payload[:pending].any? && (calls += 1) == 1
+
+        original.call(**payload)
+      end
+      run = run('{ users { ... @defer(label: "a") { name posts { ... @defer(label: "b") { title } } } } }')
+      all = []
+
+      expect { run.each_payload { |payload| all << payload } }.to raise_error(RuntimeError, 'boom')
+      expect(all.last['completed'].pluck('id')).to eq(%w[0 1 2])
     end
   end
 

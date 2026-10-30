@@ -131,6 +131,17 @@ RSpec.describe 'Deferring fields', type: :request do
     expect(deferred.size).to eq(whole.size)
   end
 
+  it 'answers a @throttle past its limit in a deferred fragment with a field error, and ends the stream' do
+    10.times { post '/graphql', params: { query: '{ searchPosts(term: "x") { title } }' }, env: { 'REMOTE_ADDR' => '10.9.0.1' }, as: :json }
+    post '/graphql', params: { query: '{ posts(first: 1) { data { title } } ... @defer { searchPosts(term: "x") { title } } }' },
+                     headers: accept, env: { 'REMOTE_ADDR' => '10.9.0.1' }, as: :json
+    later = parts(response.body).last
+
+    # searchPosts is non-null: its error leaves the fragment no data, and completes it.
+    expect(later['completed'].first['errors'].pluck('message')).to eq(['Rate limit for Query.searchPosts exceeded. Try again later.'])
+    expect(later['hasNext']).to be(false)
+  end
+
   it 'streams the items of a paginated list after the first ones' do
     initial, later = stream('{ posts(first: 10) { data @stream(initialCount: 1, label: "rest") { title } } }')
 

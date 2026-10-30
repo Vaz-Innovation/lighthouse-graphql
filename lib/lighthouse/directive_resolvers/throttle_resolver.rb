@@ -17,6 +17,9 @@ require_relative 'base'
 #            ActionController::TooManyRequests, which Rails answers with a 429
 #            (`head :too_many_requests` on a Rails without it, 7.2). Without Action
 #            Pack at all, the field fails: "Rate limit for Query.x exceeded. Try again later."
+#            So does it where the response is already on its way (a later part of a
+#            streamed @defer response, see Defer): it can no longer be a 429, nor
+#            anything `with:` would render, so `with:` is not called.
 #   name:    as rate_limit's: the field by default (Query.x). Fields, and the
 #            controller's own `rate_limit`, of the same name count together.
 #   prefix:  as rate_limit's scope: the controller's path by default.
@@ -112,13 +115,16 @@ class Lighthouse::GraphQL::DirectiveResolvers::ThrottleDirectiveResolver < Light
   # Past the limit: instrumented as rate_limit's, around `with`, after which a
   # response `with` performed ends the request, as a before_action's would.
   def refuse(controller, limit, location, counted)
+    committed = controller&.performed?
     payload = { request: controller&.request, to: limit[:to], within: limit[:within], **counted }
-    ActiveSupport::Notifications.instrument('rate_limit.action_controller', payload) { limited(controller, limit[:with], location) }
+    ActiveSupport::Notifications.instrument('rate_limit.action_controller', payload) { limited(controller, limit[:with], location, committed) }
     raise Lighthouse::GraphQL::Controller::Performed if controller&.performed?
   end
 
-  # The controller's `with` method, else rate_limit's default `with`.
-  def limited(controller, with, location)
+  # The controller's `with` method, else rate_limit's default `with`; a field error once the
+  # response has `committed` (performed? before this call: streaming).
+  def limited(controller, with, location, committed)
+    raise ::GraphQL::ExecutionError, "Rate limit for #{location} exceeded. Try again later." if committed
     return call_with(controller, with, location) if with && controller
     raise ::ActionController::TooManyRequests if defined?(::ActionController::TooManyRequests)
     return controller.head(:too_many_requests) if controller

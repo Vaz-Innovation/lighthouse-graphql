@@ -59,13 +59,16 @@ class Lighthouse::GraphQL::Incremental::Run
     !@queue.empty?
   end
 
-  # The initial payload, then each later one, until `hasNext` is false.
+  # The initial payload, then each later one, until `hasNext` is false. A round that fails
+  # ends the stream with a last payload, which completes, with an error, the ids the client
+  # was sent and has not seen completed (Controller::Performed is not a StandardError, but
+  # ends the round all the same), then raises again.
   def each_payload
     yield Serializer.initial(@result, @announced, has_next: deferred?)
     until @queue.empty?
       begin
         payload = next_payload
-      rescue StandardError
+      rescue StandardError, Lighthouse::GraphQL::Controller::Performed
         yield failure_payload
         raise
       end
@@ -115,8 +118,8 @@ class Lighthouse::GraphQL::Incremental::Run
       deliver(pending, results[index], incremental, completed, extensions)
       announce(@state.drain(partials[index]), results[index]['data'], pending.path, pending.offset.to_i)
     end
-    @running = []
     Serializer.subsequent(incremental: incremental, completed: completed, pending: @announced, extensions: extensions, has_next: deferred?)
+              .tap { @running = [] }
   end
 
   # May the fragments of this round defer the fragments they hold? Not past the limits:
@@ -196,10 +199,12 @@ class Lighthouse::GraphQL::Incremental::Run
     !data.nil?
   end
 
+  # The round that failed: its fragments were announced in an earlier payload. Those it
+  # found itself (queued) were never sent, and are not completed.
   def failure_payload
     errors = [{ 'message' => 'Internal server error' }]
-    Serializer.subsequent(
-      incremental: [], completed: (@running + @queue).map { |pending| { 'id' => pending.id, 'errors' => errors } }, pending: [], has_next: false
-    )
+    Serializer.subsequent(incremental: [], completed: @running.map do |pending|
+      { 'id' => pending.id, 'errors' => errors }
+    end, pending: [], has_next: false)
   end
 end
