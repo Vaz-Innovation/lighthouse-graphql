@@ -1,18 +1,19 @@
 require 'rails_helper'
 
-# @search on the engines it runs through, each in its own group:
+# @search, first as the app has it: Query.posts(search:) through POST /graphql, with
+# Post's pg_search scope, in the suite's PostgreSQL. Then on each engine, with
+# schemas of the specs' own:
 #
 # - Searchkick, against OpenSearch or Elasticsearch, when OPENSEARCH_URL is set;
-# - pg_search, in PostgreSQL, when DATABASE_URL is a PostgreSQL one.
+# - pg_search, in PostgreSQL: the suite's own (spec/postgres_container.rb), or a
+#   PostgreSQL DATABASE_URL. CI's MySQL run skips both pg_search groups.
 #
 #   docker run -d -p 9200:9200 -e discovery.type=single-node -e DISABLE_SECURITY_PLUGIN=true \
 #     -e DISABLE_INSTALL_DEMO_CONFIG=true opensearchproject/opensearch:2
-#   OPENSEARCH_URL=http://127.0.0.1:9200 \
-#   DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5433/lighthouse_example_test bundle exec rspec spec/requests/graphql/search_spec.rb
+#   OPENSEARCH_URL=http://127.0.0.1:9200 bundle exec rspec spec/requests/graphql/search_spec.rb
 #
 # The gem suite runs the same cases against fake engines (spec/lighthouse/search_spec.rb).
-# The schemas here are the specs' own, built from SDL over subclasses of the app's models,
-# so the app's schema and its SQLite runs know nothing of either engine.
+# The engines' schemas are the specs' own, built from SDL over subclasses of the app's models.
 opensearch = ENV['OPENSEARCH_URL'].present?
 postgres = ActiveRecord::Base.connection_db_config.adapter.match?(/postg/i)
 
@@ -30,8 +31,6 @@ if opensearch
 end
 
 if postgres
-  require 'pg_search'
-
   class PgSearchedPost < Post
     include PgSearch::Model
 
@@ -46,7 +45,7 @@ if postgres
   end
 end
 
-RSpec.describe 'GraphQL @search on its engines', type: :request do
+RSpec.describe 'GraphQL @search', type: :request do
   def schema_from(sdl) = Lighthouse::GraphQL::SchemaFactory.build_base_schema(sdl: sdl, schema_options: { using: { GraphQL::Dataloader => {} } })
 
   def run(schema, query, context = {}) = schema.execute(query, context: context).to_h
@@ -65,6 +64,69 @@ RSpec.describe 'GraphQL @search on its engines', type: :request do
     }
     ActiveSupport::Notifications.subscribed(callback, 'sql.active_record', &)
     sql
+  end
+
+  describe "the app's Query.posts(search:)", if: postgres do
+    let(:ada) { create(:user, name: 'Ada') }
+    let(:grace) { create(:user, name: 'Grace') }
+
+    def posts(arguments, selection = 'data { title }')
+      graphql("{ posts(#{arguments}) { #{selection} } }").dig('data', 'posts')
+    end
+
+    def titles(arguments) = posts(arguments)['data'].pluck('title')
+
+    before do
+      create(:post, author: ada, title: 'Rails routing', body: 'Resources and constraints.', created_at: 3.days.ago)
+      create(:post, author: grace, title: 'Testing', body: 'Request specs for a Rails app.', created_at: 2.days.ago)
+      create(:post, author: ada, title: 'Rails caching', body: 'Fragments and keys.', created_at: 1.day.ago)
+      create(:post, :draft, author: ada, title: 'Rails drafts', body: 'Not out yet.')
+      create(:post, author: grace, title: 'Elixir', body: 'Processes.')
+    end
+
+    it "finds the published posts, a title match first and the field's newest-first order between equal ranks" do
+      expect(titles('search: "rails"')).to eq(['Rails caching', 'Rails routing', 'Testing'])
+    end
+
+    it 'matches a prefix of a word' do
+      expect(titles('search: "rail"')).to eq(['Rails caching', 'Rails routing', 'Testing'])
+    end
+
+    it 'lists every published post, newest first, without a search' do
+      expect(titles('first: 10')).to eq(['Elixir', 'Rails caching', 'Testing', 'Rails routing'])
+    end
+
+    it 'narrows the search with @whereConditions' do
+      expect(titles(%(search: "rails", where: { column: AUTHOR_ID, value: #{grace.id} }))).to eq(['Testing'])
+    end
+
+    it "keeps the rank first, and the client's orderBy between equal ranks" do
+      expect(titles('search: "rails", orderBy: [{ column: TITLE, order: ASC }]')).to eq(['Rails caching', 'Rails routing', 'Testing'])
+    end
+
+    it 'pages the matches, with their total' do
+      page = posts('search: "rails", first: 2, page: 2', 'data { title } paginatorInfo { total lastPage }')
+
+      expect(page).to eq('data' => [{ 'title' => 'Testing' }], 'paginatorInfo' => { 'total' => 3, 'lastPage' => 2 })
+    end
+
+    it 'loads what the matches select below them without N+1' do
+      body = nil
+      sql = sql_in { body = graphql('{ posts(search: "rails") { data { title author { name } } } }') }
+
+      expect(body.dig('data', 'posts', 'data').pluck('author')).to eq([{ 'name' => 'Ada' }, { 'name' => 'Ada' }, { 'name' => 'Grace' }])
+      expect(sql.grep(/FROM "users"/).size).to eq(1)
+    end
+
+    it 'stays a public, cacheable list' do
+      posts('search: "rails"')
+
+      expect(response.headers['Cache-Control']).to eq('max-age=60, public')
+    end
+
+    it 'finds nothing for a word no published post has' do
+      expect(titles('search: "drafts"')).to eq([])
+    end
   end
 
   describe 'Searchkick', if: opensearch do

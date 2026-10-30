@@ -15,11 +15,12 @@ bundle exec rake rbs                                # rbs:validate + rbs:test (s
 bundle exec rake build                              # package into pkg/
 bundle exec rake                                    # default: spec, rubocop, rbs
 
-# End-to-end suite: a Rails 8.1 app using the gem from this checkout (path: '..')
-cd example && bundle install && bin/rails db:test:prepare && bundle exec rspec
+# End-to-end suite: a Rails 8.1 app using the gem from this checkout (path: '..'),
+# on a PostgreSQL that Testcontainers starts in Docker on a dynamic port
+cd example && bundle install && bundle exec rspec
 cd example && bin/rails lighthouse:persisted_queries:verify
-# The same suite on PostgreSQL / MySQL (and Redis for @throttle): see example/README.md
-cd example && DATABASE_URL=postgres://... REDIS_URL=redis://... bundle exec rspec
+# The same suite on MySQL, with Redis (@throttle) and OpenSearch (@search): see example/README.md
+cd example && DATABASE_URL=trilogy://... REDIS_URL=redis://... OPENSEARCH_URL=http://... bundle exec rspec
 
 # Docs site (VuePress, built from docs/)
 cd website && npm install && npm run dev

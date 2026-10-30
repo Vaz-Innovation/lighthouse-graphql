@@ -1,10 +1,9 @@
 require 'rails_helper'
 
 # What depends on the database, the queue and the cache the app really runs on.
-# It runs on SQLite by default; CI runs it again on PostgreSQL and MySQL
-# (DATABASE_URL), with Redis (REDIS_URL):
+# It runs on the suite's PostgreSQL (spec/postgres_container.rb); CI runs it again on
+# MySQL (DATABASE_URL), and with Redis (REDIS_URL):
 #
-#   DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5433/lighthouse_example_test \
 #   REDIS_URL=redis://127.0.0.1:6380/0 bundle exec rspec spec/requests/graphql/real_backends_spec.rb
 RSpec.describe "GraphQL on the app's real backends (#{ActiveRecord::Base.connection_db_config.adapter})", type: :request do
   def adapter = ActiveRecord::Base.connection.adapter_name

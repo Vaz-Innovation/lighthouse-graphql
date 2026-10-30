@@ -100,7 +100,9 @@ jobs:
     runs-on: ubuntu-latest
 
     # The example Rails app is the end-to-end suite: its specs drive the real
-    # /graphql endpoint through the gem in this checkout (`path: '..'`).
+    # /graphql endpoint through the gem in this checkout (`path: '..'`), on a
+    # PostgreSQL that spec/postgres_container.rb starts with Testcontainers (the
+    # runner's Docker), on a port Docker picks, and loads db/schema.rb into.
     defaults:
       run:
         working-directory: example
@@ -114,11 +116,6 @@ jobs:
           bundler-cache: true
           working-directory: example
 
-      # db:test:prepare loads the schema only: db:prepare would also run
-      # db/seeds.rb on a new database, and the specs expect it empty.
-      - name: Prepare the test database
-        run: bin/rails db:test:prepare
-
       - name: End-to-end tests
         run: bundle exec rspec
 
@@ -128,12 +125,12 @@ jobs:
   example-databases:
     runs-on: ubuntu-latest
 
-    # The end-to-end suite again, on the databases apps run in production, with a
-    # Redis cache store: SQL that differs per database (@whereJsonContains, the
-    # batched relation queries), Solid Queue for @async, and @throttle's counts
-    # (spec/requests/graphql/real_backends_spec.rb); and OpenSearch, which Searchkick
-    # answers @search from (spec/requests/graphql/search_spec.rb, which pg_search's
-    # cases join on PostgreSQL).
+    # The end-to-end suite again, with a Redis cache store and OpenSearch, on the
+    # service's PostgreSQL and on MySQL (DATABASE_URL, so no Testcontainers): SQL
+    # that differs per database (@whereJsonContains, the batched relation queries),
+    # Solid Queue for @async, and @throttle's counts
+    # (spec/requests/graphql/real_backends_spec.rb); and Searchkick's @search
+    # (spec/requests/graphql/search_spec.rb, whose pg_search cases MySQL skips).
     strategy:
       fail-fast: false
       matrix:

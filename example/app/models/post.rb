@@ -1,4 +1,6 @@
 class Post < ApplicationRecord
+  include PgSearch::Model
+
   belongs_to :author, class_name: 'User', inverse_of: :posts
   has_many :comments, dependent: :destroy
   has_many :taggings, dependent: :destroy
@@ -9,6 +11,10 @@ class Post < ApplicationRecord
   validates :title, presence: true, length: { maximum: 120 }
 
   scope :published, -> { where(published: true) }
+
+  # Query.posts(search:) runs through it (@search): PostgreSQL full-text search, a match
+  # in the title ranking above one in the body, and "Rail" finding "Rails".
+  pg_search_scope :search, against: { title: 'A', body: 'B' }, using: { tsearch: { prefix: true } }
 
   # Post.summary(words:) calls it through @method, with the field's argument.
   def summary(words:)

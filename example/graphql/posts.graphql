@@ -2,13 +2,16 @@ extend type Query {
   """
   Published posts, newest first unless the client orders them, with dynamic filters
   (where: { AND: [{ column: TITLE, operator: LIKE, value: "%Rails%" }, { column: METADATA__RANK, operator: GT, value: 5 }] }).
+  With `search`, the best matches come first, and the filters and the order apply to them.
   A public, CDN-cacheable list.
   """
   posts(
+    "Full-text search over the title and the body (@search, with Post's pg_search scope)."
+    search: String @search
     where: _ @whereConditions(columns: ["title", "author_id", "metadata->series", "metadata->rank"])
     "Order by a column, a JSON path into metadata, or how many comments a post has."
     orderBy: _ @orderBy(columns: ["title", "created_at", "metadata->rank"], relations: [{ relation: "comments" }])
-    "Posts whose metadata.labels holds this label (@whereJsonContains, on SQLite, PostgreSQL and MySQL)."
+    "Posts whose metadata.labels holds this label (@whereJsonContains, on PostgreSQL and MySQL)."
     label: String @whereJsonContains(key: "metadata->labels")
     "Posts whose metadata.labels holds every one of these."
     labels: [String!] @whereJsonContains(key: "metadata->labels")

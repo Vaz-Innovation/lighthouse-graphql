@@ -11,7 +11,12 @@ A small blog API built with Lighthouse on Rails 8.1. It does two jobs:
 
 ## Running it
 
+It runs on PostgreSQL, which Post's full-text search (`Query.posts(search:)`, pg_search)
+needs. In development, start one on the port `config/database.yml` expects
+(`PGHOST`, `PGPORT`, `PGUSER` and `PGPASSWORD` point it elsewhere):
+
 ```shell
+docker run -d -p 5432:5432 -e POSTGRES_PASSWORD=postgres postgres:16
 cd example
 bin/setup --skip-server      # bundle install + database
 bin/rails db:seed            # sample users, posts and tags; prints two API tokens
@@ -29,29 +34,33 @@ Or with curl:
 curl -s localhost:3000/graphql -H 'Content-Type: application/json' \
   -d '{"query":"{ posts(first: 5) { data { title author { name } tags { name } tagsCount excerpt(length: 40) } paginatorInfo { total } } }"}'
 
+curl -s localhost:3000/graphql -H 'Content-Type: application/json' \
+  -d '{"query":"{ posts(search: \"rails\") { data { title } paginatorInfo { total } } }"}'
+
 curl -s localhost:3000/graphql -H 'Content-Type: application/json' -H 'Authorization: Bearer <token from db:seed>' \
   -d '{"query":"mutation { createPost(input: { title: \"Hello\", tags: { connect: [1], create: [{ name: \"new\" }] } }) { id tags { name } } }"}'
 ```
 
 Run the end-to-end suite with `bundle exec rspec`, or `bin/ci`, which also
-checks `persisted-queries.json` against the schema.
+checks `persisted-queries.json` against the schema. It needs Docker, not a database:
+[`spec/postgres_container.rb`](spec/postgres_container.rb) starts a throwaway
+PostgreSQL with Testcontainers, on a port Docker picks, loads `db/schema.rb` into it,
+and removes it when the run ends.
 
-It runs on SQLite by default. `DATABASE_URL` runs it on PostgreSQL or MySQL,
-`REDIS_URL` adds a Redis cache store to the `@throttle` specs, and `OPENSEARCH_URL` runs the
-`@search` specs on Searchkick against OpenSearch (the pg_search ones run on PostgreSQL), as CI does:
+`DATABASE_URL` skips the container and runs the suite on that database instead, PostgreSQL
+or MySQL. `REDIS_URL` adds a Redis cache store to the `@throttle` specs, and `OPENSEARCH_URL`
+runs the `@search` specs on Searchkick against OpenSearch, as CI does:
 
 ```shell
-docker run -d -p 5433:5432 -e POSTGRES_PASSWORD=postgres postgres:16
 docker run -d -p 3307:3306 -e MYSQL_ROOT_PASSWORD=root mysql:8.4
 docker run -d -p 6380:6379 redis:7
 docker run -d -p 9200:9200 -e discovery.type=single-node -e DISABLE_SECURITY_PLUGIN=true \
   -e DISABLE_INSTALL_DEMO_CONFIG=true opensearchproject/opensearch:2
 
-export REDIS_URL=redis://127.0.0.1:6380/0 OPENSEARCH_URL=http://127.0.0.1:9200 RAILS_ENV=test
-DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5433/lighthouse_example_test bin/rails db:create db:schema:load
-DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5433/lighthouse_example_test bundle exec rspec
-DATABASE_URL=trilogy://root:root@127.0.0.1:3307/lighthouse_example_test bin/rails db:create db:schema:load
-DATABASE_URL=trilogy://root:root@127.0.0.1:3307/lighthouse_example_test bundle exec rspec
+REDIS_URL=redis://127.0.0.1:6380/0 OPENSEARCH_URL=http://127.0.0.1:9200 bundle exec rspec
+export RAILS_ENV=test DATABASE_URL=trilogy://root:root@127.0.0.1:3307/lighthouse_example_test
+bin/rails db:create db:schema:load
+bundle exec rspec
 ```
 
 `@async` mutations run in Solid Queue, whose tables are in the app's database: start
@@ -109,7 +118,8 @@ and `Query.node` / `nodes` are `Types::QueryType`'s.
 | [`requests/graphql/queries_spec.rb`](spec/requests/graphql/queries_spec.rb) | `@find`, `@paginate` (paginator and Relay connection), `@like`, `@orderBy` (columns, a relation's COUNT, and on a field), `@whereConditions`, `@whereHasConditions`, `@builder`, `scopes:`, `@count`, a `Resolvers::` class |
 | [`requests/graphql/cursor_connection_spec.rb`](spec/requests/graphql/cursor_connection_spec.rb) | Relay cursor pagination on a relationship (`User.comments`, `@hasMany(type: CONNECTION)`): `pageInfo`, `after`, and a client loop that walks every page |
 | [`requests/graphql/field_resolvers_spec.rb`](spec/requests/graphql/field_resolvers_spec.rb) | `@field(resolver:)`: on `Post`, the class receives the post as `object`, in a paginated list, on a single post, under `me`; field arguments with an SDL default; `tagsCount` batched through the dataloader (no N+1); on `Query`, a nested name looked up in the resolvers namespace |
-| [`requests/graphql/real_backends_spec.rb`](spec/requests/graphql/real_backends_spec.rb) | What depends on the real backends: `@whereJsonContains` on the database's JSON (SQLite, PostgreSQL, MySQL), `@async` queued in Solid Queue and run by a real worker (and nothing queued when `@canFind` refuses), `@throttle` counting per IP and user in a file store and in Redis, across two clients of the same store |
+| [`requests/graphql/real_backends_spec.rb`](spec/requests/graphql/real_backends_spec.rb) | What depends on the real backends: `@whereJsonContains` on the database's JSON (PostgreSQL, MySQL), `@async` queued in Solid Queue and run by a real worker (and nothing queued when `@canFind` refuses), `@throttle` counting per IP and user in a file store and in Redis, across two clients of the same store |
+| [`requests/graphql/search_spec.rb`](spec/requests/graphql/search_spec.rb) | `@search`: `Query.posts(search:)` through the endpoint, on Post's pg_search scope (title matches first, prefixes, with `@whereConditions`, `orderBy` and the field's `@orderBy` between equal ranks, pages and their total, no N+1, still cacheable); then pg_search and Searchkick (with `OPENSEARCH_URL`) on schemas of the spec's own |
 | [`requests/graphql/uploads_spec.rb`](spec/requests/graphql/uploads_spec.rb) | A multipart request (the GraphQL multipart request specification) to `Mutation.updateAvatar`: `@upload` stores the file with ActiveStorage under `avatars/`, `@update` attaches it; a guest's call stores nothing |
 | [`requests/graphql/relay_and_eager_loading_spec.rb`](spec/requests/graphql/relay_and_eager_loading_spec.rb) | `@node` and `@globalId` on graphql-ruby's Relay (`Tag` ids from `AppSchema.id_from_object`, `Query.node` from `Types::QueryType`); `@withCount` (`Tag.usage`, one COUNT for every tag), `@with` (`User.latestPostTitle`) and `@lazyLoad` (`User.posts` with their tags), with no N+1; `@field(resolver: "Statistics@counts")`; `resolve_info.enhance_builder` in `Resolvers::MyPosts` |
 | [`requests/graphql/types_spec.rb`](spec/requests/graphql/types_spec.rb) | A union (`Query.search`: `Post` and `User` records) and an interface (`Query.latestActivity`: `Authored`, implemented by `Post` and `Comment`) resolved to each record's type by default; the `DateTime` scalar's `Types::DateTimeType` writing ISO 8601 and reading an argument as a `Time`, refusing one it cannot read; `@method` passing a field's argument to `Post#summary` |

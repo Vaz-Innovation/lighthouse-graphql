@@ -1,8 +1,8 @@
 source 'https://rubygems.org'
 
 gem 'puma', '>= 5.0'
+gem 'pg', '~> 1.5'
 gem 'rails', '~> 8.1.4'
-gem 'sqlite3', '>= 2.1'
 
 # The library this app demonstrates, straight from this repository.
 gem 'lighthouse-graphql', path: '..'
@@ -16,17 +16,18 @@ gem 'pundit', '~> 2.4'
 # Rails' default, in its own database.
 gem 'solid_queue', '~> 1.2'
 
-# The databases and cache the end-to-end suite also runs against
-# (spec/requests/graphql/real_backends_spec.rb): DATABASE_URL picks PostgreSQL or
-# MySQL instead of SQLite, REDIS_URL a Redis cache store for @throttle.
-gem 'pg', '~> 1.5', require: false
+# Query.posts(search:) searches in PostgreSQL through @search and Post's pg_search scope.
+gem 'pg_search', '~> 2.3'
+
+# The other backends the end-to-end suite also runs against
+# (spec/requests/graphql/real_backends_spec.rb): DATABASE_URL picks MySQL instead
+# of PostgreSQL, REDIS_URL a Redis cache store for @throttle.
 gem 'redis', '~> 5.0', require: false
 gem 'trilogy', '~> 2.9', require: false
 
-# The full-text engines @search runs through, loaded by spec/requests/graphql/search_spec.rb
-# when OPENSEARCH_URL (Searchkick, on OpenSearch) or a PostgreSQL DATABASE_URL (pg_search) is set.
+# Searchkick, which spec/requests/graphql/search_spec.rb runs @search through
+# against OpenSearch when OPENSEARCH_URL is set.
 gem 'opensearch-ruby', '~> 3.4', require: false
-gem 'pg_search', '~> 2.3', require: false
 gem 'searchkick', '~> 6.1', require: false
 
 # Windows does not include zoneinfo files, so bundle the tzinfo-data gem
@@ -36,4 +37,9 @@ group :development, :test do
   gem 'debug', platforms: %i[mri windows], require: 'debug/prelude'
   gem 'factory_bot_rails', '~> 6.4'
   gem 'rspec-rails', '~> 8.0'
+end
+
+# The suite's PostgreSQL, started on a port Docker picks (spec/postgres_container.rb).
+group :test do
+  gem 'testcontainers-postgres', '~> 0.2', require: false
 end
