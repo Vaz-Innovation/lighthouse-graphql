@@ -21,7 +21,7 @@
 # as the specification asks of a server that does not implement it). A
 # controller streams a response when the schema uses the plugin, the controller
 # includes ActionController::Live, and the client prefers `multipart/mixed`
-# (`Defer.stream_type`); every other request is answered whole. The plugin also
+# (`Defer.stream_type_of(request)`); every other request is answered whole. The plugin also
 # installs Rules, the analyzer that checks the directives in every query.
 # Run does the work; Document, State, Serializer and Multipart are its parts.
 module Lighthouse::GraphQL::Defer

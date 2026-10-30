@@ -5,7 +5,7 @@
 #
 # It is a graphql-ruby execution directive: `include?` decides whether the
 # runtime runs the fragment where it stands. With an Incremental::State in the
-# context (Run puts one there when the client accepts a streamed response), the
+# context (Run puts one there when the response may stream), the
 # fragment is left out and kept in the State, to run once the first response is
 # out. Without one, `include?` is true and the directive does nothing: a server
 # may ignore @defer, and answers the whole response at once.
@@ -14,7 +14,8 @@
 # fragment by them (State#directive_for). The document is never rewritten.
 class Lighthouse::GraphQL::Incremental::DeferDirective < GraphQL::Schema::Directive
   graphql_name 'defer'
-  description 'Deliver the fields of a fragment after the rest of the response, when the client accepts a streamed response (experimental).'
+  description 'Deliver the fields of a fragment in a later part when the response is streamed (multipart/mixed, ' \
+              'to a client that prefers it to JSON); with the rest otherwise (experimental).'
   locations ::GraphQL::Schema::Directive::FRAGMENT_SPREAD, ::GraphQL::Schema::Directive::INLINE_FRAGMENT
 
   argument :if, ::GraphQL::Types::Boolean, required: true, default_value: true,

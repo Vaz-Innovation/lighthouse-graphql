@@ -14,7 +14,8 @@ class Lighthouse::GraphQL::Incremental::StreamDirective < GraphQL::Schema::Direc
   MARK = :lighthouse_stream
 
   graphql_name 'stream'
-  description 'Deliver the items of a list after the first `initialCount`, when the client accepts a streamed response (experimental).'
+  description 'Deliver the items of a list after the first `initialCount` in a later part when the response is ' \
+              'streamed (multipart/mixed, to a client that prefers it to JSON); the whole list otherwise (experimental).'
   locations ::GraphQL::Schema::Directive::FIELD
 
   argument :if, ::GraphQL::Types::Boolean, required: true, default_value: true,

@@ -357,8 +357,10 @@ type Mutation {
 
 ### `@defer`
 
-Experimental. On a fragment: its fields arrive after the rest of the response, streamed as
-`multipart/mixed` to a client that accepts it. Not in the SDL: the schema's `use
+Experimental. On a fragment: its fields arrive in a later part of the response when it is
+streamed: as `multipart/mixed`, to a client that prefers it to JSON (not in Apollo's older
+`deferSpec` format), from a controller that includes `ActionController::Live` (the streaming
+route). Otherwise they come with the rest of the response. Not in the SDL: the schema's `use
 Lighthouse::GraphQL::Defer` adds it, and clients write it in their queries, as the
 [specification draft](https://github.com/graphql/graphql-spec/pull/1110) has it
 (`directive @defer(if: Boolean! = true, label: String) on FRAGMENT_SPREAD | INLINE_FRAGMENT`).
@@ -370,7 +372,8 @@ Guide: [performance.md](performance.md#deferring-fields-experimental).
 ### `@stream`
 
 Experimental. On a list field: its first `initialCount` items (default 0) come with the response,
-the others after it, streamed as `multipart/mixed` like `@defer`. Also added by `use
+the others in a later part, when the response is streamed as for `@defer`; otherwise the list
+comes whole. Also added by `use
 Lighthouse::GraphQL::Defer`, and written by clients as the specification draft has it
 (`directive @stream(if: Boolean! = true, label: String, initialCount: Int! = 0) on FIELD`).
 Guide: [performance.md](performance.md#streaming-lists-experimental).

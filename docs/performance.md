@@ -347,8 +347,9 @@ delivery), when three things hold: the schema uses the plugin, the controller in
 `ActionController::Live`, and the request's `Accept` header prefers `multipart/mixed` (without the
 older format's `deferSpec` parameter) to a JSON response: not at `q=0`, and ranked, by q and then by
 order as Rails ranks types, before `application/json` and `application/graphql-response+json`
-(`Lighthouse::GraphQL::Defer.stream_type`, which the route constraint and the controller share: the
-header is read once). In every other case the whole response comes at once, the deferred fragments
+(`Lighthouse::GraphQL::Defer.stream_type_of(request)`, which the route constraint and the
+controller share: the header is read once a request, and kept in it; `Defer.stream_type(accept)`
+answers the same for a header, uncached, for a constraint of your own). In every other case the whole response comes at once, the deferred fragments
 in it, as the specification allows: a JSON client, `schema.execute`, a batch (a JSON array). A query
 that defers nothing is answered as JSON, whatever the client accepts. A part's JSON is encoded as
 `render json:` encodes any response.
