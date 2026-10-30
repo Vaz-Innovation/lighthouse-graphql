@@ -1090,6 +1090,19 @@ RSpec.describe 'Deferring fields' do
       expect(ended.map { |response| response.to_h['data'] }).to eq([{ 'user' => { 'id' => '1' } }])
     end
 
+    it 'ends one whose client left with what was sent, and writes nothing more, nor any error of its own' do
+      gone = Class.new(Lighthouse::GraphQL::Incremental::Gone)
+      written = []
+      expect do
+        incremental('{ users { id ... @defer(label: "a") { name posts { ... @defer(label: "b") { title } } } } }') do |run|
+          run.each_payload { |payload| written.size == 1 ? raise(gone) : written << payload }
+        end
+      end.to raise_error(gone)
+
+      expect(written.size).to eq(1)
+      expect(ended.last.to_h).to eq('data' => { 'users' => [{ 'id' => '1' }, { 'id' => '2' }, { 'id' => '3' }] })
+    end
+
     it 'ends one with a protocol error at once, with that error' do
       Lighthouse.configure { |config| config.persisted_queries = true }
 

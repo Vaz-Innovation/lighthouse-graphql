@@ -73,26 +73,30 @@ class Lighthouse::GraphQL::Incremental::Run
   # stream with a last payload, which completes, with an error, every id the client was sent and
   # has not seen completed, then raises again. A first payload that fails raises, nothing being
   # sent. However it ends, `finish` follows.
+  #
+  # A client that went away (Gone, raised by the block) stops it: nothing more is written, and
+  # the operation ends with what the client was sent. An error of the app's stays the error
+  # raised, even if the client has gone by the time its last payload is written.
   def each_payload(&block)
     emit(Serializer.initial(@result, @announced, has_next: deferred?), &block)
     until @queue.empty?
       begin
         emit(next_payload, &block)
-      rescue StandardError
-        emit(failure_payload, &block)
+      rescue Lighthouse::GraphQL::Incremental::Gone
         raise
+      rescue StandardError => e
+        fail_stream(e, &block)
       end
     end
   ensure
     finish
   end
 
-  # The whole response as the client puts it together: the data of every round, the errors of
-  # every round (the first pass's first), the first pass's extensions.
+  # The whole response as the client put it together: the data and the errors of every payload
+  # it was sent (the first pass's first), the first pass's extensions.
   def response
     first = @result.to_h
-    { 'data' => @tree ? @tree.data : first['data'], 'errors' => (first['errors'].to_a + @errors).presence,
-      'extensions' => first['extensions'] }.compact
+    { 'data' => @sent || first['data'], 'errors' => (first['errors'].to_a + @errors).presence, 'extensions' => first['extensions'] }.compact
   end
 
   # Calls the block `start` was given, once: with the first pass's result when nothing was
@@ -167,7 +171,7 @@ class Lighthouse::GraphQL::Incremental::Run
     units = plan.units(@running)
     partials = units.map { |unit| partial(unit) }
     outcome = Lighthouse::GraphQL::Incremental::Delivery.new(@state, @tree).call(units, partials, run(partials))
-    @errors.concat(outcome.errors)
+    @unsent = outcome.errors
     found(plan, partials, outcome)
     completed = @running.map { |pending| { 'id' => pending.id, 'errors' => outcome.failed[pending] }.compact }
     Serializer.subsequent(incremental: outcome.incremental, completed: completed, extensions: outcome.extensions,
@@ -236,17 +240,30 @@ class Lighthouse::GraphQL::Incremental::Run
   # Does `path` lead to a value in the response's data so far?
   def present?(path) = @tree.present?(path)
 
-  # Yields a payload, and keeps the ids the client was sent and has not seen completed.
-  def emit(payload)
+  # Yields a payload, and keeps what the client was sent: the ids it has not seen completed, the
+  # data and the errors.
+  # A failure's payload sends no data (`data: false`).
+  def emit(payload, data: true)
     yield payload
     payload['pending'].to_a.each { |entry| @open[entry['id']] = true }
     payload['completed'].to_a.each { |entry| @open.delete(entry['id']) }
+    @sent = @tree&.snapshot if data
+    @errors.concat(@unsent.to_a)
+    @unsent = nil
   end
 
-  # The last payload of a stream that failed: every id still open completes, with an error.
-  def failure_payload
+  # A stream that failed ends with a last payload, in which every id still open completes, with an
+  # error; then `error` is raised again, whether or not the client could be sent that payload.
+  def fail_stream(error, &block)
     errors = [{ 'message' => 'Internal server error' }]
-    @errors.concat(errors)
-    Serializer.subsequent(incremental: [], completed: @open.keys.map { |id| { 'id' => id, 'errors' => errors } }, pending: [], has_next: false)
+    @unsent = errors
+    completed = @open.keys.map { |id| { 'id' => id, 'errors' => errors } }
+    payload = Serializer.subsequent(incremental: [], completed: completed, pending: [], has_next: false)
+    begin
+      emit(payload, data: false, &block)
+    rescue Lighthouse::GraphQL::Incremental::Gone
+      nil
+    end
+    raise error
   end
 end

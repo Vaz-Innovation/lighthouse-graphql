@@ -44,9 +44,6 @@ module Lighthouse::GraphQL::Controller
   # schema's rescue_from) catches it on its way out of the operation.
   class Performed < Exception; end # rubocop:disable Lint/InheritException
 
-  # The client of a streamed response went away: writing to its stream failed.
-  class Gone < StandardError; end
-
   include Lighthouse::GraphQL::Operations
 
   def execute
@@ -139,30 +136,36 @@ module Lighthouse::GraphQL::Controller
   # stream's. Until the first part is written, the response is not committed: an error then
   # surfaces as it would on the JSON path (`execute` does not close the stream).
   def lighthouse_stream(run)
-    Lighthouse::GraphQL::Incremental::Multipart.headers(Lighthouse::GraphQL::Defer.stream_type_of(request)).each do |name, value|
-      response.headers[name] = value
-    end
     multipart = Lighthouse::GraphQL::Incremental::Multipart.new(response.stream)
-    begin
-      run.each_payload { |payload| lighthouse_write(multipart, multipart.part(payload)) }
-    ensure
-      lighthouse_write(multipart, nil) if multipart.started?
-    end
-  rescue Gone
+    run.each_payload { |payload| lighthouse_write(multipart, multipart.part(payload)) }
+    lighthouse_write(multipart, nil)
+  rescue Lighthouse::GraphQL::Incremental::Gone
     nil
   rescue StandardError => e
+    lighthouse_close(multipart)
     lighthouse_report(e)
     raise
   end
 
-  # Writes a part (or, without one, the closing boundary) to the response's stream: a client
-  # that went away (ActionController::Live's ClientDisconnected, or the IOError of a closed
-  # stream) ends the response quietly.
+  # Writes a part (or, without one, the closing boundary) to the response's stream, with the
+  # headers of a streamed response before the first (an error before it is answered as JSON). A
+  # client that went away (ActionController::Live's ClientDisconnected, or the IOError of a closed
+  # stream) raises Incremental::Gone: the response ends quietly.
   def lighthouse_write(multipart, part)
+    headers = Lighthouse::GraphQL::Incremental::Multipart.headers(Lighthouse::GraphQL::Defer.stream_type_of(request))
+    headers.each { |name, value| response.headers[name] = value } unless multipart.started?
     part ? multipart.emit(part) : multipart.finish
     @lighthouse_streaming = true
   rescue ::ActionController::Live::ClientDisconnected, ::IOError
-    raise Gone
+    raise Lighthouse::GraphQL::Incremental::Gone
+  end
+
+  # The closing boundary of a stream an error ends, if one was written; a client gone by then
+  # does not take the error's place.
+  def lighthouse_close(multipart)
+    lighthouse_write(multipart, nil) if multipart&.started?
+  rescue Lighthouse::GraphQL::Incremental::Gone
+    nil
   end
 
   # An error raised once a streamed response is on its way: ActionController::Live only logs

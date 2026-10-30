@@ -98,8 +98,9 @@ one lookup per request.
 For a response streamed with [`@defer`](performance.md#deferring-fields-experimental),
 `EndOperationOrOperations` comes after the last part, and `result_or_results` is the whole
 response as the client puts it together: a Hash of the data of every part, and the errors of every
-part (the first one's first). A query that defers nothing gets its result at once, as without
-`@defer`.
+part (the first one's first). When the client goes away before the last part, it comes then, with
+what the client was sent (no error says so: the client left, the server did not fail). A query that
+defers nothing gets its result at once, as without `@defer`.
 
 The fragments deferred with [`@defer`](performance.md#deferring-fields-experimental) run after the
 first response, a round of them in a multiplex of its own: the events fire again for each unit the

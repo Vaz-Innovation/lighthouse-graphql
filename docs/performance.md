@@ -352,7 +352,10 @@ Once the first part is sent, the response can no longer be refused: a `@throttle
 a later round is the field's error ("Rate limit for Query.x exceeded. Try again later."), and its
 `with:` method is not called. A round that fails, or a part that cannot be written (a value of the
 app's that does not encode), ends the stream all the same, with a last part that completes, with an
-error, every id the client was sent and has not seen completed; the error goes to `Rails.error`.
+error, every id the client was sent and has not seen completed; the error goes to `Rails.error`. A
+client that goes away ends the stream quietly: nothing more is written or reported. The headers of a
+streamed response are only set as the first part is written, so an error before it is answered as
+on the JSON path.
 
 ### How it runs
 

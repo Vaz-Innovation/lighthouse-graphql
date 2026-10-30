@@ -207,6 +207,33 @@ RSpec.describe 'Deferring fields', type: :request do
                                 'hasNext' => false)
   end
 
+  it 'answers an error before the first part as JSON, with no header of a streamed response' do
+    allow(Rails.env).to receive(:development?).and_return(true)
+    allow(Lighthouse::GraphQL::Incremental::Serializer).to receive(:initial).and_wrap_original do |original, *args, **options|
+      original.call(*args, **options).merge('extensions' => { 'bad' => unencodable(RuntimeError.new('cannot encode')) })
+    end
+
+    post '/graphql', params: { query: query }, headers: accept, as: :json
+
+    expect(response).to have_http_status(:internal_server_error)
+    expect(response.media_type).to eq('application/json')
+    expect(response.headers['X-Accel-Buffering']).to be_nil
+  end
+
+  it "reports an app's error of a later round even when the client has gone by the time it is answered" do
+    allow_any_instance_of(Comment).to receive(:body).and_raise(EOFError, 'the app read past the end') # rubocop:disable RSpec/AnyInstance
+    writes = 0
+    allow_any_instance_of(Lighthouse::GraphQL::Incremental::Multipart).to receive(:emit).and_wrap_original do |original, part| # rubocop:disable RSpec/AnyInstance
+      raise ActionController::Live::ClientDisconnected, 'client disconnected' if (writes += 1) > 1
+
+      original.call(part)
+    end
+
+    reported = reported_errors { stream(query) }
+
+    expect(reported.map(&:message)).to eq(['the app read past the end'])
+  end
+
   it 'ends the response quietly when the client goes away' do
     reported = []
     subscriber = Class.new { define_method(:report) { |error, **| reported << error } }.new

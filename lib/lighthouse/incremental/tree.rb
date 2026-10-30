@@ -21,6 +21,12 @@ class Lighthouse::GraphQL::Incremental::Tree
 
   def at(path) = self.class.at(@data, path)
 
+  # The data as it is now, which later merges leave as it is (they copy what they change).
+  def snapshot
+    @own.clear
+    @data
+  end
+
   def present?(path) = !at(path).nil?
 
   # A fragment's data, at the path of its object.

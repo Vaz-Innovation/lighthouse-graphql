@@ -65,6 +65,7 @@ require_relative 'namespaces'
   persisted_queries
   persisted_queries/batch
   persisted_queries/manifest
+  incremental/gone
   incremental/state
   incremental/defer_directive
   incremental/stream_directive
