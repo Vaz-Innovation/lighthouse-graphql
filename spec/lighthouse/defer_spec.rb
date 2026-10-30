@@ -1406,6 +1406,18 @@ RSpec.describe 'Deferring fields' do
       expect(described_class.stream_type('text/*, multipart/mixed;q=0.5')).not_to be_nil
     end
 
+    it 'skips the empty and malformed ranges of a header, and never raises on one' do
+      expect(described_class.stream_type('multipart/mixed,,application/json')).not_to be_nil
+      expect(described_class.stream_type(',, ;q=0.5, application/json')).to be_nil
+      expect(described_class.stream_type('garbage, multipart/mixed')).not_to be_nil
+      random = Random.new(11)
+      pieces = ['multipart/mixed', 'application/json', '*/*', 'application/*', ';', ',', ' ', 'q=', 'q=0.5', '=', '/', 'x', '"', 'deferSpec=1', "\t"]
+      500.times do
+        header = Array.new(random.rand(0..12)) { pieces.sample(random: random) }.join
+        expect { described_class.stream_type(header) }.not_to raise_error, header.inspect
+      end
+    end
+
     it 'names the format in the content type when the client did' do
       expect(described_class.stream_type('multipart/mixed;incrementalSpec=v0.2')).to eq('multipart/mixed; boundary="-"; incrementalSpec=v0.2')
       expect(described_class.stream_type('multipart/mixed')).to eq('multipart/mixed; boundary="-"')

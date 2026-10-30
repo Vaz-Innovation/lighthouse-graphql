@@ -126,9 +126,12 @@ module Lighthouse::GraphQL::Defer
   end
 
   # Each media range of the header: its type, its parameters (lowercase, but q) and its q.
+  # A range that is empty or not a media type (`type/subtype`) is skipped.
   def ranges(accept)
-    accept.to_s.split(',').each_with_index.map do |range, index|
+    accept.to_s.split(',').each_with_index.filter_map do |range, index|
       type, *params = range.split(';').map { |part| part.strip.downcase }
+      next unless type&.match?(%r{\A[^/\s]+/[^/\s]+\z})
+
       q = params.find { |param| param.start_with?('q=') }
       MediaRange.new(type, params - [q], q ? q.delete_prefix('q=').to_f : 1.0, index)
     end
