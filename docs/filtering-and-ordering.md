@@ -418,11 +418,21 @@ A query holds `model`, `term`, `index`, `wheres`, `trashed` and `options`: any o
 `load: true`, `body_options: { track_total_hits: true }` (yours win) and `scope_results:` (yours runs
 last).
 
-**Which fields.** The engine answers with records, not a relation, so `@search` with Searchkick is for
-`@all`, `@paginate` on a root field or with its own `model:`, and a field your own class resolves, which
-reads the search through [`resolve_info.enhance_builder`](#in-a-resolver-of-your-own). Any other field
-(`@find`, `@first`, `@count`, a mass mutation, a nested relationship) is a schema error at build, when
-Lighthouse can tell the field's model. For the same reason a field with `scopes:`, `@builder`,
+**Which fields.** Whatever the engine, something must apply the search: a directive that runs the
+field's argument filters (`@all`, `@paginate`, `@find`, `@first`, `@count`, `@aggregate`, a
+relationship, a mass mutation), or your own code, which reads it through
+[`resolve_info.enhance_builder`](#in-a-resolver-of-your-own): `@field`, the conventional class of a root
+field, or a method of the type's class. A field nothing resolves but graphql-ruby's default reader,
+which reads it off the parent (`type User { comments(search: String @search): [Comment!]! }`), or one
+whose directive runs no filters (`@create`, `@method`, ...), would ignore the search: it is a schema
+error, `nothing applies the search`. Each resolver class says what it does (`applies_search?`,
+`takes_search_results?`), so a directive of your own can take part.
+
+The engine answers with records, not a relation, so `@search` with Searchkick is for `@all`, `@paginate`
+of the model's whole table (on a root field, with its own `model:`, or where the parent has no
+association of the field's name) and your own code. Any other field (`@find`, `@first`, `@count`, a
+mass mutation, a nested relationship) is a schema error at build, when Lighthouse can tell the field's
+model. For the same reason a field with `scopes:`, `@builder`,
 `@whereAuth` or `@orderBy(column:)`, or an `@canQuery` with `scopes:`, is a schema error: **PHP
 Lighthouse drops those silently when it searches**, and a search that skipped `@whereAuth` would return
 records the user must not see. Lighthouse fails when the schema is built instead. Put the constraint in
@@ -539,8 +549,13 @@ field returns, after it resolves.
 [resolvers.md](resolvers.md)). With pg_search it answers the relation, searched; with Searchkick, when
 the client searched, a `Lighthouse::Search::Result`, as PHP Lighthouse answers Scout's builder:
 `records(first:, offset:)` reads the records, `count` the total. The engine searches the model's whole
-index, so the relation must be the model's: one narrowed beforehand (`Comment.where(...)`) is refused
-with a `Lighthouse::DefinitionError`, since its conditions would be lost.
+index, so the relation must select what the model's own does: `Comment.all`, `Comment` itself, or
+either in another order. Any other (`Comment.where(...)`, `Comment.unscoped.where(...)`, a `with_deleted`,
+a `rewhere`, a `merge`, joins, `none`) is refused with a `Lighthouse::DefinitionError`, since the engine
+would drop its conditions and could return records it leaves out. The check compares every condition,
+with its values, to the model's own, and refuses when in doubt: a model whose default scope reads the
+clock (`where('published_at <= ?', Time.current)`) cannot be told from another, and is refused there.
+`@all`, `@paginate` and `@canQuery`, which build the model's relation themselves, need no such check.
 
 ```graphql
 type Query {
@@ -585,6 +600,7 @@ experimental.
 | A page past the result window | depends on the Scout driver | client error |
 | `@canQuery` on more than 10,000 matches a page can reach | checks the hits Scout's `get()` returns | client error |
 | `enhance_builder` given a narrowed relation | conditions dropped | `Lighthouse::DefinitionError` |
+| A `@search` nothing applies (the default reader, `@create`, ...) | ignored | schema error |
 
 ## Complex where conditions
 
