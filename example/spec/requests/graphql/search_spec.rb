@@ -51,8 +51,8 @@ RSpec.describe 'GraphQL @search', type: :request do
     (rows.is_a?(Hash) ? rows['data'] : rows).pluck('title')
   end
 
-  # Matches SQL that reads `table`, however the database quotes its name.
-  def from(table) = /FROM #{Regexp.escape(ActiveRecord::Base.connection.quote_table_name(table))}/
+  # Matches SQL that reads `table`, however the database quotes its name: its first FROM, not a subquery's.
+  def from(table) = /\A\s*SELECT\b(?:(?!\bFROM\b).)*\bFROM #{Regexp.escape(ActiveRecord::Base.connection.quote_table_name(table))}/m
 
   # The SQL statements a block runs, schema introspection and transaction statements aside.
   def sql_in(&)
@@ -328,6 +328,19 @@ RSpec.describe 'GraphQL @search', type: :request do
           perform_enqueued_jobs { Searchkick.callbacks(true) { draft.reload.update!(published: false) } }
           Comment.search_index.refresh
           expect(bodies('search: "nanoseconds"')).to eq([])
+        end
+
+        it 'never returns a comment whose post is no longer published, before the job removes it from the index' do
+          Searchkick.callbacks(true) { compilers.update!(published: false) } # the job is enqueued, not run
+          expect(Comment.search('compiler', load: false).map(&:id)).to be_present
+
+          expect(bodies('search: "brilliant"')).to contain_exactly('Brilliant work on the engine.', 'Thank you, brilliant reader.')
+        end
+
+        it "reads every comment's post in one query when it reindexes" do
+          sql = sql_in { Comment.reindex }
+
+          expect(sql.grep(from(:posts)).size).to eq(1)
         end
 
         it 'answers an empty list for a term nothing matches' do
