@@ -213,7 +213,7 @@ module Lighthouse
 
       # A route constraint: does the request prefer a streamed response?
       module Streaming
-        def self.matches?: (_Request request) -> bool
+        def self.matches?: (_RoutedRequest request) -> bool
       end
       # Each media range of the header, and the multipart/mixed one the client prefers to JSON.
       def self?.ranges: (String? accept) -> Array[MediaRange]

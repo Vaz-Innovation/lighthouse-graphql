@@ -64,10 +64,16 @@ module Lighthouse::GraphQL::Defer
   # Where a request's stream_type is kept, so the header is read once.
   ENV_KEY = 'lighthouse.defer.stream_type'
 
-  # A route constraint: does the request prefer a streamed response? It keeps the answer in
-  # the request for the controller.
+  # A route constraint: can the request stream, and does it prefer to? One operation (not a
+  # batch, a JSON array body; not a multipart upload, `multipart/form-data`), from a client whose
+  # Accept header prefers a streamed response. It keeps that answer in the request for the
+  # controller. A JSON body is read as Rails reads it for the parameters (Request#raw_post, once).
   module Streaming
-    def self.matches?(request) = !Lighthouse::GraphQL::Defer.stream_type_of(request).nil?
+    def self.matches?(request)
+      return false if Lighthouse::GraphQL::Defer.stream_type_of(request).nil? || request.media_type == 'multipart/form-data'
+
+      !(request.media_type.to_s.end_with?('json') && request.raw_post.to_s.lstrip.start_with?('['))
+    end
   end
 
   # The request's stream_type, its `Accept` header read once.

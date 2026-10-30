@@ -137,6 +137,13 @@ module Lighthouse
     def env: () -> Hash[String, untyped]
   end
 
+  # A request a route constraint reads: its body's media type and text too.
+  interface _RoutedRequest
+    include _Request
+    def media_type: () -> String?
+    def raw_post: () -> String?
+  end
+
   # What has response headers: an ActionDispatch::Response.
   interface _ResponseHeaders
     def headers: () -> Hash[String, untyped]

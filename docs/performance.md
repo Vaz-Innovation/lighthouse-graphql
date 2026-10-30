@@ -193,9 +193,10 @@ post '/graphql', to: 'graphql#execute'
 `GraphqlController` stays as `lighthouse:install` wrote it. `ActionController::Live` runs an action
 in a thread of its own, with what that changes (the database connection the thread checks out,
 thread-locals, errors once the response is on its way), so only the requests that stream should run
-in it: `Lighthouse::GraphQL::Defer::Streaming` routes there the requests whose `Accept` header
-prefers `multipart/mixed`, and every other request (JSON, batches, uploads) goes to the plain
-controller, as before. A plain controller answers a client that prefers `multipart/mixed` with one
+in it: `Lighthouse::GraphQL::Defer::Streaming` routes there a single operation whose `Accept`
+header prefers `multipart/mixed`, and every other request goes to the plain controller, as before:
+a JSON client, a batch (a JSON array body, which it reads as Rails reads it for the parameters) and
+a multipart upload (`multipart/form-data`), whatever they accept, none of which stream. A plain controller answers a client that prefers `multipart/mixed` with one
 ordinary response, the deferred fields in it.
 
 Without the plugin the schema has no `@defer`, as the specification asks of a server that does

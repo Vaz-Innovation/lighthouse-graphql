@@ -56,6 +56,27 @@ RSpec.describe 'Deferring fields', type: :request do
     expect(Lighthouse::GraphQL::Incremental::Multipart).to have_received(:headers).once
   end
 
+  it 'runs a batch and a multipart upload in the plain controller, whatever the client accepts' do
+    post '/graphql', params: [{ query: '{ posts(first: 1) { data { title } } }' }].to_json,
+                     headers: accept.merge('Content-Type' => 'application/json')
+
+    expect(controller.class).to eq(GraphqlController)
+    expect(response.parsed_body.first.dig('data', 'posts', 'data').size).to eq(1)
+
+    file = Rack::Test::UploadedFile.new(StringIO.new('png bytes'), 'image/png', original_filename: 'me.png')
+    operations = { query: 'query($file: Upload) { posts(first: 1) { data { title ... @defer { id } } } }', variables: { file: nil } }
+    post '/graphql', params: { operations: operations.to_json, map: { '0' => ['variables.file'] }.to_json, '0' => file }, headers: accept
+
+    expect(controller.class).to eq(GraphqlController)
+    expect(response.media_type).to eq('application/json')
+  end
+
+  it 'runs a single operation that prefers multipart/mixed in the streaming controller' do
+    stream(query)
+
+    expect(controller.class).to eq(GraphqlStreamingController)
+  end
+
   it 'answers with multipart/mixed parts that a proxy does not buffer' do
     stream(query)
 
