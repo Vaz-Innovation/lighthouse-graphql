@@ -152,8 +152,10 @@ module Lighthouse::GraphQL::Controller
   # client that went away (ActionController::Live's ClientDisconnected, or the IOError of a closed
   # stream) raises Incremental::Gone: the response ends quietly.
   def lighthouse_write(multipart, part)
-    headers = Lighthouse::GraphQL::Incremental::Multipart.headers(Lighthouse::GraphQL::Defer.stream_type_of(request))
-    headers.each { |name, value| response.headers[name] = value } unless multipart.started?
+    unless multipart.started?
+      headers = Lighthouse::GraphQL::Incremental::Multipart.headers(Lighthouse::GraphQL::Defer.stream_type_of(request))
+      headers.each { |name, value| response.headers[name] = value }
+    end
     part ? multipart.emit(part) : multipart.finish
     @lighthouse_streaming = true
   rescue ::ActionController::Live::ClientDisconnected, ::IOError

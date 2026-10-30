@@ -35,6 +35,13 @@ RSpec.describe 'Deferring fields', type: :request do
     expect(Lighthouse::GraphQL::Defer).to have_received(:ranges).once
   end
 
+  it 'builds the headers of a streamed response once, for the first part' do
+    allow(Lighthouse::GraphQL::Incremental::Multipart).to receive(:headers).and_call_original
+
+    expect(stream(query).size).to eq(2)
+    expect(Lighthouse::GraphQL::Incremental::Multipart).to have_received(:headers).once
+  end
+
   it 'answers with multipart/mixed parts that a proxy does not buffer' do
     stream(query)
 
