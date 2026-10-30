@@ -44,11 +44,13 @@ module Lighthouse::GraphQL::SchemaGenerator
     # The manipulated document — from the schema cache when it is enabled
     # and fresh (see SchemaCache), else built now.
     document = build_document(sdl_string)
+    Lighthouse::GraphQL::ServerDirectives.check_defined!(document)
     impl = default_implementation
     # base_types' resolver / mutation / subscription are Lighthouse's, not graphql-ruby's.
     bases = Lighthouse::GraphQL::ResolverBases.extract!(opts)
     schema = Lighthouse::GraphQL::RootTypes.build(document, bases[:roots]) { from_document(document, impl, opts) }
 
+    Lighthouse::GraphQL::ServerDirectives.hide!(schema)
     delegate_to_federation_sdl(schema)
     Lighthouse::GraphQL::GeneratedResolvers.install_dispatcher(schema)
     attach_schema(impl, schema)

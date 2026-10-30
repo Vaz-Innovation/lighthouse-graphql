@@ -213,11 +213,14 @@ RSpec.describe 'Authorization directives (@guard and the @can* family)' do
   end
 
   it 'injects the @can* definitions and their CanAction / CanArgs types' do
-    expect(schema.directives.keys).to include('guard', 'canFind', 'canModel', 'canQuery', 'canResolved', 'canRoot')
-    expect(schema.types.keys).to include('CanAction', 'CanArgs')
+    injected = Lighthouse::GraphQL::SchemaGenerator.inject_directive_definitions(sdl)
+
+    expect(injected).to include(*%w[guard canFind canModel canQuery canResolved canRoot].map { |name| "directive @#{name}" })
+    expect(injected).to include('enum CanAction', 'scalar CanArgs')
   end
 
   it 'no longer provides @can, which the @can* family replaces' do
-    expect { build_schema('type Query { a: String @can(ability: "x") }') }.to raise_error(StandardError)
+    expect { build_schema('type Query { a: String @can(ability: "x") }') }
+      .to raise_error(Lighthouse::DefinitionError, 'No directive found for `@can` on Query.a.')
   end
 end

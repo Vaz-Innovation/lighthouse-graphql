@@ -200,9 +200,9 @@ RSpec.describe '@feature' do
         .to raise_error(Lighthouse::DefinitionError, /@feature on Query.a needs a feature `name`/)
     end
 
-    it 'injects the directive and its FeatureState enum' do
-      expect(schema.to_definition).to include('enum FeatureState')
-      expect(schema.directives).to have_key('feature')
+    it 'builds with the directive and its FeatureState enum, which clients do not see' do
+      expect(schema.to_definition).not_to include('FeatureState', '@feature')
+      expect(schema.execute('{ name }').to_h).not_to have_key('errors')
     end
   end
 

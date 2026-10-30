@@ -52,6 +52,7 @@ require_relative 'namespaces'
   resolver_bases
   root_types
   ast_builder
+  server_directives
   schema_generator
   schema_cache
   persisted_queries

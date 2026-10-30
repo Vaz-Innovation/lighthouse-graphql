@@ -6,7 +6,23 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Clients no longer see Lighthouse's directives.** Introspection listed every directive
+  Lighthouse injects to build the schema (`@all`, `@canFind`, `@inject`, `@hash`, ... 96 in
+  the example app), with the types only they use (`CanAction`, `FeatureState`), and
+  `to_definition` / `lighthouse:print_schema` printed their definitions and every use
+  (`author: User! @belongsTo`). As in PHP Lighthouse, whose schema holds only the standard
+  directives and those the SDL declares, they are now taken out of the built schema: a client
+  sees `@skip`, `@include`, `@deprecated`, `@oneOf`, `@specifiedBy` and the SDL's own, and an
+  operation using `@all` is invalid. Lighthouse reads its directives from the SDL, so nothing
+  else changes.
+
 ### Fixed
+
+- A directive the SDL uses that is neither built in, Lighthouse's nor declared fails the build
+  with ``No directive found for `@can` on Query.a.``, as PHP Lighthouse names it. On a root type
+  it failed with a `NoMethodError` from inside graphql-ruby.
 
 - **An optional `Upload` takes an explicit `null`.** The scalar refused it ("Could not get
   uploaded file ... Instead got: nil"), so a client had to leave the argument out. `null`

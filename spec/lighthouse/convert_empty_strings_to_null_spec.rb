@@ -50,7 +50,7 @@ RSpec.describe '@convertEmptyStringsToNull' do
   end
 
   it 'injects the directive definition' do
-    expect(schema.directives).to have_key('convertEmptyStringsToNull')
+    expect(Lighthouse::GraphQL::SchemaGenerator.inject_directive_definitions(sdl)).to include('directive @convertEmptyStringsToNull')
   end
 
   describe 'on an argument' do

@@ -24,7 +24,8 @@ RSpec.describe 'Programmatic directive SDL injection' do
 
     schema = nil
     expect { schema = build_schema(sdl) }.not_to raise_error
-    expect(schema.directives.keys).to include('eq', 'orderBy')
+    expect(schema.query.fields).to have_key('widgets')
+    expect(Lighthouse::GraphQL::SchemaGenerator.inject_directive_definitions(sdl)).to include('directive @eq', 'directive @orderBy')
   end
 
   it 'does not duplicate a directive the app already declared' do
@@ -66,8 +67,38 @@ RSpec.describe 'Programmatic directive SDL injection' do
 
     schema = nil
     expect { schema = build_schema(sdl) }.not_to raise_error
-    expect(schema.directives.keys)
-      .to include('paginate', 'builder', 'whereConditions', 'find', 'all', 'aggregate', 'auth',
-                  'hasMany', 'belongsTo', 'belongsToMany', 'field')
+    expect(schema.query.fields).to have_key('widgets')
+    names = %w[paginate builder whereConditions find all aggregate auth hasMany belongsTo belongsToMany field]
+    expect(Lighthouse::GraphQL::SchemaGenerator.inject_directive_definitions(sdl)).to include(*names.map { |name| "directive @#{name}" })
+  end
+
+  describe 'what clients see' do
+    let(:schema) do
+      build_schema(<<~GRAPHQL)
+        "A directive of the app's own, for its clients."
+        directive @upper on FIELD
+
+        type Query {
+          widgets(name: String @eq, trashed: Boolean): [Widget!]! @all @guard
+        }
+
+        type Widget { id: ID! name: String @rename(attribute: "name") }
+      GRAPHQL
+    end
+
+    it "keeps Lighthouse's directives out of introspection, as PHP Lighthouse's schema holds only the standard and the SDL's own" do
+      names = schema.execute('{ __schema { directives { name } } }')['data']['__schema']['directives'].pluck('name')
+
+      expect(names).to contain_exactly('deprecated', 'include', 'oneOf', 'skip', 'specifiedBy', 'upper')
+    end
+
+    it 'prints neither their definitions nor their uses, nor the types only they use' do
+      expect(schema.to_definition).not_to match(/@(all|eq|guard|rename)\b/)
+      expect(schema.to_definition).to include('directive @upper on FIELD', 'widgets(name: String, trashed: Boolean): [Widget!]!')
+    end
+
+    it 'rejects an operation that uses one' do
+      expect(schema.execute('{ widgets @all { id } }')['errors'].pluck('message')).to eq(['Directive @all is not defined'])
+    end
   end
 end

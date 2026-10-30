@@ -54,7 +54,7 @@ RSpec.describe 'Relay global ids (@globalId, @node)' do
     definition = schema.to_definition
 
     expect(definition).to include('interface Node', 'type Post implements Node', 'type Country implements Node',
-                                  'node(id: ID! @globalId): Node')
+                                  'node(id: ID!): Node')
     expect(schema.query.fields['node'].type.unwrap.graphql_name).to eq('Node')
   end
 
