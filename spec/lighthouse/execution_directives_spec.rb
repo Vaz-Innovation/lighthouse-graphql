@@ -159,6 +159,26 @@ RSpec.describe 'Execution directives' do
       expect { ping('{ broken }', lighthouse_controller: controller) }.to raise_error(Lighthouse::DefinitionError, /has no method nope/)
     end
 
+    it "refuses with rate_limit's with: once the controller has performed, as long as its response is not committed" do
+      stub_const('ActionController::TooManyRequests', Class.new(StandardError))
+      performed = Class.new(controller_class) do
+        def performed? = true
+        def response = Struct.new(:committed?).new(false)
+      end.new
+      2.times { ping(remote_ip: '8.8.8.8', lighthouse_controller: performed) }
+
+      expect { ping(remote_ip: '8.8.8.8', lighthouse_controller: performed) }.to raise_error(ActionController::TooManyRequests)
+    end
+
+    it 'fails only the field once the response is committed (a later part of a streamed response), calling no with:' do
+      committed = Class.new(controller_class) { def response = Struct.new(:committed?).new(true) }.new
+      context = { current_user: user, lighthouse_controller: committed }
+      ping('{ mine }', **context)
+
+      expect(ping('{ mine }', **context)['errors'].pluck('message')).to eq(['Rate limit for Query.mine exceeded. Try again later.'])
+      expect(committed.notes).to eq([])
+    end
+
     it 'fails only the field when with: raises a GraphQL::ExecutionError, the rest of the operation answered' do
       result = ping('{ strict ping }', remote_ip: '7.7.7.7', lighthouse_controller: controller)
 

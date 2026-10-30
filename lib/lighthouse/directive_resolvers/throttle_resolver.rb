@@ -115,14 +115,18 @@ class Lighthouse::GraphQL::DirectiveResolvers::ThrottleDirectiveResolver < Light
   # Past the limit: instrumented as rate_limit's, around `with`, after which a
   # response `with` performed ends the request, as a before_action's would.
   def refuse(controller, limit, location, counted)
-    committed = controller&.performed?
+    committed = committed?(controller)
     payload = { request: controller&.request, to: limit[:to], within: limit[:within], **counted }
     ActiveSupport::Notifications.instrument('rate_limit.action_controller', payload) { limited(controller, limit[:with], location, committed) }
     raise Lighthouse::GraphQL::Controller::Performed if controller&.performed?
   end
 
+  # Is the controller's response on its way (a later part of a streamed @defer response)? It
+  # can then be neither a 429 nor what `with:` renders.
+  def committed?(controller) = controller.respond_to?(:response) && controller.response.respond_to?(:committed?) && controller.response.committed?
+
   # The controller's `with` method, else rate_limit's default `with`; a field error once the
-  # response has `committed` (performed? before this call: streaming).
+  # response is `committed`.
   def limited(controller, with, location, committed)
     unless committed
       return call_with(controller, with, location) if with && controller

@@ -1122,6 +1122,7 @@ RSpec.describe 'Deferring fields' do
         def controller_path = 'graphql'
         def request = nil
         def performed? = @committed || false
+        def response = Struct.new(:committed?).new(@committed || false)
         def head(*) = raise(ActionDispatch::IllegalStateError, 'header already sent')
 
         private
