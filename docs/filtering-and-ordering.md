@@ -665,14 +665,14 @@ is: a schema error). This protocol is experimental.
 | Model not searchable | `ScoutException` at run time | schema error at build, once the field's model is known |
 | `within:` not a string | `DefinitionException` | schema error at build |
 | Nested field (a relation) | `ScoutException` at run time | schema error with Searchkick; works with pg_search |
-| Field has `scopes:`, `@builder`, `@whereAuth`, `@orderBy(column:)` | dropped silently | schema error with Searchkick; applied with pg_search |
+| Field has `scopes:`, `@builder`, `@whereAuth`, `@orderBy(column:)` | dropped silently | schema error with Searchkick (a client error, reported, for a resolver of your own whose type is no model); applied with pg_search |
 | `@canQuery` with `scopes:` | dropped silently | schema error with Searchkick; applied with pg_search |
 | A default value for a directive the engine cannot apply | `ScoutException` on every search | schema error with Searchkick; applied with pg_search |
 | A mass mutation's `@search` sent as `null` | not a filter: "Would modify all models" | same |
 | `@trashed` `ONLY` / `WITHOUT` on an index that does not hold the column, or whose columns cannot be told | not a case: Scout indexes its own `__soft_deleted` (with `scout.soft_delete` on) | client error |
 | A page past the result window | depends on the Scout driver | client error |
 | `@canQuery` on more than 10,000 matches a page can reach | checks the hits Scout's `get()` returns | client error |
-| `enhance_builder` given a narrowed relation | conditions dropped | `Lighthouse::DefinitionError` |
+| `enhance_builder` given a narrowed relation | conditions dropped | client error, reported to `Config.on_error` |
 | A `@search` nothing applies (the default reader, `@create`, ...) | ignored | schema error |
 | A directive of your own on a searched field, which does not say it applies a search | (no such contract) | schema error |
 | A Searchkick model with a default scope or `search_results`, without `search_where` | the engine counts what does not load | schema error |

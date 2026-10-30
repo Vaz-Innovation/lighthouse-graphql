@@ -287,7 +287,10 @@ When the client searches ([`@search`](filtering-and-ordering.md#in-a-resolver-of
 too: with pg_search the answer is still a relation, with Searchkick a `Lighthouse::Search::Result`
 (`records(first:, offset:)`, `count`), for which the relation must select what the model's own does
 (`Post.all`, or `Post`): any other is refused, as the engine would drop its conditions.
-A field your class resolves may search with Searchkick this way, whatever its type.
+A field your class resolves may search with Searchkick this way, whatever its type, unless it
+has a `@builder`, `@whereAuth` or `@orderBy(column:)` of its own, which the engine cannot apply:
+the schema refuses to build when it can tell the field's model, and each search of it is an
+error the client reads when it cannot (a type that is no model), never answered without them.
 
 ```graphql
 type Query {
