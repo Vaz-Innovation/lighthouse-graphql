@@ -8,6 +8,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`@canModel` on an argument or input field: who may use it.** It checks its ability against
+  the model only when the client gives that argument a value, at any depth (in each input of
+  a list too), with the field's `@can*` directives and their `action:`.
+  `@softDeletes(ability: "view_trashed")` puts it on the `trashed` argument it adds, so
+  listing trashed records can be for admins only.
 - **`lighthouse_execute` runs an operation from any controller action**, with the context the
   GraphQL endpoint gives it (`graphql_context`, and the IP and controller `@throttle` counts
   with), to render a page with its data loaded. It comes from the new

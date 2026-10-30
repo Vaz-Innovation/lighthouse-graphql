@@ -94,7 +94,7 @@ RSpec.describe 'soft deletes' do
       sdl = "#{types}\ntype Query { tasks: [SoftTask!]! @all @softDeletes }"
 
       directives = Lighthouse::IdeHelper.directives_sdl(sdl)
-      expect(directives).to include('directive @softDeletes on FIELD_DEFINITION', 'directive @trashed on', 'directive @withoutGlobalScopes(',
+      expect(directives).to include('directive @softDeletes(', 'directive @trashed on', 'directive @withoutGlobalScopes(',
                                     'directive @forceDelete(', 'directive @restore(')
       expect(Lighthouse::IdeHelper.programmatic_types_sdl(sdl)).to include('enum Trashed')
     end

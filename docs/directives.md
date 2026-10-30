@@ -772,6 +772,16 @@ enum Trashed {
 }
 ```
 
+Anyone may pass `trashed` unless you say who: `@softDeletes(ability: "view_trashed")`
+puts [`@canModel`](authorization.md#who-may-use-an-argument) on the argument it adds,
+so a client that passes `trashed` (any value) needs the ability on the model's policy.
+Leaving `trashed` out lists the records as usual. PHP Lighthouse has no `ability:`.
+
+```graphql
+tasks: [Task!]! @all @softDeletes(ability: "view_trashed")
+# tasks(trashed: Trashed @trashed @canModel(ability: "view_trashed")): [Task!]! @all
+```
+
 ### `@trashed`
 
 The argument builder `@softDeletes` adds; use it by hand to name the argument

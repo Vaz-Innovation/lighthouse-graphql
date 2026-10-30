@@ -6,6 +6,12 @@
 #
 #   tasks: [Task!]! @all @softDeletes   ->   tasks(trashed: Trashed @trashed): [Task!]! @all
 #
+# `ability:` puts a @canModel on the argument, so only who the policy allows
+# may use it (Lighthouse's, not PHP Lighthouse's):
+#
+#   tasks: [Task!]! @all @softDeletes(ability: "view_trashed")
+#     ->   tasks(trashed: Trashed @trashed @canModel(ability: "view_trashed")): [Task!]! @all
+#
 # The `Trashed` enum is added once whenever a `@trashed` argument is in the
 # schema (generated here or written by hand), unless the app declares its own.
 class Lighthouse::GraphQL::Directives::SoftDeletesDirective
@@ -16,7 +22,10 @@ class Lighthouse::GraphQL::Directives::SoftDeletesDirective
       This manipulates the schema by adding the argument
       `trashed: Trashed @trashed` to the field.
       """
-      directive @softDeletes on FIELD_DEFINITION
+      directive @softDeletes(
+        "The policy ability a user needs to pass `trashed` (a @canModel on it). Without it, anyone may."
+        ability: String
+      ) on FIELD_DEFINITION
     GRAPHQL
   }.freeze
 
@@ -98,19 +107,27 @@ class Lighthouse::GraphQL::Directives::SoftDeletesDirective
   end
 
   def soft_delete(field)
-    if field.directives.any? { |directive| directive.name == 'softDeletes' }
+    directive = field.directives.find { |node| node.name == 'softDeletes' }
+    if directive
       @rewritten = true
-      field = field.merge(arguments: with_trashed_argument(field.arguments),
-                          directives: field.directives.reject { |directive| directive.name == 'softDeletes' })
+      field = field.merge(arguments: with_trashed_argument(field.arguments, ability(directive)),
+                          directives: field.directives.reject { |node| node.name == 'softDeletes' })
     end
     @trashed ||= field.arguments.any? { |argument| trashed?(argument) }
     field
   end
 
-  def with_trashed_argument(arguments)
+  # The field's arguments with `trashed`, unless it has one of its own;
+  # behind @canModel(ability:) when `ability` is given.
+  def with_trashed_argument(arguments, ability)
     return arguments if arguments.any? { |argument| argument.name == 'trashed' }
 
-    arguments + ::GraphQL::Language::Parser.parse(ARGUMENT).definitions.first.fields.first.arguments
+    sdl = ability ? ARGUMENT.sub('@trashed', "@trashed @canModel(ability: #{ability.to_json})") : ARGUMENT
+    arguments + ::GraphQL::Language::Parser.parse(sdl).definitions.first.fields.first.arguments
+  end
+
+  def ability(directive)
+    Lighthouse::Support::DirectiveArgs.literal(directive, 'ability')
   end
 
   def trashed?(node)

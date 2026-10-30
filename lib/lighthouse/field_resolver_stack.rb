@@ -22,6 +22,7 @@ module Lighthouse::GraphQL::FieldResolverStack
     steps << own_step(type, field_def, root_kind, bases, type_class) unless resolving_directive?(directives)
     steps << validator_step(type, field_def, opts) if input_validation?(field_def, directives)
     steps.concat(argument_steps(type, field_def, directives, opts))
+    steps.concat(argument_authorization_steps(type, field_def, opts))
 
     steps.compact.each_with_index.sort_by { |(order, _), index| [order, index] }.each { |(_, step), _| step.call }
   end
@@ -108,6 +109,37 @@ module Lighthouse::GraphQL::FieldResolverStack
       steps << transforms_step(type, field_def, opts.merge(phase: phase), Lighthouse::DirectiveRegistry.default.resolution_order(alongside))
     end
     steps
+  end
+
+  # A @canModel on an argument or input field, at any depth: who may use it.
+  # Ordered with the field's @can* directives; it checks only when the client
+  # gave the argument a value (CanModelDirectiveResolver).
+  def argument_authorization_steps(type, field_def, opts)
+    resolver = Lighthouse::GraphQL::DirectiveResolvers::CanModelDirectiveResolver
+    order = Lighthouse::DirectiveRegistry.default.resolution_order(resolver.directive_name)
+    authorized_arguments(field_def.arguments).map do |path, dnode|
+      [order, -> { resolver.new(field_def, type, dnode, opts.merge(argument: path)).define_resolver(type) }]
+    end
+  end
+
+  # [dot path ("filter.trashed", "inputs.*.status"), @canModel node] for every
+  # argument and input field carrying @canModel; an input type is not walked
+  # twice on one path.
+  def authorized_arguments(arguments, prefix = nil, seen = Set.new)
+    arguments.each_value.flat_map do |argument|
+      path = [prefix, argument.graphql_name].compact.join('.')
+      own = (argument.ast_node&.directives || []).select { |d| d.name == 'canModel' }.map { |dnode| [path, dnode] }
+      own + authorized_input_fields(argument, path, seen)
+    end
+  end
+
+  # Those of the input type an argument takes; `*` steps into each of a list.
+  def authorized_input_fields(argument, path, seen)
+    type = argument.type.unwrap
+    return [] unless type.kind.input_object? && seen.exclude?(type.graphql_name)
+
+    list = (argument.type.non_null? ? argument.type.of_type : argument.type).list?
+    authorized_arguments(type.arguments, list ? "#{path}.*" : path, seen | [type.graphql_name])
   end
 
   # Around whatever resolves the field, as @lazyLoad: the result is cut to the client's @limit.

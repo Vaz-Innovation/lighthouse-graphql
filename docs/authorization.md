@@ -134,6 +134,35 @@ post(id: ID!): Post @canFind(ability: "show", find: "id", action: EXCEPTION_NOT_
 `action` applies to the directive's own checks only. Errors from the resolver
 itself are untouched.
 
+### Who may use an argument
+
+Some arguments are for some users only: `trashed` for admins, a filter on drafts
+for editors. `@canModel` on an argument, or on an input field at any depth, checks
+its ability against the model only when the client gives that argument a value, and
+denies the whole field otherwise, as `@canModel` on the field does (`action:` too):
+
+```graphql
+type Query {
+  posts(filter: PostFilter): [Post!]! @all
+  tasks(trashed: Trashed @trashed @canModel(ability: "view_trashed")): [Task!]! @all
+}
+
+input PostFilter {
+  title: String @like
+  status: PostStatus @eq @canModel(ability: "filter_by_status", model: "Post")
+}
+```
+
+```ruby
+class TaskPolicy < ApplicationPolicy
+  def view_trashed? = user&.admin?
+end
+```
+
+It runs with the field's `@can*` directives, before the field resolves. The model is
+the directive's `model:`, else the field's, as for `@canModel` on a field.
+`@softDeletes(ability:)` writes it on the `trashed` argument for you.
+
 ## Ordering
 
 The order you write directives in does not matter. They run as:

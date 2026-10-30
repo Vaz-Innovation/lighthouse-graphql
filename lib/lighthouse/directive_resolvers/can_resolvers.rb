@@ -49,14 +49,14 @@ module Lighthouse::GraphQL::DirectiveResolvers
     def self.type_definitions = TYPE_DEFINITIONS
 
     # The SDL of a @can* directive: `description`, the arguments they share, then the `extra` ones.
-    def self.definition_with(description, extra = [])
+    def self.definition_with(description, extra = [], locations: 'FIELD_DEFINITION')
       <<~GRAPHQL.chomp
         """
         #{description}
         """
         directive @#{directive_name}(
         #{[*COMMON_ARGUMENTS, *extra].join("\n")}
-        ) repeatable on FIELD_DEFINITION
+        ) repeatable on #{locations}
       GRAPHQL
     end
 
@@ -169,15 +169,21 @@ module Lighthouse::GraphQL::DirectiveResolvers
     def self.directive_name = 'canModel'
 
     def self.definition
-      definition_with(<<~TEXT.chomp, [MODEL_ARGUMENT])
+      definition_with(<<~TEXT.chomp, [MODEL_ARGUMENT], locations: 'FIELD_DEFINITION | ARGUMENT_DEFINITION | INPUT_FIELD_DEFINITION')
         Check a policy against the model class itself, before the field resolves,
-        e.g. `create?` before a @create.
+        e.g. `create?` before a @create. On an argument or input field, only when
+        the client gives it a value: who may use it, e.g. `trashed`.
       TEXT
     end
 
     protected
 
+    # On an argument (FieldResolverStack passes its path as `argument:`), only
+    # when the client gave it a value.
     def authorize_before(_obj, args, ctx)
+      path = @opts[:argument]
+      return if path && Lighthouse::Support::Arguments.dig(Lighthouse::Support::Arguments.plain(args), path).empty?
+
       authorize!(ctx, model_class, args)
     end
   end
