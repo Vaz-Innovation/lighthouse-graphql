@@ -12,6 +12,14 @@ class Builders::SafetyMine
   def self.call(relation, _value, context) = relation.where(author_id: context[:current_user]&.id)
 end
 
+# An argument's @builder that asks Searchkick for its hits, not the records (`load: false`).
+class Builders::SafetyUnloaded
+  def self.call(target, _value, _context)
+    target.options[:load] = false if target.is_a?(Lighthouse::Search::Query)
+    target
+  end
+end
+
 # A resolver of the app's own, which reads the search through enhance_builder.
 class SafetyEnhanced
   def self.call(_obj, _args, ctx, resolve_info)
@@ -25,7 +33,8 @@ class SafetyHolder
 end
 
 module SearchSafety
-  MODELS = %w[SafetyPlainPost SafetyTenantPost SafetyTenantUnfilteredPost SafetyConditionalTenantPost SafetySoftPost SafetyGuardedPost].freeze
+  MODELS = %w[SafetyPlainPost SafetyTenantPost SafetyTenantUnfilteredPost SafetyConditionalTenantPost SafetySoftPost SafetyUnscopedSoftPost
+              SafetyGuardedPost].freeze
   TENANTED = %w[SafetyTenantPost SafetyTenantUnfilteredPost SafetyConditionalTenantPost].freeze
   PAGED = %i[paginate simple connection].freeze
   DATA = {
@@ -48,7 +57,8 @@ module SearchSafety
     trashed: ['trashed: Trashed @trashed', 'trashed: %<trashed>s'],
     limit: ['max: Int @limit', 'max: 2'],
     input: ['filter: SafetyFilter', 'filter: { authorId: 2 }'],
-    input_default: ['filter: SafetyFilter = { authorId: 1 }', nil]
+    input_default: ['filter: SafetyFilter = { authorId: 1 }', nil],
+    unloaded: ['raw: Boolean @builder(class: "SafetyUnloaded")', 'raw: true']
   }.freeze
   SEARCHES = ['"a"', '""', 'null', nil].freeze
 
@@ -65,32 +75,43 @@ module SearchSafety
   STALE = { 'alpha' => { author_id: 2 }, 'apple' => { deleted_at: Time.utc(2026) }, 'avocado' => { deleted_at: nil },
             'amber' => { body: 'hidden' }, 'beta' => :gone }.freeze
 
-  def self.seed!
-    ROWS.each do |title, author, trashed, body|
-      SafetyPlainPost.unscoped.create!(title: title, author_id: author, deleted_at: (Time.utc(2025) if trashed), body: body)
-    end
-    SafetyStaleRow.delete_all
-    SafetyPlainPost.unscoped.each { |post| SafetyStaleRow.create!(post.attributes) }
-    STALE.each do |title, change|
-      post = SafetyPlainPost.unscoped.find_by!(title: title)
-      change == :gone ? post.delete : post.update!(change)
-    end
-    SafetyPlainPost.unscoped.create!(title: 'apricot', author_id: 1)
-  end
+  # What each shape's cases add in turn, so each meets it as often: nothing, an
+  # @builder asking for unloaded hits (`load: false`), an @canQuery (of the
+  # first author's records) whose check the index outgrows before the page, a
+  # stale index of a model Searchkick loads through `unscoped`.
+  HAZARDS = [nil, :unloaded, :checked, :unscoped].freeze
+
+  # The record the index and the database gain after a request's first search
+  # (`growing`): between @canQuery's check and the page, which must not answer it.
+  GROWN = { title: 'secret apricot', author_id: 1 }.freeze
 
   # One generated case. `user`: who sends the request, under tenant 1: its own
-  # tenant's author, or another. `stale`: does the index lag the database? Most
-  # cases have a constraint, and few or no argument filters, which a search
-  # outside the database mostly refuses.
+  # tenant's author, or another. `stale`: does the index lag the database?
+  # `growing`: do they gain GROWN after the first search? Most cases have a
+  # constraint, and few or no argument filters, which a search outside the
+  # database mostly refuses.
   Case = Struct.new(:engine, :model, :data, :nested, :named_model, :hit_type, :constraints, :arguments, :trashed, :search, :user, :stale,
-                    keyword_init: true) do
+                    :growing, keyword_init: true) do
     def self.generate(random, index)
       engine, (data, hit_type) = SHAPES[index % SHAPES.size]
-      new(engine: engine, data: data, hit_type: hit_type, model: MODELS.sample(random: random), nested: random.rand < 0.3,
-          named_model: random.rand < 0.5, constraints: CONSTRAINTS.keys.sample([0, 1, 1, 2].sample(random: random), random: random),
-          arguments: ARGUMENTS.keys.sample([0, 0, 1, 2].sample(random: random), random: random).uniq { |key| key.to_s.delete_suffix('_default') },
-          trashed: %w[WITH ONLY WITHOUT].sample(random: random), search: SEARCHES.sample(random: random), user: [1, 2].sample(random: random),
-          stale: random.rand < 0.5)
+      kase = new(engine: engine, data: data, hit_type: hit_type, model: MODELS.sample(random: random), nested: random.rand < 0.3,
+                 named_model: random.rand < 0.5, constraints: CONSTRAINTS.keys.sample([0, 1, 1, 2].sample(random: random), random: random),
+                 arguments: ARGUMENTS.keys.sample([0, 0, 1, 2].sample(random: random), random: random),
+                 trashed: %w[WITH ONLY WITHOUT].sample(random: random), search: SEARCHES.sample(random: random),
+                 user: [1, 2].sample(random: random), stale: random.rand < 0.5, growing: random.rand < 0.5)
+      kase.with_hazard(HAZARDS[(index / SHAPES.size) % HAZARDS.size])
+    end
+
+    # The case, with the hazard of its turn added (HAZARDS).
+    def with_hazard(hazard)
+      case hazard
+      when :unloaded then arguments << :unloaded
+      when :checked then (constraints << :can_query) && (arguments << :eq) && (self.growing = true)
+      when :unscoped then (self.model = 'SafetyUnscopedSoftPost') && (self.stale = true)
+      end
+      constraints.uniq!
+      arguments.uniq! { |key| key.to_s.delete_suffix('_default') }
+      self
     end
 
     def adapter = engine == :searchkick ? Lighthouse::Search::Searchkick.new : FakeSearch::Relational.new(MODELS.map(&:constantize))
@@ -142,6 +163,20 @@ end
 module SearchSafety::Invariant
   module_function
 
+  # The rows, in the database and the index that lags it.
+  def seed!
+    SearchSafety::ROWS.each do |title, author, trashed, body|
+      SafetyPlainPost.unscoped.create!(title: title, author_id: author, deleted_at: (Time.utc(2025) if trashed), body: body)
+    end
+    SafetyStaleRow.delete_all
+    SafetyPlainPost.unscoped.each { |post| SafetyStaleRow.create!(post.attributes) }
+    SearchSafety::STALE.each do |title, change|
+      post = SafetyPlainPost.unscoped.find_by!(title: title)
+      change == :gone ? post.delete : post.update!(change)
+    end
+    SafetyPlainPost.unscoped.create!(title: 'apricot', author_id: 1)
+  end
+
   # [ids, total] the field answers, or :error for a client error.
   def answer(schema, kase, searching) = together(schema, [kase], searching).first
 
@@ -166,17 +201,28 @@ module SearchSafety::Invariant
 
   def ids(rows) = rows.map { |row| row['id'].to_i }
 
-  # What the case breaks of the invariant, or nil.
+  # What the case breaks of the invariant, or nil. Without the search first, so
+  # that a record the index gains after the first search (GROWN) is one the
+  # field does not answer without it.
   def violation(schema, kase)
     FakeSearch::Indexed.as(kase.stale) do
-      searched = answer(schema, kase, true)
-      next nil if searched == :error
-
       unsearched = answer(schema, kase.unsearched, false)
+      searched = growing(kase) { answer(schema, kase, true) }
+      next nil if searched == :error
       next "answers with the search what it refuses without: #{searched.first}" if unsearched == :error
 
       subset(searched.first, unsearched.first) || tenant(kase, searched.first) || count(kase, *searched) || shared(schema, kase, searched)
     end
+  end
+
+  # The block, with the index and the database gaining GROWN after its first
+  # search, when the case says so; GROWN is gone after it.
+  def growing(kase, &block)
+    return yield unless kase.growing
+
+    FakeSearch::Indexed.growing(-> { SafetyStaleRow.create!(SafetyPlainPost.unscoped.create!(SearchSafety::GROWN).attributes) }, &block)
+  ensure
+    [SafetyPlainPost.unscoped, SafetyStaleRow].each { |rows| rows.where(title: SearchSafety::GROWN[:title]).delete_all }
   end
 
   def subset(ids, allowed) = ("answers #{ids - allowed} with the search, not without it" unless (ids - allowed).empty?)

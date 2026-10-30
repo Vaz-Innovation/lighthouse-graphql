@@ -49,6 +49,9 @@ module FakeSearch
 
   # A model's searchkick_search over an index that is the database, or lags it.
   module Indexed
+    # A hit Searchkick answers without loading it (`load: false`), as its HashWrapper.
+    Hit = Struct.new(:id, :title)
+
     class << self
       # Does the index lag the database (safety_stale_index)?
       attr_accessor :stale
@@ -60,6 +63,21 @@ module FakeSearch
       ensure
         self.stale = previous
       end
+
+      # The block, `grow` running once after its first search: what the index and
+      # the database gain between two searches of a request.
+      def growing(grow)
+        @grow = grow
+        yield
+      ensure
+        @grow = nil
+      end
+
+      def searched!
+        grow = @grow
+        @grow = nil
+        grow&.call
+      end
     end
 
     def searchkick_index = Struct.new(:name).new(table_name)
@@ -69,9 +87,20 @@ module FakeSearch
       hits = matching(index_rows.order(:id), options[:where] || {})
       hits = hits.where('title LIKE ?', "%#{term}%") unless term.to_s.empty?
       ids = hits.offset(options[:offset]).limit(options[:limit]).pluck(:id)
-      records = options[:scope_results] ? options[:scope_results].call(self) : self
-      loaded = records.where(id: ids).sort_by { |record| ids.index(record.id) }
-      IndexResponse.new(ids.map { |id| { '_index' => table_name, '_id' => id.to_s } }, loaded, hits.count)
+      response = IndexResponse.new(ids.map { |id| { '_index' => table_name, '_id' => id.to_s } }, loaded(ids, options), hits.count)
+      FakeSearch::Indexed.searched!
+      response
+    end
+
+    # The records of the hits, in their order: loaded through `scope_results:` as
+    # Searchkick loads them (through `unscoped` with `unscope: true`), or the
+    # index's own rows with `load: false`.
+    def loaded(ids, options)
+      return index_rows.where(id: ids).map { |row| Hit.new(row.id, row.title) } if options[:load] == false
+
+      loading = searchkick_options[:unscope] ? unscoped : self # Searchkick's results_query
+      records = options[:scope_results] ? options[:scope_results].call(loading) : loading
+      records.where(id: ids).sort_by { |record| ids.index(record.id) }
     end
 
     # The rows the index holds: the database's, or as they were.
@@ -127,6 +156,11 @@ class SafetySoftPost < SafetyPlainPost
   default_scope { where(deleted_at: nil) }
 
   def self.search_where = {}
+end
+
+# The same, loaded the way Searchkick's `unscope: true` loads: through `unscoped`.
+class SafetyUnscopedSoftPost < SafetySoftPost
+  def self.searchkick_options = { unscope: true }
 end
 
 # What a search may return, in the database and in the engine alike.
