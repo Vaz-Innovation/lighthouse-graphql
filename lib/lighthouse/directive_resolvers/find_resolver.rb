@@ -12,6 +12,7 @@ require_relative 'base'
 # match is an error, as in PHP Lighthouse; none returns null.
 class Lighthouse::GraphQL::DirectiveResolvers::FindDirectiveResolver < Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
   def self.directive_name = 'find'
+  def self.applies_search? = true
 
   def self.definition
     <<~GRAPHQL.chomp

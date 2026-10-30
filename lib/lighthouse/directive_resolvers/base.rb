@@ -19,6 +19,15 @@ class Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
     "The name of the association on the parent model. Defaults to the field's name in snake_case."
   )
 
+  # How the resolver applies a @search on its field, which Search::FieldCheck asks
+  # when the schema is built. `applies_search?`: it runs the field's argument
+  # filters, a relational search (pg_search) among them. `takes_search_results?`:
+  # on this field it also takes the records an engine outside the database
+  # (Searchkick) answers with, a Search::Result, which it asks for with
+  # `apply_where_filters(search_results: true)`. The base resolver does neither.
+  def self.applies_search? = false
+  def self.takes_search_results?(_type, _field_def, _directive, _root_kind) = false
+
   def initialize(field_def, type_def, directive_node, opts = {})
     @field_def = field_def
     @type_def = type_def

@@ -153,6 +153,12 @@ module Lighthouse
 
         def initialize: (_FieldDefinition field_def, _NamedType type_def, _DirectiveNode? directive_node, ?Hash[Symbol, untyped] opts) -> void
 
+        # Asked when the schema is built, of the field's resolving directive's class (Search::FieldCheck):
+        # does it run the field's argument filters, a relational search among them?
+        def self.applies_search?: () -> bool
+        # Does it take the records a search engine outside the database answers with, on this field?
+        def self.takes_search_results?: (_NamedType type, _FieldDefinition field_def, _DirectiveNode? directive, Symbol? root_kind) -> bool
+
         # Install the field's resolver on `target_type_class` (a graphql-ruby type class).
         def define_resolver: (Class target_type_class) -> void
 

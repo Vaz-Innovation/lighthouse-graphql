@@ -4,30 +4,33 @@
 # (FieldResolverStack), where PHP Lighthouse fails when the query runs, or not at all:
 #
 # - `within:` is a string.
+# - Something applies the search: a resolver that runs the field's argument
+#   filters (`applies_search?`, declared by each resolver class), or the app's
+#   own code (a convention class, a type class's method, @field), which reads it
+#   through resolve_info.enhance_builder. Never the default reader, which would
+#   ignore it.
 # - The field's model, when it can be told, is searchable by an adapter.
-# - With an adapter outside the database (Searchkick), the field is an @all, an
-#   @paginate on a root field or with its own `model:`, or resolved by a class of
-#   the app's (which reads the search through resolve_info.enhance_builder); and
-#   it has no `scopes:`, @builder, @whereAuth or @orderBy(column:), which the
-#   engine cannot apply.
+# - With an adapter outside the database (Searchkick), the resolver takes the
+#   records the engine answers with (`takes_search_results?`: @all, @paginate of
+#   the model's whole table, the app's own code); and the field has no `scopes:`,
+#   @builder, @whereAuth or @orderBy(column:), which the engine cannot apply.
 #   PHP Lighthouse drops them silently, so a search could return records the
 #   user must not see. A relational adapter (pg_search) applies them.
 # - An @canQuery, which runs the search to check the records it finds, searches
 #   a searchable model, and without `scopes:` when the engine cannot apply them.
 class Lighthouse::Search::FieldCheck
   HINT = 'it needs searchkick or pg_search, or an adapter in Config.search'
-  DATA_DIRECTIVES = %w[all paginate].freeze
-  # A field with no resolving directive, or @field, is resolved by the app's own code.
-  OWN_RESOLVERS = [nil, 'field'].freeze
   QUERY_DIRECTIVES = %w[builder whereAuth].freeze
 
   def self.check!(...) = new(...).check!
 
-  def initialize(type, field_def, directives, root_kind)
+  # `type_class`: the type's class (Types::PostType), whose methods resolve its fields with no resolving directive.
+  def initialize(type, field_def, directives, root_kind, type_class: nil)
     @type = type
     @field_def = field_def
     @directives = directives
     @root_kind = root_kind
+    @type_class = type_class
   end
 
   def check!
@@ -35,6 +38,7 @@ class Lighthouse::Search::FieldCheck
     return if searches.empty?
 
     searches.each { |path, directive| within_string!(path, directive) }
+    applied!(searches.first.first)
     model = model_class
     searches.each do |path, directive|
       index = Lighthouse::Support::DirectiveArgs.literal(directive, 'within')
@@ -52,6 +56,17 @@ class Lighthouse::Search::FieldCheck
     fail!(path, "expected the value of the `within` argument of @search to be a string, got: #{within.to_json}")
   end
 
+  def applied!(path)
+    return if own_code? || resolver_class&.applies_search?
+
+    fail!(path, "nothing applies the search: #{resolver_name} runs no argument filters. Resolve the field with a directive " \
+                'that does (@all, @paginate, @find, a relationship, ...), or a class of your own that calls resolve_info.enhance_builder')
+  end
+
+  def resolver_name
+    resolving_directive ? "@#{resolving_directive.name}" : "graphql-ruby's default reader, which reads #{@field_def.name} off the parent,"
+  end
+
   def field_searched!(path, model, index)
     adapter = adapter!(path, model, index)
     outside_database!(path, adapter) unless adapter.relational?
@@ -63,9 +78,10 @@ class Lighthouse::Search::FieldCheck
 
   def outside_database!(path, adapter)
     name = adapter.class.name.demodulize
-    unless answers_records?
-      fail!(path, "#{name} answers outside the database, so it needs @all, @paginate on a root field or with its own `model:`, " \
-                  'or a resolver of your own (which reads the search through resolve_info.enhance_builder)')
+    unless own_code? || resolver_class.takes_search_results?(@type, @field_def, resolving_directive, @root_kind)
+      fail!(path, "#{name} answers outside the database, so it needs @all, @paginate of the model's whole table (on a root field, " \
+                  'with its own `model:`, or where the parent has no association of its name), or a resolver of your own ' \
+                  '(which reads the search through resolve_info.enhance_builder)')
     end
     dropped = dropped_constraints
     unless dropped.empty?
@@ -105,17 +121,6 @@ class Lighthouse::Search::FieldCheck
                 '(PHP Lighthouse drops them silently); remove them, or search with a relational adapter (pg_search)')
   end
 
-  # Can the field take the records an engine answers with? @all, @paginate of the
-  # model's whole table (its own `model:`, not the parent's association), or the
-  # app's own resolver, which gets a Search::Result from enhance_builder.
-  def answers_records?
-    name = resolving_directive&.name
-    return true if OWN_RESOLVERS.include?(name)
-    return false unless DATA_DIRECTIVES.include?(name)
-
-    name == 'all' || !@root_kind.nil? || !Lighthouse::Support::DirectiveArgs.literal(resolving_directive, 'model').nil?
-  end
-
   # The field's own query constraints a search engine drops.
   def dropped_constraints
     scopes = Lighthouse::Support::DirectiveArgs.literal(resolving_directive, 'scopes') if resolving_directive
@@ -128,6 +133,16 @@ class Lighthouse::Search::FieldCheck
     return @resolving_directive if defined?(@resolving_directive)
 
     @resolving_directive = Lighthouse::GraphQL::FieldResolverStack.resolving_directive(@directives)
+  end
+
+  # The resolver class of the field's resolving directive; nil without one.
+  def resolver_class
+    resolving_directive && Lighthouse::DirectiveRegistry.default.resolution_class(resolving_directive.name)
+  end
+
+  # Is the field resolved by the app's own code, which reads the search through enhance_builder?
+  def own_code?
+    resolving_directive.nil? && Lighthouse::GraphQL::FieldResolverStack.own_resolver?(@field_def, @root_kind, @type_class)
   end
 
   def can_queries = @directives.select { |directive| directive.name == 'canQuery' }

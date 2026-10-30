@@ -8,6 +8,7 @@ require_relative 'builder_applier'
 # be combined with @eq/@where to fetch one record by criteria.
 class Lighthouse::GraphQL::DirectiveResolvers::FirstDirectiveResolver < Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
   def self.directive_name = 'first'
+  def self.applies_search? = true
 
   def self.definition
     <<~GRAPHQL.chomp

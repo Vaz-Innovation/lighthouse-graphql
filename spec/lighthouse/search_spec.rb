@@ -37,6 +37,16 @@ class SearchSpecGiven
   end
 end
 
+# The type class of SearchPost: its `classed` method resolves SearchPost.classed, reading the search.
+class Types::SearchPostType < GraphQL::Schema::Object
+  include Lighthouse::GraphQL::Type
+
+  def classed(**)
+    found = resolve_info.enhance_builder(SearchPost.all)
+    found.is_a?(Lighthouse::Search::Result) ? found.records(first: 1) : found.limit(1)
+  end
+end
+
 class Builders::SearchSpecOptions
   def self.call(query, value, _context)
     query.options[:fields] = [value]
@@ -652,6 +662,9 @@ RSpec.describe '@search' do
     context 'with an engine outside the database' do
       before { search_with(FakeSearch::Engine.new([SearchPost])) }
 
+      # A field of SearchPost, which a root field lists.
+      def build_nested(field) = build_schema("type SearchPost { id: ID! #{field} } type Query { posts: [SearchPost!]! @all }")
+
       def build_posts(field)
         build_schema("type SearchPost { id: ID! posts: [SearchPost!]! } type Query { #{field} }")
       end
@@ -714,11 +727,26 @@ RSpec.describe '@search' do
       it 'refuses any other directive: the engine answers with records, not a relation' do
         %w[@first @count @delete].each do |directive|
           expect { build_posts("posts(search: String @search): SearchPost #{directive}(model: \"SearchPost\")") }
-            .to raise_error(Lighthouse::DefinitionError, /needs @all, @paginate on a root field or with its own `model:`, or a resolver of your own/)
+            .to raise_error(Lighthouse::DefinitionError, /needs @all, @paginate of the model's whole table .*, or a resolver of your own/)
         end
         expect do
           build_posts('posts(search: String @search): SearchPost @find')
         end.to raise_error(Lighthouse::DefinitionError, /needs @all, @paginate/)
+      end
+
+      it 'refuses a field nothing resolves but the default reader, which never applies the search' do
+        expect { build_nested('unread(search: String @search): [SearchPost!]!') }
+          .to raise_error(Lighthouse::DefinitionError, /SearchPost.unread\(search\): nothing applies the search/)
+      end
+
+      it "accepts a field the type class's method resolves" do
+        expect { build_nested('classed(search: String @search): [SearchPost!]!') }
+          .not_to raise_error
+      end
+
+      it "accepts a nested @paginate whose parent has no association of its name: it pages the model's whole table" do
+        expect { build_nested('others(search: String @search): [SearchPost!]! @paginate') }
+          .not_to raise_error
       end
 
       it 'accepts a field your own class resolves, which reads the search through resolve_info.enhance_builder' do
@@ -733,7 +761,7 @@ RSpec.describe '@search' do
             type SearchPost { id: ID! related(search: String @search): [SearchPost!]! @paginate }
             type Query { posts: [SearchPost!]! @all }
           GRAPHQL
-        end.to raise_error(Lighthouse::DefinitionError, /SearchPost.related\(search\): .*needs @all, @paginate on a root field/)
+        end.to raise_error(Lighthouse::DefinitionError, /SearchPost.related\(search\): .*needs @all, @paginate of the model's whole table/)
       end
 
       it "refuses a nested @paginate when the model: is another directive's: it still pages the parent's association" do
@@ -742,7 +770,7 @@ RSpec.describe '@search' do
             type SearchPost { id: ID! related(search: String @search): [SearchPost!]! @paginate @canModel(ability: "view", model: "SearchPost") }
             type Query { posts: [SearchPost!]! @all }
           GRAPHQL
-        end.to raise_error(Lighthouse::DefinitionError, /needs @all, @paginate on a root field or with its own `model:`, or a resolver of your own/)
+        end.to raise_error(Lighthouse::DefinitionError, /needs @all, @paginate of the model's whole table .*, or a resolver of your own/)
       end
 
       it 'accepts a nested @paginate that names its model' do
@@ -890,6 +918,23 @@ RSpec.describe '@search' do
       result = given.execute('{ found(search: "three") { title } }', context: { relation: -> { SearchPost } }).to_h
 
       expect(result.dig('data', 'found').pluck('title')).to eq(['great three'])
+    end
+
+    it 'refuses a field whose resolver never applies the search, as an engine would' do
+      expect do
+        build_schema(<<~GRAPHQL)
+          type SearchPost { id: ID! unread(search: String @search): [SearchPost!]! }
+          type Query { posts: [SearchPost!]! @all }
+          type Mutation { createPost(search: String @search, title: String!): SearchPost @create }
+        GRAPHQL
+      end.to raise_error(Lighthouse::DefinitionError, /nothing applies the search/)
+      expect do
+        build_schema(<<~GRAPHQL)
+          type SearchPost { id: ID! }
+          type Query { posts: [SearchPost!]! @all }
+          type Mutation { createPost(search: String @search, title: String!): SearchPost @create }
+        GRAPHQL
+      end.to raise_error(Lighthouse::DefinitionError, /Mutation.createPost\(search\): nothing applies the search: @create runs no argument filters/)
     end
 
     it 'gives the adapter the term and the index' do

@@ -5,6 +5,8 @@ require_relative 'builder_applier'
 
 class Lighthouse::GraphQL::DirectiveResolvers::AllDirectiveResolver < Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
   def self.directive_name = 'all'
+  def self.applies_search? = true
+  def self.takes_search_results?(*) = true
 
   def self.definition
     <<~GRAPHQL.chomp

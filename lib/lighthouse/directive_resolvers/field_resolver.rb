@@ -5,6 +5,10 @@ require_relative 'base'
 class Lighthouse::GraphQL::DirectiveResolvers::FieldDirectiveResolver < Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
   def self.directive_name = 'field'
 
+  # The class it names reads the search through resolve_info.enhance_builder.
+  def self.applies_search? = true
+  def self.takes_search_results?(*) = true
+
   def self.definition
     <<~GRAPHQL.chomp
       """

@@ -16,7 +16,7 @@ module Lighthouse::GraphQL::FieldResolverStack
   # resolve its fields that have no resolving directive.
   def apply(type, field_def, root_kind, bases: {}, type_class: nil)
     directives = field_def.ast_node.directives || []
-    Lighthouse::Search::FieldCheck.check!(type, field_def, directives, root_kind)
+    Lighthouse::Search::FieldCheck.check!(type, field_def, directives, root_kind, type_class: type_class)
     opts = { root_kind: root_kind, bases: bases }
     steps = directive_steps(type, field_def, directives, opts)
     steps << limit_step(type, field_def, opts) if Lighthouse::GraphQL::DirectiveResolvers::LimitResolver.keyword(field_def)
@@ -47,6 +47,15 @@ module Lighthouse::GraphQL::FieldResolverStack
   end
 
   def resolving_directive?(directives) = !resolving_directive(directives).nil?
+
+  # Does the app's own code resolve a field with no resolving directive (own_step):
+  # the conventional class of a root Query or Mutation field, or a method of the
+  # type's class? Otherwise graphql-ruby's default reader reads it off the parent.
+  def own_resolver?(field_def, root_kind, type_class)
+    return true if %i[queries mutations].include?(root_kind)
+
+    !!(type_class && Lighthouse::GraphQL::DirectiveResolvers::TypeMethodResolver.method_for(type_class, field_def))
+  end
 
   def convention_step(type, field_def, root_kind, bases = {})
     resolvers = Lighthouse::GraphQL::DirectiveResolvers

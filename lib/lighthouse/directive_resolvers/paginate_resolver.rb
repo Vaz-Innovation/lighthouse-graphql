@@ -17,6 +17,23 @@ require_relative 'builder_applier'
 class Lighthouse::GraphQL::DirectiveResolvers::PaginateDirectiveResolver < Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
   def self.directive_name = 'paginate'
 
+  def self.applies_search? = true
+
+  # The model's whole table takes the records an engine answers with: on a root
+  # field, with `model:`, or where the parent has no association of its name.
+  def self.takes_search_results?(type, field_def, directive, root_kind)
+    parent = root_kind ? nil : Lighthouse::GraphQL::Directives::ModelDirective.model_for(type)
+    !pages_association?(parent, Lighthouse::Support::Naming.attribute(field_def.name), directive)
+  end
+
+  # Does the field page `parent`'s association of its name, rather than the
+  # model's whole table? Not with `model:`, as PHP Lighthouse's.
+  def self.pages_association?(parent, name, directive)
+    return false if Lighthouse::Support::DirectiveArgs.literal(directive, 'model')
+
+    !!(parent.respond_to?(:reflect_on_association) && parent.reflect_on_association(name.to_sym))
+  end
+
   def self.definition
     <<~GRAPHQL.chomp
       """
@@ -82,7 +99,7 @@ class Lighthouse::GraphQL::DirectiveResolvers::PaginateDirectiveResolver < Light
   end
 
   def nested?(obj, name)
-    !directive_arg('model') && obj.respond_to?(:association) && obj.class.reflect_on_association(name.to_sym)
+    obj.respond_to?(:association) && self.class.pages_association?(obj.class, name, @directive_node)
   end
 
   public

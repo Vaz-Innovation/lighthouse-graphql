@@ -19,6 +19,7 @@ module Lighthouse::GraphQL::DirectiveResolvers
     CONDITION_DIRECTIVES = %w[whereConditions whereHasConditions].freeze
 
     def self.collection? = false
+    def self.applies_search? = true
 
     # The directive's SDL: `description`, then the arguments of a relationship —
     # and, on a collection, the pagination ones.

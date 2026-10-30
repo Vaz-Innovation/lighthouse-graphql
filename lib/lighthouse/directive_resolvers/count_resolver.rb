@@ -9,6 +9,7 @@ require_relative 'builder_applier'
 # and where/argument filters before counting.
 class Lighthouse::GraphQL::DirectiveResolvers::CountDirectiveResolver < Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
   def self.directive_name = 'count'
+  def self.applies_search? = true
 
   def self.definition
     <<~GRAPHQL.chomp

@@ -5,6 +5,7 @@ require_relative 'builder_applier'
 
 class Lighthouse::GraphQL::DirectiveResolvers::AggregateDirectiveResolver < Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
   def self.directive_name = 'aggregate'
+  def self.applies_search? = true
 
   # An unknown function aggregates to null.
   AGGREGATIONS = {

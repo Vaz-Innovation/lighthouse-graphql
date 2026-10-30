@@ -248,6 +248,8 @@ module Lighthouse::GraphQL::DirectiveResolvers
   class ModifyModelsResolver < ModelMutationResolver
     WOULD_MODIFY_ALL = 'Would modify all models, use an argument to filter.'
 
+    def self.applies_search? = true
+
     protected
 
     # A record whose callbacks refuse the action is reported as an error next
