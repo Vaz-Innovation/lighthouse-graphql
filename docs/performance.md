@@ -169,7 +169,7 @@ it before it reaches stage 3. Clients that read the draft's format include Apoll
 # app/graphql/app_schema.rb
 class AppSchema < Lighthouse::GraphQL::RbLightHouse.get_schema(options: { ... })
   use GraphQL::Dataloader
-  use Lighthouse::GraphQL::Defer          # adds the @defer directive
+  use Lighthouse::GraphQL::Defer          # adds @defer and @stream
 end
 
 # app/controllers/graphql_controller.rb
@@ -238,7 +238,29 @@ and arrives after it.
 [`Lighthouse.configure { |c| c.defer_max_pending = 100 }`](configuration.md#defer_max_pending)
 bounds the fragments one request may leave pending; past it, they run in the first response.
 
-`@stream` is not implemented yet.
+### Streaming lists (experimental)
+
+`@stream` on a list field answers its first `initialCount` items (default 0) at once, and the
+others in a part of their own:
+
+```graphql
+query { posts(first: 50) { data @stream(initialCount: 5, label: "rest") { title } } }
+```
+
+```json
+{ "data": { "posts": { "data": [ ... 5 items ... ] } },
+  "pending": [{ "id": "0", "path": ["posts", "data"], "label": "rest" }], "hasNext": true }
+{ "incremental": [{ "id": "0", "items": [ ... 45 items ... ] }], "completed": [{ "id": "0" }], "hasNext": false }
+```
+
+The field's resolver runs once and returns the whole list; `@stream` cuts it where `initialCount`
+says, and the selections of the items that follow run in the later part, all together so the
+Dataloader batches across them. A list of scalars streams too, and so does a paginated field's
+`data`. An item may carry `@defer`: its fragment is announced with the items, at the index the item
+has in the list, and arrives after them. `@stream` needs a list field (`@stream on a field that is
+not a list` is a validation error), and follows the rules of `@defer` for `label`, mutations and
+subscriptions. The rest of a list is one batch: the specification allows a server to cut it as it
+pleases. The plugin puts a graphql-ruby field extension on every list field of the schema to do it.
 
 ## What is deliberately not cached
 

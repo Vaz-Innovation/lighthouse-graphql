@@ -10,6 +10,10 @@ class DeferSpecShelf
   def self.call(*) = [DeferSpec::Book.new('Dune', 412), DeferSpec::Movie.new('Alien', 117), DeferSpec::Book.new('Emma', 474)]
 end
 
+class DeferSpecNames
+  def self.call(*) = %w[ann bob cat dan]
+end
+
 # @defer (Lighthouse::GraphQL::Defer): the fields of a fragment arrive after the rest.
 RSpec.describe 'Deferring fields' do
   include_context 'with PHP Lighthouse models'
@@ -20,6 +24,7 @@ RSpec.describe 'Deferring fields' do
         users: [User!]! @all(model: "LH::User")
         user(id: ID! @eq): User @find(model: "LH::User")
         shelf: [Titled!]! @field(resolver: "DeferSpecShelf")
+        names: [String!]! @field(resolver: "DeferSpecNames")
       }
       type Mutation {
         createUser(name: String!): User @create(model: "LH::User")
@@ -70,6 +75,8 @@ RSpec.describe 'Deferring fields' do
   def payloads(query, **options)
     run(query, **options).then { |run| [].tap { |all| run.each_payload { |payload| all << payload } } }
   end
+
+  def errors(query, **options) = run(query, **options).result['errors'].pluck('message')
 
   def pending(*payloads) = payloads.flat_map { |payload| payload['pending'] || [] }
 
@@ -253,6 +260,68 @@ RSpec.describe 'Deferring fields' do
     end
   end
 
+  describe '@stream' do
+    it 'answers the first items at once and the others later, as the draft does' do
+      all = payloads('{ users @stream(initialCount: 1, label: "more") { name } }')
+
+      expect(all).to eq(
+        [
+          { 'data' => { 'users' => [{ 'name' => 'u0' }] }, 'pending' => [{ 'id' => '0', 'path' => ['users'], 'label' => 'more' }],
+            'hasNext' => true },
+          { 'incremental' => [{ 'id' => '0', 'items' => [{ 'name' => 'u1' }, { 'name' => 'u2' }] }], 'completed' => [{ 'id' => '0' }],
+            'hasNext' => false }
+        ]
+      )
+    end
+
+    it 'streams the whole list with the default initialCount of 0' do
+      all = payloads('{ users @stream { name } }')
+
+      expect(all.first['data']).to eq('users' => [])
+      expect(all.last['incremental'].first['items'].size).to eq(3)
+    end
+
+    it 'streams a list of scalars' do
+      all = payloads('{ names @stream(initialCount: 2) }')
+
+      expect(all.first['data']).to eq('names' => %w[ann bob])
+      expect(all.last['incremental']).to eq([{ 'id' => '0', 'items' => %w[cat dan] }])
+    end
+
+    it 'answers the whole list when it is shorter than initialCount, or the stream is off' do
+      expect(payloads('{ names @stream(initialCount: 4) }').first).to include('data' => { 'names' => %w[ann bob cat dan] }, 'pending' => [])
+      expect(payloads('{ names @stream(initialCount: 1, if: false) }').first['data']).to eq('names' => %w[ann bob cat dan])
+    end
+
+    it 'costs the queries of the list without @stream, however long it is' do
+      stream = 'query { users @stream(initialCount: 1) { name posts { title comments { comment } } } }'
+      whole = queries_in { schema.execute('query { users { name posts { title comments { comment } } } }') }
+
+      # The first item loads its posts and comments on its own, the others together.
+      expect(queries_in { payloads(stream) }.size).to eq(whole.size + 2)
+    end
+
+    it 'defers a fragment inside the streamed items, and numbers their paths from the list' do
+      all = payloads('{ users @stream(initialCount: 1) { name ... @defer(label: "t") { tasks { name } } } }')
+      tasks = all.flat_map { |payload| payload['incremental'].to_a }.filter_map { |entry| entry['data'] }
+
+      expect(all.first['pending'].pluck('path')).to eq([['users'], ['users', 0]])
+      expect(all[1]['pending'].pluck('path')).to eq([['users', 1], ['users', 2]])
+      expect(all[1]['incremental'].first['items']).to eq([{ 'name' => 'u1' }, { 'name' => 'u2' }])
+      expect(tasks).to eq([{ 'tasks' => [{ 'name' => 't0' }] }, { 'tasks' => [{ 'name' => 't1' }] }, { 'tasks' => [{ 'name' => 't2' }] }])
+    end
+
+    it 'puts an error of a streamed item at the position the item has in the list' do
+      all = payloads('{ users @stream(initialCount: 1) { name broken } }')
+
+      expect(all.last['incremental'].first['errors'].pluck('path')).to eq([['users', 1, 'broken'], ['users', 2, 'broken']])
+    end
+
+    it 'refuses @stream on a field that is not a list' do
+      expect(errors('{ user(id: 1) @stream { name } }')).to eq(['The @stream directive must be used on a list field.'])
+    end
+  end
+
   describe 'a client that does not stream' do
     it 'gets the whole response' do
       result = run('{ users { name ... @defer { company { name } } } }', stream: false).result
@@ -277,8 +346,6 @@ RSpec.describe 'Deferring fields' do
   end
 
   describe 'the rules of the specification' do
-    def errors(query, **options) = run(query, **options).result['errors'].pluck('message')
-
     it 'refuses a label two fragments share' do
       message = 'The label "x" is used by more than one @defer or @stream in the document.'
 

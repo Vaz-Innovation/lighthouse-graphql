@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# @defer: the fields of a fragment arrive after the rest of the response
+# @defer and @stream: the fields of a fragment, and the items of a list, arrive after the rest of the response
 # (experimental: the specification it follows is still a draft, see
 # docs/performance.md). A graphql-ruby plugin, opted into in the schema class:
 #
@@ -15,11 +15,11 @@
 #     lighthouse_schema AppSchema
 #   end
 #
-# The plugin adds the directive to the schema (without it the schema has none,
+# The plugin adds the directives to the schema (without it the schema has none,
 # as the specification asks of a server that does not implement it). The
 # controller streams a response when the schema uses the plugin, the controller
 # includes ActionController::Live, and the client accepts `multipart/mixed`
-# (`Defer.accepts?`); every other request is answered whole, with @defer ignored.
+# (`Defer.accepts?`); every other request is answered whole, with them ignored.
 # Run does the work; Document, State, Serializer and Multipart are its parts.
 module Lighthouse::GraphQL::Defer
   MULTIPART = 'multipart/mixed'
@@ -37,6 +37,25 @@ module Lighthouse::GraphQL::Defer
     end
 
     schema.directive(Lighthouse::GraphQL::Incremental::DeferDirective)
+    schema.directive(Lighthouse::GraphQL::Incremental::StreamDirective)
+    stream_lists(schema)
+  end
+
+  # @stream cuts a list once its field has resolved: the extension goes on every list field.
+  def stream_lists(schema)
+    extension = Lighthouse::GraphQL::Incremental::StreamExtension
+    schema.types.each_value do |type|
+      next unless type.kind.object? || type.kind.interface?
+
+      type.fields.each_value do |field|
+        field.extension(extension) if list?(field.type) && field.extensions.none?(extension)
+      end
+    end
+  end
+
+  def list?(type)
+    type = type.of_type if type.non_null?
+    type.list?
   end
 
   def enabled?(schema)

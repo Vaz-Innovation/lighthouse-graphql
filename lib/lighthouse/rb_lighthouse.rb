@@ -67,6 +67,8 @@ require_relative 'namespaces'
   persisted_queries/manifest
   incremental/state
   incremental/defer_directive
+  incremental/stream_directive
+  incremental/stream_extension
   incremental/document
   incremental/serializer
   incremental/multipart

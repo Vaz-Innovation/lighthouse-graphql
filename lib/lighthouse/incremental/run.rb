@@ -96,41 +96,56 @@ class Lighthouse::GraphQL::Incremental::Run
     completed = []
     group.zip(results) do |pending, response|
       deliver(pending, response, incremental, completed)
-      announce(@state.drain, response['data'], pending.path)
+      announce(@state.drain, response['data'], pending.path, pending.offset.to_i)
     end
     Serializer.subsequent(incremental: incremental, completed: completed, pending: @announced, has_next: deferred?)
   end
 
-  # The responses of `fragment` run on each object of `group`, in one multiplex so the Dataloader batches across them.
+  # The responses of `fragment` run on each object of `group` (the items of a stream), in one
+  # multiplex so the Dataloader batches across them.
   def run_fragment(fragment, group)
     query = @result.query
-    type = query.types.type(fragment.type_name)
+    type = query.types.type(fragment.type_name) unless fragment.stream
     partials = group.map do |pending|
-      ::GraphQL::Query::Partial.new(object: pending.object, path: pending.path, fragment_node: fragment.node, type: type, query: query)
+      options = fragment.stream ? {} : { fragment_node: fragment.node, type: type }
+      ::GraphQL::Query::Partial.new(object: pending.object, path: pending.path, query: query, **options)
     end
     # The first pass analyzed the whole document: no max_complexity again, which analysis
     # cannot apply to a Partial.
     @schema.multiplex(partials, context: query.context, max_complexity: nil).map(&:to_h)
   end
 
-  # A fragment's data goes in `incremental`; a null data (a non-null field failed
-  # beyond the fragment) leaves only its errors, in `completed`.
+  # A fragment's data goes in `incremental` (a stream's as `items`); a null data (a
+  # non-null field failed beyond the fragment) leaves only its errors, in `completed`.
   def deliver(pending, response, incremental, completed)
     data = response['data']
     errors = response['errors']
+    offset_errors(errors, pending) if pending.fragment.stream
     if data.nil?
       completed << { 'id' => pending.id, 'errors' => errors }.compact
     else
-      incremental << { 'id' => pending.id, 'data' => data, 'errors' => errors }.compact unless data.empty? && errors.nil?
+      key = pending.fragment.stream ? 'items' : 'data'
+      incremental << { 'id' => pending.id, key => data, 'errors' => errors }.compact unless data.empty? && errors.nil?
       completed << { 'id' => pending.id }
     end
   end
 
+  # The paths of a stream's errors count its items from the first one run, the response's from the first.
+  def offset_errors(errors, pending)
+    errors&.each do |error|
+      path = error['path']
+      path[pending.path.size] += pending.offset if path && path[pending.path.size].is_a?(Integer)
+    end
+  end
+
   # Give the fragments found since the last call their ids, and queue them. Those
-  # whose object an error nulled out of `data` (found from `base`) are dropped.
-  def announce(found, data, base)
+  # whose object an error nulled out of `data` (found from `base`) are dropped. `offset`:
+  # the index in the response's list of the first item of `data`, when it is a stream's.
+  def announce(found, data, base, offset = 0)
     found.each do |pending|
       next unless present?(data, pending.path.drop(base.size))
+
+      pending.path = pending.path.dup.tap { |path| path[base.size] += offset } if offset.positive? && pending.path[base.size].is_a?(Integer)
 
       pending.id = @next_id.to_s
       @next_id += 1

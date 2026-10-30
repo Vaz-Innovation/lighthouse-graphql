@@ -80,6 +80,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   New setting: `defer_max_pending`. Needs graphql-ruby 2.5.21. See
   [performance.md](docs/performance.md#deferring-fields-experimental). PHP Lighthouse's
   field-level `@defer`, which runs the query again for each round, is not what this is.
+- **`@stream` (experimental)**, with `@defer`: `users @stream(initialCount: 2) { name }` answers the
+  first items at once and the rest in a later part (`items`, the draft's format). A graphql-ruby field
+  extension on the schema's list fields cuts the list after its resolver ran, once; the later items'
+  selections run together, so the Dataloader still batches. Items may carry `@defer`.
 
 ### Changed
 

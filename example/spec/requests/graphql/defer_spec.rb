@@ -51,7 +51,8 @@ RSpec.describe 'Deferring fields', type: :request do
     expect(payloads.size).to eq(2)
     expect(later['hasNext']).to be(false)
     expect(later['completed']).to eq(%w[0 1 2].map { |id| { 'id' => id } })
-    expect(later['incremental'].first['data']).to match('author' => { 'name' => be_a(String) }, 'comments' => { 'data' => [{ 'body' => 'Nice post!' }] })
+    expect(later['incremental'].first['data']).to match('author' => { 'name' => be_a(String) },
+                                                        'comments' => { 'data' => [{ 'body' => 'Nice post!' }] })
   end
 
   it 'costs the queries of the same query without @defer' do
@@ -89,6 +90,15 @@ RSpec.describe 'Deferring fields', type: :request do
 
     expect(response.headers['Content-Type']).to start_with('application/json')
     expect(response.parsed_body['errors'].first['message']).to include('label "a"')
+  end
+
+  it 'streams the items of a paginated list after the first ones' do
+    initial, later = stream('{ posts(first: 10) { data @stream(initialCount: 1, label: "rest") { title } } }')
+
+    expect(initial['data']['posts']['data'].size).to eq(1)
+    expect(initial['pending']).to eq([{ 'id' => '0', 'path' => %w[posts data], 'label' => 'rest' }])
+    expect(later['incremental'].first['items'].size).to eq(2)
+    expect(later['completed']).to eq([{ 'id' => '0' }])
   end
 
   it 'closes the stream when the request is done, which is what ends the response for a real client' do

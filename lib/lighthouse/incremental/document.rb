@@ -85,7 +85,17 @@ class Lighthouse::GraphQL::Incremental::Document
     definition = type && !type.kind.union? ? @schema.get_field(type, node.name) : nil
     selections = node.selections
     selections = walk(selections, Scope.new(scope.kind, false, definition&.type&.unwrap)) unless selections.empty?
-    node.merge(selections: selections, directives: check_directives(node, scope))
+    node.merge(selections: selections, directives: stamp_stream(definition, check_directives(node, scope)))
+  end
+
+  # The field's @stream, if it has one, stamped; it must be on a list.
+  def stamp_stream(definition, directives)
+    stream = directives.find { |directive| directive.name == 'stream' } or return directives
+    error(stream, 'The @stream directive must be used on a list field.') if definition && !Lighthouse::GraphQL::Defer.list?(definition.type)
+
+    id = @fragments.size
+    @fragments << Lighthouse::GraphQL::Incremental::State::Fragment.new(id: id, label: label_of(stream), stream: true)
+    directives.reject { |directive| directive.equal?(stream) } + [stamp_label(stream, id)]
   end
 
   def inline_fragment(node, scope)

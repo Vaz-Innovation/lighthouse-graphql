@@ -364,6 +364,14 @@ Lighthouse::GraphQL::Defer` adds it, and clients write it in their queries, as t
 (`directive @defer(if: Boolean! = true, label: String) on FRAGMENT_SPREAD | INLINE_FRAGMENT`).
 Guide: [performance.md](performance.md#deferring-fields-experimental).
 
+### `@stream`
+
+Experimental. On a list field: its first `initialCount` items (default 0) come with the response,
+the others after it, streamed as `multipart/mixed` like `@defer`. Also added by `use
+Lighthouse::GraphQL::Defer`, and written by clients as the specification draft has it
+(`directive @stream(if: Boolean! = true, label: String, initialCount: Int! = 0) on FIELD`).
+Guide: [performance.md](performance.md#streaming-lists-experimental).
+
 ### `@hide` and `@show`
 
 Leave a field out of the schema by environment (`Rails.env`): `@hide(env:)` removes
