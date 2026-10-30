@@ -132,6 +132,11 @@ end
 module FakeSearch::Searchkicked
   attr_accessor :searches
 
+  # The index holds every column.
+  def self.extended(model)
+    model.define_method(:search_data) { attributes.except('id') }
+  end
+
   def searchkick_index = nil
   def searchkick_options = {}
 

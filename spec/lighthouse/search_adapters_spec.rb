@@ -149,7 +149,7 @@ RSpec.describe 'search adapters' do
       it 'refuses a model that does not index the column' do
         SearchkickPost.indexed = %w[title]
 
-        expect { where_of(:only) }.to raise_error(GraphQL::ExecutionError, /SearchkickPost.search_data does not index deleted_at/)
+        expect { where_of(:only) }.to raise_error(GraphQL::ExecutionError, /SearchkickPost's index does not hold deleted_at/)
       end
 
       it "reads what the model's search_data holds once, and again for the class code reloading makes" do
@@ -166,10 +166,40 @@ RSpec.describe 'search adapters' do
         expect(reads).to eq(SearchkickPost => 1, reloaded => 1)
       end
 
-      it 'takes the column as indexed when search_data cannot run on a blank record' do
-        SearchkickPost.indexed = :raise
+      describe 'when search_data cannot run on a blank record' do
+        let(:mappings) { { 'search_posts_1' => { 'mappings' => { 'properties' => { 'title' => {}, 'deleted_at' => {} } } } } }
+        let(:indices) { double('indices') } # rubocop:disable RSpec/VerifiedDoubles -- the engine client's, which the suite does not load
 
-        expect(where_of(:only)).to eq(deleted_at: { not: nil })
+        before do
+          SearchkickPost.indexed = :raise
+          client = Struct.new(:indices).new(indices)
+          Searchkick.define_singleton_method(:client) { client }
+          allow(SearchkickPost).to receive(:searchkick_index).and_return(Struct.new(:name).new('search_posts'))
+        end
+
+        def mapping_answers(&answer)
+          allow(indices).to receive(:get_mapping, &answer)
+        end
+
+        it "reads the columns from the index's mapping on the engine, once" do
+          mapping_answers { mappings }
+
+          2.times { expect(where_of(:only)).to eq(deleted_at: { not: nil }) }
+          expect(indices).to have_received(:get_mapping).with(index: 'search_posts').once
+        end
+
+        it 'refuses a column the mapping does not hold' do
+          mappings['search_posts_1']['mappings']['properties'].delete('deleted_at')
+          mapping_answers { mappings }
+
+          expect { where_of(:only) }.to raise_error(GraphQL::ExecutionError, /SearchkickPost's index does not hold deleted_at/)
+        end
+
+        it 'refuses when it cannot tell, rather than filter on a column the index may not hold' do
+          mapping_answers { raise 'no index' }
+
+          expect { where_of(:only) }.to raise_error(GraphQL::ExecutionError, /cannot tell whether SearchkickPost's index holds deleted_at/)
+        end
       end
     end
   end

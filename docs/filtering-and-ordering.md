@@ -515,8 +515,12 @@ Comment. Narrow the search instead.` Raising the window lets clients page deeper
 With pg_search, `@trashed` and `@softDeletes` filter the relation, as without a search.
 
 With Searchkick, `@trashed` filters on the soft-delete column the index holds, so `search_data` must hold
-it (`deleted_at: deleted_at`), or `ONLY` and `WITHOUT` are an error (`WITH` filters nothing): `Comment.search_data does not index
-deleted_at, which @trashed filters the search on.` The column is the one the database path filters on
+it (`deleted_at: deleted_at`), or `ONLY` and `WITHOUT` are an error (`WITH` filters nothing): `Comment's
+index does not hold deleted_at, which @trashed filters the search on: add it to search_data.` Lighthouse
+reads the columns from `search_data` on a blank record; when that raises (it reads an association), from
+the index's mapping on the engine, once per model; and when neither can be read, it refuses the search
+rather than filter on a column the index may not hold. (A column every document leaves null has no
+mapping yet: let `search_data` run on a blank record.) The column is the one the database path filters on
 ([`Config.soft_deletes`](configuration.md#soft-deletes)): paranoia's (`paranoia_column`, and its
 `sentinel_value` in place of null for the records that are not trashed), discard's (`discard_column`),
 a `Column.new(:archived_at)`'s, else `deleted_at`. An adapter of your own tells it with `column(model)`

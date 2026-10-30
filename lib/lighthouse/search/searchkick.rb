@@ -176,7 +176,7 @@ class Lighthouse::Search::Searchkick
     return {} if query.trashed == :with # no filter: the index need not hold the column
 
     column, kept = trashed_column(query.model)
-    require_indexed!(query.model, column)
+    require_indexed!(query, column)
     query.trashed == :only ? { column.to_sym => { not: kept } } : { column.to_sym => kept }
   end
 
@@ -189,11 +189,18 @@ class Lighthouse::Search::Searchkick
   end
 
   # The index must hold the column, or the filter would match nothing (or everything).
-  def require_indexed!(model, column)
-    indexed = indexed_columns(model)
-    return if indexed.nil? || indexed.include?(column.to_s)
+  # It fails closed: when the columns cannot be told, the search is refused too.
+  def require_indexed!(query, column)
+    model = query.model
+    indexed = indexed_columns(model) || mapped_columns(model, query.index)
+    unless indexed
+      raise ::GraphQL::ExecutionError,
+            "@trashed cannot tell whether #{model.name}'s index holds #{column}, which it filters the search on: " \
+            "#{model.name}#search_data does not run on a blank record, and the index's mapping cannot be read."
+    end
+    return if indexed.include?(column.to_s)
 
-    raise ::GraphQL::ExecutionError, "#{model.name}.search_data does not index #{column}, which @trashed filters the search on."
+    raise ::GraphQL::ExecutionError, "#{model.name}'s index does not hold #{column}, which @trashed filters the search on: add it to search_data."
   end
 
   # What `search_data` holds, or nil when it cannot run on a blank record, read
@@ -201,6 +208,18 @@ class Lighthouse::Search::Searchkick
   def indexed_columns(model)
     per_model(:indexed_columns, model) do
       model.new.search_data.keys.map(&:to_s)
+    rescue StandardError
+      nil
+    end
+  end
+
+  # The fields the index the search reads holds, from its mapping on the engine,
+  # read once per model class and index; nil when it cannot be read (no index).
+  # A field every document leaves null has no mapping yet.
+  def mapped_columns(model, index)
+    per_model([:mapped_columns, index], model) do
+      name = index || model.searchkick_index.name
+      ::Searchkick.client.indices.get_mapping(index: name).to_h.values.flat_map { |mapping| mapping.dig('mappings', 'properties')&.keys || [] }
     rescue StandardError
       nil
     end
