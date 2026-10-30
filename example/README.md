@@ -12,16 +12,32 @@ A small blog API built with Lighthouse on Rails 8.1. It does two jobs:
 ## Running it
 
 It runs on PostgreSQL, which Post's full-text search (`Query.posts(search:)`, pg_search)
-needs. In development, start one on the port `config/database.yml` expects
-(`PGHOST`, `PGPORT`, `PGUSER` and `PGPASSWORD` point it elsewhere):
+needs, and searches comments (`Query.searchComments(search:)`, Searchkick) in Elasticsearch.
+In development, start both on the ports the app expects. `PGHOST`, `PGPORT`, `PGUSER` and
+`PGPASSWORD` point it at another PostgreSQL, `ELASTICSEARCH_URL` at another Elasticsearch,
+and `OPENSEARCH_URL` makes it search in OpenSearch instead
+([`config/initializers/searchkick.rb`](config/initializers/searchkick.rb)):
 
 ```shell
 docker run -d -p 5432:5432 -e POSTGRES_PASSWORD=postgres postgres:16
+docker run -d -p 9200:9200 -e discovery.type=single-node -e xpack.security.enabled=false \
+  -e ES_JAVA_OPTS='-Xms512m -Xmx512m' elasticsearch:9.5.5
 cd example
-bin/setup --skip-server      # bundle install + database
-bin/rails db:seed            # sample users, posts and tags; prints two API tokens
+bin/setup --skip-server             # bundle install + database
+bin/rails db:seed                   # sample users, posts, tags and a comment; prints two API tokens
+bin/rails runner 'Comment.reindex'  # creates the comments' index in Elasticsearch, and fills it
+bin/jobs                            # in another terminal: the Solid Queue worker
 bin/rails server
 ```
+
+The worker runs what the app queues in Solid Queue, whose tables are in the app's database:
+`@async` mutations, and the comments' indexing. [`Comment`](app/models/comment.rb) is indexed
+in a job after each change (`searchkick callbacks: :async`), and only while its post is
+published (`should_index?`); publishing or unpublishing a post reindexes its comments
+([`Post`](app/models/post.rb)). Until a job has run, the index lags behind the database: a new
+comment is not found yet, and a comment whose post was unpublished is still in the index, but
+never returned, as its `search_results` scope checks the post as the comments found load.
+`Comment.reindex` rebuilds the whole index (after a change to `search_data`, say).
 
 In development, **GraphiQL** is at <http://localhost:3000/graphiql>. It has the schema
 docs (including the types Lighthouse generates) and a query explorer. To sign in,
@@ -37,34 +53,49 @@ curl -s localhost:3000/graphql -H 'Content-Type: application/json' \
 curl -s localhost:3000/graphql -H 'Content-Type: application/json' \
   -d '{"query":"{ posts(search: \"rails\") { data { title } paginatorInfo { total } } }"}'
 
+# "brillant": Elasticsearch forgives the typo, and finds the seeded "Brilliant."
+curl -s localhost:3000/graphql -H 'Content-Type: application/json' \
+  -d '{"query":"{ searchComments(search: \"brillant\") { data { body post { title } } paginatorInfo { total } } }"}'
+
 curl -s localhost:3000/graphql -H 'Content-Type: application/json' -H 'Authorization: Bearer <token from db:seed>' \
   -d '{"query":"mutation { createPost(input: { title: \"Hello\", tags: { connect: [1], create: [{ name: \"new\" }] } }) { id tags { name } } }"}'
 ```
 
-Run the end-to-end suite with `bundle exec rspec`, or `bin/ci`, which also
-checks `persisted-queries.json` against the schema. It needs Docker, not a database:
-[`spec/postgres_container.rb`](spec/postgres_container.rb) starts a throwaway
-PostgreSQL with Testcontainers, on a port Docker picks, loads `db/schema.rb` into it,
-and removes it when the run ends.
+## Running the tests
 
-`DATABASE_URL` skips the container and runs the suite on that database instead, PostgreSQL
-or MySQL. `REDIS_URL` adds a Redis cache store to the `@throttle` specs, and `OPENSEARCH_URL`
-runs the `@search` specs on Searchkick against OpenSearch, as CI does:
+Run the end-to-end suite with `bundle exec rspec`, or `bin/ci`, which also
+checks `persisted-queries.json` against the schema. It needs Docker, not a database or a
+search engine: [Testcontainers](https://github.com/testcontainers/testcontainers-ruby) starts
+each in a throwaway container, on a port Docker picks, and removes it when the run ends.
+
+- PostgreSQL 16 ([`spec/postgres_container.rb`](spec/postgres_container.rb)), into which
+  `db/schema.rb` is loaded.
+- Elasticsearch 9 and OpenSearch 3 ([`spec/search_engines.rb`](spec/search_engines.rb)),
+  started the first time a spec searches: the Searchkick specs run once on each.
+
+Environment variables replace them:
+
+| Variable | Replaces |
+| --- | --- |
+| `DATABASE_URL` | the PostgreSQL container: the suite runs on that database, PostgreSQL or MySQL (whose run skips the pg_search specs) |
+| `ELASTICSEARCH_URL`, `OPENSEARCH_URL` | that engine's container: the Searchkick specs run on that server |
+| `SEARCH_ENGINES` | which engines the Searchkick specs run on: `elasticsearch,opensearch` by default, `SEARCH_ENGINES=opensearch` one, `SEARCH_ENGINES=` none (no engine is started) |
+| `REDIS_URL` | nothing: it adds a Redis cache store to the `@throttle` specs |
+
+CI runs the suite twice more, on a PostgreSQL and on a MySQL of its own, with Redis and an
+OpenSearch 2 server, Elasticsearch still in a container:
 
 ```shell
 docker run -d -p 3307:3306 -e MYSQL_ROOT_PASSWORD=root mysql:8.4
 docker run -d -p 6380:6379 redis:7
-docker run -d -p 9200:9200 -e discovery.type=single-node -e DISABLE_SECURITY_PLUGIN=true \
-  -e DISABLE_INSTALL_DEMO_CONFIG=true opensearchproject/opensearch:2
+docker run -d -p 9201:9200 -e discovery.type=single-node -e DISABLE_SECURITY_PLUGIN=true \
+  -e DISABLE_INSTALL_DEMO_CONFIG=true -e OPENSEARCH_JAVA_OPTS='-Xms512m -Xmx512m' opensearchproject/opensearch:2
 
-REDIS_URL=redis://127.0.0.1:6380/0 OPENSEARCH_URL=http://127.0.0.1:9200 bundle exec rspec
 export RAILS_ENV=test DATABASE_URL=trilogy://root:root@127.0.0.1:3307/lighthouse_example_test
+export REDIS_URL=redis://127.0.0.1:6380/0 OPENSEARCH_URL=http://127.0.0.1:9201
 bin/rails db:create db:schema:load
 bundle exec rspec
 ```
-
-`@async` mutations run in Solid Queue, whose tables are in the app's database: start
-a worker with `bin/jobs` next to `bin/rails server`.
 
 ## Where things are
 
@@ -119,7 +150,7 @@ and `Query.node` / `nodes` are `Types::QueryType`'s.
 | [`requests/graphql/cursor_connection_spec.rb`](spec/requests/graphql/cursor_connection_spec.rb) | Relay cursor pagination on a relationship (`User.comments`, `@hasMany(type: CONNECTION)`): `pageInfo`, `after`, and a client loop that walks every page |
 | [`requests/graphql/field_resolvers_spec.rb`](spec/requests/graphql/field_resolvers_spec.rb) | `@field(resolver:)`: on `Post`, the class receives the post as `object`, in a paginated list, on a single post, under `me`; field arguments with an SDL default; `tagsCount` batched through the dataloader (no N+1); on `Query`, a nested name looked up in the resolvers namespace |
 | [`requests/graphql/real_backends_spec.rb`](spec/requests/graphql/real_backends_spec.rb) | What depends on the real backends: `@whereJsonContains` on the database's JSON (PostgreSQL, MySQL), `@async` queued in Solid Queue and run by a real worker (and nothing queued when `@canFind` refuses), `@throttle` counting per IP and user in a file store and in Redis, across two clients of the same store |
-| [`requests/graphql/search_spec.rb`](spec/requests/graphql/search_spec.rb) | `@search`: `Query.posts(search:)` through the endpoint, on Post's pg_search scope (title matches first, prefixes, with `@whereConditions`, `orderBy` and the field's `@orderBy` between equal ranks, pages and their total, no N+1, still cacheable); then pg_search and Searchkick (with `OPENSEARCH_URL`) on schemas of the spec's own |
+| [`requests/graphql/search_spec.rb`](spec/requests/graphql/search_spec.rb) | `@search` through the endpoint: `Query.posts(search:)` on Post's pg_search scope (title matches first, prefixes, with `@whereConditions`, `orderBy` and the field's `@orderBy` between equal ranks, pages and their total, no N+1, still cacheable), and `Query.searchComments(search:)` on Comment's Searchkick index (a typo forgiven, `postId` filtering in the engine, pages, no N+1, a draft's comments indexed once it is published and removed once unpublished, never returned once unpublished even before the job runs, one query for the posts when reindexing). Searchkick on schemas of the spec's own, run once on Elasticsearch 9 and once on OpenSearch 3 (Testcontainers, or `ELASTICSEARCH_URL` / `OPENSEARCH_URL`; `SEARCH_ENGINES` picks): relevance order, `@eq` as an engine filter, pages with an exact total from one request (past 10,000 matches too), the result window, `within:`, `@canQuery` on every match, and what the engine cannot apply refused. pg_search on its own schemas: `scopes:`, `@builder`, `@whereAuth`, nested `@paginate` batched, the primary key ending the order |
 | [`requests/graphql/uploads_spec.rb`](spec/requests/graphql/uploads_spec.rb) | A multipart request (the GraphQL multipart request specification) to `Mutation.updateAvatar`: `@upload` stores the file with ActiveStorage under `avatars/`, `@update` attaches it; a guest's call stores nothing |
 | [`requests/graphql/relay_and_eager_loading_spec.rb`](spec/requests/graphql/relay_and_eager_loading_spec.rb) | `@node` and `@globalId` on graphql-ruby's Relay (`Tag` ids from `AppSchema.id_from_object`, `Query.node` from `Types::QueryType`); `@withCount` (`Tag.usage`, one COUNT for every tag), `@with` (`User.latestPostTitle`) and `@lazyLoad` (`User.posts` with their tags), with no N+1; `@field(resolver: "Statistics@counts")`; `resolve_info.enhance_builder` in `Resolvers::MyPosts` |
 | [`requests/graphql/types_spec.rb`](spec/requests/graphql/types_spec.rb) | A union (`Query.search`: `Post` and `User` records) and an interface (`Query.latestActivity`: `Authored`, implemented by `Post` and `Comment`) resolved to each record's type by default; the `DateTime` scalar's `Types::DateTimeType` writing ISO 8601 and reading an argument as a `Time`, refusing one it cannot read; `@method` passing a field's argument to `Post#summary` |

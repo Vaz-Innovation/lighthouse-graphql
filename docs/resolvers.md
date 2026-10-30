@@ -283,6 +283,9 @@ What PHP Lighthouse hands a resolver as `$resolveInfo`. A `Resolvers::` or
 what the field declares: its `@builder` classes, and the argument directives the
 client used (`@eq`, `@where`, `@in`, `@like`, `@orderBy`, `@whereConditions`, ...),
 then the field's own `@orderBy(column:)`, as `@all` and `@paginate` apply them. `scopes:` adds model scopes.
+When the client searches ([`@search`](filtering-and-ordering.md#in-a-resolver-of-your-own)), it searches
+too: with pg_search the answer is still a relation, with Searchkick a `Lighthouse::Search::Result`
+(`records(first:, offset:)`, `count`), for which the relation must be the model's own (`Post.all`).
 
 ```graphql
 type Query {

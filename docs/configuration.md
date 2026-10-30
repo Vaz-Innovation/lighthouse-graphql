@@ -227,11 +227,16 @@ config.search = Lighthouse::Search::PgSearch.new
 config.search = Lighthouse::Search::Searchkick.new(trashed_column: :archived_at)
 
 # Any object answering `searchable?(model, index)` and `relational?`, and `scope(relation, query)`
-# (a relational one, in the database) or `page(query, offset:, limit:)` -> [records, total]
+# (a relational one, in the database) or `page(query, offset:, limit:)` -> [records, total],
+# with an optional `result_window(query)` (how many matches it pages through; 10,000 otherwise)
 config.search = MySearch.new
 ```
 
-The adapter protocol is experimental. See [Full-text search](filtering-and-ordering.md#full-text-search).
+`Lighthouse::Search::Searchkick` asks the engine for the exact total (`track_total_hits`), loads
+the records it finds through the model's `search_results` scope when it has one, and past the default
+scope that hides trashed records when `@trashed` asks for them, and reads the result window from the
+model's `max_result_window:` / `deep_paging:`. The adapter protocol is experimental. See [Full-text
+search](filtering-and-ordering.md#full-text-search).
 
 ### `authenticated_user`, `policy_user`, `authorizer`
 

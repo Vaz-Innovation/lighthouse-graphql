@@ -17,9 +17,11 @@ bundle exec rake                                    # default: spec, rubocop, rb
 
 # End-to-end suite: a Rails 8.1 app using the gem from this checkout (path: '..'),
 # on a PostgreSQL that Testcontainers starts in Docker on a dynamic port
+# Needs Docker: Testcontainers starts PostgreSQL, Elasticsearch 9 and OpenSearch 3 (bin/ci also verifies persisted queries)
 cd example && bundle install && bundle exec rspec
 cd example && bin/rails lighthouse:persisted_queries:verify
-# The same suite on MySQL, with Redis (@throttle) and OpenSearch (@search): see example/README.md
+# The same suite on MySQL, with Redis (@throttle) and your own search servers: see example/README.md.
+# ELASTICSEARCH_URL / OPENSEARCH_URL replace a container; SEARCH_ENGINES=opensearch (or empty) picks the engines
 cd example && DATABASE_URL=trilogy://... REDIS_URL=redis://... OPENSEARCH_URL=http://... bundle exec rspec
 
 # Docs site (VuePress, built from docs/)

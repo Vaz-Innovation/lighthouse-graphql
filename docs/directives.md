@@ -650,22 +650,31 @@ the one your models use to your Gemfile. The engine is detected per model
 | includes `PgSearch::Model` | [pg_search](https://github.com/Casecommons/pg_search) | in PostgreSQL, as a scope on the relation |
 
 The two behave differently, and so do the directives next to `@search`; the
-[full guide](filtering-and-ordering.md#full-text-search) has the details.
+[full guide](filtering-and-ordering.md#full-text-search) has the details, and how to set
+each engine up.
 
 - **pg_search** narrows the relation, ranked first, and **everything else applies on
   top of it**: `scopes:`, `@builder`, `@whereAuth`, every argument filter, `@orderBy`,
-  pagination, and nested fields, batched as usual.
+  pagination, and nested fields, batched as usual. The primary key ends the order, after
+  the orders that break the rank's ties.
 - **Searchkick** answers with the records the engine found, in relevance order. Only `@eq`,
   `@trashed` and `@builder` on an argument narrow it (as Scout's `@eq` / `@trashed` /
   `@builder`); they work at any depth of input objects. It serves `@all` and `@paginate` on a
-  root field.
+  root field, with an exact total, within the index's result window (10,000 matches by
+  default; a page past it is an error the client reads).
+
+A model's `search_results` scope, when it has one, is what a search of it may return:
+Searchkick loads the records it finds through it, so a record the index still holds after it
+should have left is not returned. `@canQuery` on the field checks every record the search
+finds, as PHP Lighthouse does.
 
 Two `@search` arguments sent together, and (Searchkick) an argument whose directive an
 engine cannot apply (`@neq`, `@orderBy`, `@whereConditions`, ...), are errors.
 Schema errors, at build, where PHP Lighthouse fails when a query runs: a `within:` that is
 not a string, a model that is not searchable, and, with Searchkick, a field with `scopes:`,
-`@builder`, `@whereAuth` or `@orderBy(column:)`, which PHP Lighthouse **drops silently** when
-it searches (a search that skipped `@whereAuth` would return records the user must not see).
+`@builder`, `@whereAuth` or `@orderBy(column:)`, or an `@canQuery` with `scopes:`, which PHP
+Lighthouse **drops silently** when it searches (a search that skipped `@whereAuth` would
+return records the user must not see).
 
 ### `@orderBy`
 

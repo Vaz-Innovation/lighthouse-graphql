@@ -115,7 +115,10 @@ Plus, per directive:
   scopes applied to the lookup.
 - `@canModel(model: String)`.
 - `@canQuery(model: String, scopes: [String!])`. `scopes` narrow the records
-  being authorized, not the field's result.
+  being authorized, not the field's result. On a field the client searches
+  ([`@search`](filtering-and-ordering.md#canquery-on-a-searched-field)), the records are
+  the ones the search finds, every one and not only the page, as in PHP Lighthouse;
+  with Searchkick, `scopes` are a schema error, as the engine cannot apply them.
 
 The model defaults to the `model:` of another directive on the field (as in
 `@count(model: "Post") @canQuery`), then to the field's return type.
