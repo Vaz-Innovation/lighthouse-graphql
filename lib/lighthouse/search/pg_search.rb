@@ -24,6 +24,9 @@ class Lighthouse::Search::PgSearch
 
   def relational? = true
 
+  # Does `index` name one of the model's pg_search scopes? (Search::Auto)
+  def named?(model, index) = !index.nil? && searchable?(model, index)
+
   # The relation narrowed to the records that match and ordered by rank. pg_search
   # breaks the ties of rank by the primary key unless the scope names
   # `order_within_rank:`; that tie-break is dropped, so the client's `orderBy` and the

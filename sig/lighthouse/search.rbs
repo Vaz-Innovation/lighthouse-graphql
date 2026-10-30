@@ -71,6 +71,9 @@ module Lighthouse
       include _RelationalSearchAdapter
 
       DEFAULT_SCOPE: Symbol
+
+      # Does `index` name one of the model's pg_search scopes?
+      def named?: (Class model, String? index) -> bool
     end
 
     # Picks Searchkick, then pg_search, per model.

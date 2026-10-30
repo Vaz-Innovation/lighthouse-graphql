@@ -205,6 +205,17 @@ RSpec.describe 'search adapters' do
       expect(described_class.new([declining]).adapter_for(SearchPost)).to be_nil
     end
 
+    it 'picks pg_search for a model with both gems when within: names one of its pg_search scopes' do
+      stub_const('Searchkick', Module.new)
+      stub_const('PgSearch::Model', FakeSearch::PgSearchModel)
+      auto = described_class.new
+
+      expect(auto.adapter_for(BothSearchPost, 'by_title')).to be_a(Lighthouse::Search::PgSearch)
+      expect(auto.adapter_for(BothSearchPost)).to be_a(Lighthouse::Search::Searchkick)
+      expect(auto.adapter_for(BothSearchPost, 'an_index')).to be_a(Lighthouse::Search::Searchkick)
+      expect(auto.adapter_for(PgSearchPost, 'an_index')).to be_nil
+    end
+
     it 'prefers Searchkick to pg_search by default' do
       stub_const('Searchkick', Module.new)
       stub_const('PgSearch::Model', FakeSearch::PgSearchModel)

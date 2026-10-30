@@ -191,3 +191,8 @@ end
 class PgSearchGuardedPost < PgSearchPost
   scope :search_results, -> { where.not('title LIKE ?', 'stale%') }
 end
+
+# A model with both gems: Searchkick's index, and pg_search's scopes (`search`, `by_title`).
+class BothSearchPost < PgSearchPost
+  extend FakeSearch::Searchkicked
+end

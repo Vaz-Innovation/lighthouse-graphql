@@ -19,6 +19,9 @@ postgres = ActiveRecord::Base.connection_db_config.adapter.match?(/postg/i)
 class SearchedPost < Post
   searchkick index_name: 'lighthouse_example_searched_posts', callbacks: false
 
+  # Both gems on one model: `within: "search_title"` searches with pg_search, anything else with Searchkick.
+  pg_search_scope :search_title, against: :title
+
   # Pundit's: who may edit it (@canQuery(ability: "update")) is who may edit a post, its author or an admin.
   def self.policy_class = PostPolicy
 
@@ -146,6 +149,7 @@ RSpec.describe 'GraphQL @search', type: :request do
             feed(search: String @search): [SearchedPost!]! @paginate(type: CONNECTION)
             indexed(search: String @search(within: "lighthouse_example_searched_posts")): [SearchedPost!]! @all
             filtered(search: String @search, title: String @neq): [SearchedPost!]! @all
+            byTitle(search: String @search(within: "search_title")): [SearchedPost!]! @all
             editable(search: String @search, authorId: Int @eq(key: "author_id")): [SearchedPost!]! @paginate @canQuery(ability: "update")
           }
         GRAPHQL
@@ -280,6 +284,10 @@ RSpec.describe 'GraphQL @search', type: :request do
 
       it 'searches the index within: names' do
         expect(titles(run(schema, '{ indexed(search: "bad") { title } }'), 'indexed')).to eq(['Bad title'])
+      end
+
+      it 'searches with pg_search when within: names a pg_search scope of a model that also calls searchkick', if: postgres do
+        expect(titles(run(schema, '{ byTitle(search: "bad") { title } }'), 'byTitle')).to eq(['Bad title'])
       end
 
       it 'refuses what an engine cannot apply' do
