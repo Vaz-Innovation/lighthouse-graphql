@@ -16,7 +16,7 @@
 # - @defer and @stream are not used on a root mutation field, whose fields must run
 #   one after the other ("The @defer directive cannot be used on a root mutation
 #   field.", as PHP Lighthouse words it), whether the fragment is inline or named;
-# - in a subscription, they are disabled with `if: false` (or a variable);
+# - in a subscription, they are disabled with `if: false`, or a variable that is false;
 # - @stream is on a list field.
 #
 # A document without either directive is not walked (`analyze?`).
@@ -67,11 +67,11 @@ class Lighthouse::GraphQL::Incremental::Rules < GraphQL::Analysis::Analyzer
     !type.nil? && type == query.schema.root_type_for_operation('mutation')
   end
 
+  # A subscription's directive is disabled: `if: false`, or a variable that is false here (the draft
+  # allows a variable, and forbids incremental delivery in a subscription, so a true one is refused).
   def check_subscription(directive)
     return unless query.selected_operation.operation_type == 'subscription'
-
-    disabled = directive.arguments.find { |argument| argument.name == 'if' }&.value
-    return if disabled == false || disabled.is_a?(::GraphQL::Language::Nodes::VariableIdentifier)
+    return if query.arguments_for(directive, query.schema.directives[directive.name])[:if] == false
 
     error(directive, "The @#{directive.name} directive must be disabled with `if: false` in a subscription.")
   end

@@ -784,14 +784,21 @@ RSpec.describe 'Deferring fields' do
       let(:message) { 'The @defer directive must be disabled with `if: false` in a subscription.' }
 
       # What the analysis answers, as the subscription is not run (the schema has no subscriptions).
-      def analysis(query)
-        GraphQL::Analysis.analyze_query(GraphQL::Query.new(schema, query), schema.query_analyzers).flatten.map(&:message)
+      def analysis(query, variables: {})
+        GraphQL::Analysis.analyze_query(GraphQL::Query.new(schema, query, variables: variables), schema.query_analyzers).flatten.map(&:message)
       end
 
       it 'refuses @defer unless it is disabled' do
         expect(analysis('subscription { userCreated { ... @defer { name } } }')).to eq([message])
         expect(analysis('subscription { userCreated { ... @defer(if: false) { name } } }')).to eq([])
-        expect(analysis('subscription($d: Boolean!) { userCreated { ... @defer(if: $d) { name } } }')).to eq([])
+        expect(analysis('subscription($d: Boolean!) { userCreated { ... @defer(if: $d) { name } } }', variables: { 'd' => false })).to eq([])
+      end
+
+      it 'refuses @defer and @stream whose `if` is a variable that is true, as the draft forbids incremental delivery there' do
+        query = 'subscription($d: Boolean!) { userCreated { ... @defer(if: $d) { name } posts @stream(if: $d) { id } } }'
+
+        expect(analysis(query, variables: { 'd' => true }))
+          .to eq([message, 'The @stream directive must be disabled with `if: false` in a subscription.'])
       end
 
       it 'refuses it in a named fragment the subscription spreads' do

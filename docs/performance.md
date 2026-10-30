@@ -240,7 +240,8 @@ answered the errors, without data):
 - `@defer` is not allowed on a root mutation field, whose fields must run one after the other:
   "The @defer directive cannot be used on a root mutation field.", whether the fragment is inline or
   named. A fragment deeper in a mutation's response defers as in a query.
-- In a subscription, `@defer` must be disabled with `if: false` (or a variable).
+- In a subscription, `@defer` must be disabled: `if: false`, or a variable that is false for the
+  request (one that is true is refused, as the draft forbids incremental delivery there).
 - `label` is a string, not a variable, and no two `@defer` or `@stream` of the document share one
   (in any of its operations and fragments).
 - `@skip` and `@include` on the fragment answer first: a fragment they leave out is neither
