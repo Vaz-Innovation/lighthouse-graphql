@@ -478,10 +478,11 @@ engine request (`offset:` and `limit:`), whose response holds the total too, so 
 
 **Pages follow the engine's positions.** A hit may not load (the model's default scope or
 `search_results` scope drops it, or its row is gone from the database): the page then holds fewer
-records than `first`, but its positions are still the engine's. `SIMPLE`'s `hasMorePages` says whether
-the engine has hits past the page, and a `CONNECTION`'s cursors are the records' engine positions, its
-`endCursor` past the hits that did not load: the next page starts after them, so no record shows twice
-and none is skipped.
+records than `first`, but its positions are still the engine's. `firstItem` and `lastItem` are the
+positions of its first and last record; `SIMPLE`'s `hasMorePages` says whether the engine has hits past
+the page; and a `CONNECTION`'s cursors are the records' engine positions, its `startCursor` and
+`endCursor` its first and last edge's, as Relay's (a page whose hits all failed to load has no edge, and
+its `endCursor` is past them, so the client walks on). No record shows twice, and none is skipped.
 
 **The total is exact.** Elasticsearch and OpenSearch stop counting matches at 10,000 unless asked
 (`track_total_hits`), which made `total`, `lastPage` and `hasMorePages` wrong past it. Lighthouse asks

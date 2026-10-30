@@ -112,10 +112,12 @@ module Lighthouse::GraphQL::Pagination
   def simple(list, per_page, page)
     offset = (page - 1) * per_page
     rows = list.window(offset, per_page + 1)
-    on_page = positions(rows, offset).map { |position| position < offset + per_page }
-    items = rows.select.with_index { |_row, index| on_page[index] }
+    all_positions = positions(rows, offset)
+    kept = rows.each_index.select { |index| all_positions[index] < offset + per_page }
+    items = kept.map { |index| rows[index] }
     {
-      'paginatorInfo' => item_range(items, page, per_page).merge('hasMorePages' => covered(rows) > per_page),
+      'paginatorInfo' => item_range(items, page, per_page, kept.map { |index| all_positions[index] })
+                         .merge('hasMorePages' => covered(rows) > per_page),
       'data' => items
     }
   end
@@ -167,7 +169,8 @@ module Lighthouse::GraphQL::Pagination
     def info
       @info ||= begin
         last_page = @per_page.zero? ? 0 : [(total.to_f / @per_page).ceil, 1].max
-        Lighthouse::GraphQL::Pagination.item_range(@items, @page, @per_page)
+        positions = Lighthouse::GraphQL::Pagination.positions(@items, (@page - 1) * @per_page)
+        Lighthouse::GraphQL::Pagination.item_range(@items, @page, @per_page, positions)
                                        .merge('hasMorePages' => @page < last_page, 'lastPage' => last_page, 'total' => total)
       end
     end
@@ -182,26 +185,31 @@ module Lighthouse::GraphQL::Pagination
 
     # A cursor is a record's position in the whole list, 1-based.
     def edges
-      positions = Lighthouse::GraphQL::Pagination.positions(@items, @offset)
-      @items.each_with_index.map { |node, i| { 'cursor' => Lighthouse::GraphQL::Pagination.encode_cursor(positions[i] + 1), 'node' => node } }
+      cursors.zip(@items).map { |cursor, node| { 'cursor' => cursor, 'node' => node } }
     end
 
     def pageInfo = info # rubocop:disable Naming/MethodName -- the GraphQL field's name, which the default resolver reads
 
-    # The page spans `covered` positions, its records' and those that did not load:
-    # the end cursor is past them all, so the next page starts after them.
+    # The start and end cursors are the first and last edge's, as Relay's. A page
+    # whose hits all failed to load has no edge, but its end cursor is past the
+    # positions it spans, so the client walks on to the next page.
     def info
       covered = Lighthouse::GraphQL::Pagination.covered(@items)
+      past = Lighthouse::GraphQL::Pagination.encode_cursor(@offset + covered) unless covered.zero?
       @info ||= {
         'hasNextPage' => @offset + covered < total,
         'hasPreviousPage' => @offset.positive?,
-        'startCursor' => covered.zero? ? nil : Lighthouse::GraphQL::Pagination.encode_cursor(@offset + 1),
-        'endCursor' => covered.zero? ? nil : Lighthouse::GraphQL::Pagination.encode_cursor(@offset + covered),
+        'startCursor' => cursors.first,
+        'endCursor' => cursors.last || past,
         'total' => total,
         'count' => @items.size,
         'currentPage' => @first.zero? ? 1 : (@offset / @first) + 1,
         'lastPage' => @first.zero? ? 0 : [(total.to_f / @first).ceil, 1].max
       }
+    end
+
+    def cursors
+      @cursors ||= Lighthouse::GraphQL::Pagination.positions(@items, @offset).map { |position| Lighthouse::GraphQL::Pagination.encode_cursor(position + 1) }
     end
 
     def marshal_dump
@@ -214,13 +222,15 @@ module Lighthouse::GraphQL::Pagination
     end
   end
 
-  def item_range(items, page, per_page)
-    first_item = items.empty? ? nil : ((page - 1) * per_page) + 1
+  # firstItem and lastItem are the 1-based positions of the page's first and
+  # last record (`positions`, 0-based, of a Window whose hits did not all load).
+  def item_range(items, page, per_page, positions = nil)
+    positions ||= (0...items.size).map { |index| ((page - 1) * per_page) + index }
     {
       'count' => items.size,
       'currentPage' => page,
-      'firstItem' => first_item,
-      'lastItem' => first_item && (first_item + items.size - 1),
+      'firstItem' => positions.first&.+(1),
+      'lastItem' => positions.last&.+(1),
       'perPage' => per_page
     }
   end

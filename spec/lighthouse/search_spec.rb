@@ -338,6 +338,53 @@ RSpec.describe '@search' do
       expect(engine.requests).to be_empty
     end
 
+    describe 'with @paginate, when hits do not load' do
+      # Twenty hits; the 11th and the 20th did not load.
+      let(:engine) do
+        dropped = [11, 20]
+        records = (1..20).map { |position| dropped.include?(position) ? nil : SearchPost.new(title: "hit #{position}") }
+        FakeSearch::Engine.new([SearchPost], records)
+      end
+      let(:schema) do
+        build_schema(<<~GRAPHQL)
+          type SearchPost { title: String! }
+          type Query {
+            paginator(search: String @search): [SearchPost!]! @paginate
+            simple(search: String @search): [SearchPost!]! @paginate(type: SIMPLE)
+            connection(search: String @search): [SearchPost!]! @paginate(type: CONNECTION)
+          }
+        GRAPHQL
+      end
+
+      it 'names the first and last items by the positions of the records on the page' do
+        %w[paginator simple].each do |field|
+          page = run(schema, "{ #{field}(first: 10, page: 2, search: \"x\") { data { title } paginatorInfo { firstItem lastItem count } } }")
+
+          expect(page.dig('data', field, 'data').pluck('title')).to eq((12..19).map { |position| "hit #{position}" })
+          expect(page.dig('data', field, 'paginatorInfo')).to eq('firstItem' => 12, 'lastItem' => 19, 'count' => 8)
+        end
+      end
+
+      it "starts and ends a connection's page at its first and last edge" do
+        page = run(schema, '{ connection(first: 10, after: "MTA=", search: "x") { edges { cursor } pageInfo { startCursor endCursor } } }')
+        edges = page.dig('data', 'connection', 'edges').pluck('cursor')
+
+        expect(edges.first).to eq(Lighthouse::GraphQL::Pagination.encode_cursor(12))
+        expect(page.dig('data', 'connection', 'pageInfo')).to eq('startCursor' => edges.first, 'endCursor' => edges.last)
+      end
+
+      it 'lets a client walk past a page whose hits all failed to load' do
+        dropped = FakeSearch::Engine.new([SearchPost], [nil, nil, SearchPost.new(title: 'third')])
+        search_with(dropped)
+
+        page = run(schema, '{ connection(first: 2, search: "x") { edges { cursor } pageInfo { startCursor endCursor hasNextPage } } }')
+
+        expect(page.dig('data', 'connection')).to eq(
+          'edges' => [], 'pageInfo' => { 'startCursor' => nil, 'endCursor' => Lighthouse::GraphQL::Pagination.encode_cursor(2), 'hasNextPage' => true }
+        )
+      end
+    end
+
     describe 'with @paginate' do
       let(:schema) do
         build_schema('type SearchPost { id: ID! title: String! } type Query { posts(search: String @search): [SearchPost!]! @paginate }')
