@@ -192,14 +192,19 @@ RSpec.describe 'Deferring fields', type: :request do
     expect(reported.map(&:message)).to eq(['cannot encode'])
   end
 
-  it 'reports an IOError of the app while encoding a later part, which is no client going away' do
+  it 'reports an IOError of the app while encoding a later part, which is no client going away, and ends the stream' do
     allow(Lighthouse::GraphQL::Incremental::Serializer).to receive(:subsequent).and_wrap_original do |original, **payload|
+      next original.call(**payload) if payload[:incremental].empty? # the last part a failure writes holds no value of the app's
+
       original.call(**payload).merge('extensions' => { 'bad' => unencodable(EOFError.new('the app read past the end')) })
     end
 
-    reported = reported_errors { stream(query) }
+    payloads = nil
+    reported = reported_errors { payloads = stream(query) }
 
     expect(reported.map(&:message)).to eq(['the app read past the end'])
+    expect(payloads.last).to eq('completed' => %w[0 1 2].map { |id| { 'id' => id, 'errors' => [{ 'message' => 'Internal server error' }] } },
+                                'hasNext' => false)
   end
 
   it 'ends the response quietly when the client goes away' do

@@ -30,8 +30,8 @@ class Lighthouse::GraphQL::Incremental::Plan
     def sub_path = path.drop(owner.path.size)
   end
 
-  # Where a unit runs: on `object`, of the object type `type`, at `path`.
-  Spot = Struct.new(:path, :object, :type)
+  # Where a unit runs: on `object`, of the object type `type`, at `path`, for the pending `group`.
+  Spot = Struct.new(:path, :object, :type, :group)
 
   # `tree`: the response's data so far, as the client has merged it.
   def initialize(query, state, tree)
@@ -50,19 +50,20 @@ class Lighthouse::GraphQL::Incremental::Plan
       @units << Unit.new(owner: pending, pendings: [pending], path: pending.path, object: pending.object, type: pending.list_type)
     end
     fragments.group_by(&:path).sort_by { |path, _| path.size }.each do |path, group|
-      plan(group.flat_map { |pending| @document.selections(pending.node) }, Spot.new(path, group.first.object, group.first.type), group)
+      plan(group.flat_map { |pending| @document.selections(pending.node) }, Spot.new(path, group.first.object, group.first.type, group))
     end
     @units
   end
 
   private
 
-  def plan(selections, spot, group)
+  def plan(selections, spot)
+    group = spot.group
     held = at(spot.path)
     held = nil unless held.is_a?(Hash)
     kept, shared = split(selections, held, spot)
     claim(spot, kept, group) unless kept.empty?
-    shared.each { |key, fields| descend(key, fields, held[key], spot, group) unless fields.empty? || held[key].nil? }
+    shared.each { |key, fields| descend(key, fields, held[key], spot) unless fields.empty? || held[key].nil? }
   end
 
   # The selections the response does not hold yet (`kept`), and, by response key, the object
@@ -70,25 +71,29 @@ class Lighthouse::GraphQL::Incremental::Plan
   # flattened; a deferred one is pending for the next round instead.
   def split(selections, held, spot)
     shared = Hash.new { |hash, key| hash[key] = [] }
-    kept = flatten(selections, spot).select { |selection| keep?(selection, held, spot.path, shared) }
+    kept = flatten(selections, spot).select { |selection| keep?(selection, held, spot, shared) }
     [kept, shared]
   end
 
   # A field the response does not hold, which no other unit of the round claims. Those it holds
-  # go to `shared` (with selections), those another unit claims to that unit.
-  def keep?(selection, held, path, shared)
+  # go to `shared` (with selections); those another unit claims go to that unit, which then
+  # serves this group too (and fails it, if it fails: Delivery).
+  def keep?(selection, held, spot, shared)
     return true unless selection.is_a?(Nodes::Field)
 
-    elsewhere = elsewhere(selection.alias || selection.name, held, path, shared) or return true
-    elsewhere << selection unless selection.selections.empty?
+    key = selection.alias || selection.name
+    return share(selection, shared[key]) if held.is_a?(Hash) && held.key?(key)
+
+    unit = @claims.dig(spot.path, key) or return true
+    unit.pendings |= spot.group
+    unit.selections << selection unless selection.selections.empty?
     false
   end
 
-  # Where a field of response key `key` goes instead of a new unit, if it does.
-  def elsewhere(key, held, path, shared)
-    return shared[key] if held.is_a?(Hash) && held.key?(key)
-
-    @claims.dig(path, key)&.selections
+  # A field the response holds: one with selections may add some to its object.
+  def share(selection, fields)
+    fields << selection unless selection.selections.empty?
+    false
   end
 
   # The fields `selections` select on the object, through the fragments that apply to it;
@@ -112,19 +117,20 @@ class Lighthouse::GraphQL::Incremental::Plan
   def defer(fragment, spot)
     directive = fragment.directives.find { |candidate| candidate.name == 'defer' }
     label = @query.arguments_for(directive, @schema.directives['defer'])[:label]
-    @state.found(self, State::Pending.new(node: fragment, object: spot.object, type: spot.type, path: spot.path, label: label))
+    @state.found(self,
+                 State::Pending.new(node: fragment, object: spot.object, type: spot.type, path: spot.path, label: label, parent: spot.group.first))
     []
   end
 
   # The units of the selections `fields` add to the object (or each object of the list) the
   # response holds at `key`.
-  def descend(key, fields, held, spot, group)
+  def descend(key, fields, held, spot)
     type = @schema.get_field(spot.type, fields.first.name)&.type&.unwrap or return
     value = @state.object_at(spot.path + [key])
     raise Lost, "Lighthouse kept no object at #{(spot.path + [key]).join('.')}" if value.equal?(State::MISSING)
 
     selections = fields.flat_map(&:selections)
-    targets(spot.path + [key], value, held).each { |path, object| plan(selections, Spot.new(path, object, concrete(type, object)), group) }
+    targets(spot.path + [key], value, held).each { |path, object| plan(selections, Spot.new(path, object, concrete(type, object), spot.group)) }
   end
 
   # The object at `path`, or those of the list there (the response holds `held`), each with its

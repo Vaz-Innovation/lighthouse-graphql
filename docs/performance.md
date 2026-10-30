@@ -284,10 +284,12 @@ comes in an entry of its own, at the field's `subPath` from the fragment's path:
 ```
 
 The errors of a deferred field come with it, on its `incremental` entry, with the path the field
-has in the response. A non-null field that fails beyond the fragment leaves no data: the `id` is
-`completed` with the `errors`. The `extensions` that `BuildExtensionsResponse` and
-`ManipulateResult` listeners add while a fragment runs are on its `incremental` entry too (on the
-part's own `extensions` when the fragment leaves no data).
+has in the response. A fragment's delivery is all or nothing: when a non-null field fails beyond
+any part of it (its object, or an object it adds to at a `subPath`), it sends no data at all, and
+its `id` is `completed` with the `errors`. The `extensions` that `BuildExtensionsResponse` and
+`ManipulateResult` listeners add while a fragment runs are on its `incremental` entry too; an entry
+that would carry nothing else (no data, no errors) is not sent, and its extensions go on the
+part's own `extensions`, as those of a fragment that sends no data.
 
 ### Streaming lists (experimental)
 
@@ -347,8 +349,9 @@ thread, keep thread-locals (`ActiveSupport::CurrentAttributes`) in mind in hooks
 
 Once the first part is sent, the response can no longer be refused: a `@throttle` past its limit in
 a later round is the field's error ("Rate limit for Query.x exceeded. Try again later."), and its
-`with:` method is not called. A round that fails ends the stream all the same, with a last part
-that completes, with an error, every id the client was sent.
+`with:` method is not called. A round that fails, or a part that cannot be written (a value of the
+app's that does not encode), ends the stream all the same, with a last part that completes, with an
+error, every id the client was sent and has not seen completed; the error goes to `Rails.error`.
 
 ### How it runs
 

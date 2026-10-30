@@ -22,7 +22,7 @@ class Lighthouse::GraphQL::Incremental::State
   # items of a streamed list that the first response left out (`object`), which start at index
   # `offset` and run `selections`. `node`: the fragment, or the @stream directive. `id` is its
   # string id in `pending` entries, set once announced.
-  Pending = Struct.new(:node, :object, :type, :path, :label, :id, :offset, :selections, :list_type, keyword_init: true) do
+  Pending = Struct.new(:node, :object, :type, :path, :label, :id, :offset, :selections, :list_type, :parent, keyword_init: true) do
     def stream? = !list_type.nil?
   end
 

@@ -54,7 +54,7 @@ RSpec.describe 'Deferring fields' do
         broken: String @method(name: "broken")
         required: String! @method(name: "nothing")
       }
-      type Company { id: ID! name: String }
+      type Company { id: ID! name: String strict: String! @method(name: "nothing") }
       type Post { id: ID! title: String comments: [Comment!]! @hasMany }
       type Comment { id: ID! comment: String }
       type Task { id: ID! name: String }
@@ -72,6 +72,7 @@ RSpec.describe 'Deferring fields' do
     LH::User.define_method(:loud) { (calls << id) && name.upcase }
     LH::User.define_method(:broken) { raise GraphQL::ExecutionError, "no #{name}" }
     LH::User.define_method(:nothing) { nil }
+    LH::Company.define_method(:nothing) { nil }
     company = LH::Company.create!(name: 'Acme')
     3.times do |i|
       user = LH::User.create!(name: "u#{i}", company: company)
@@ -81,7 +82,10 @@ RSpec.describe 'Deferring fields' do
     end
   end
 
-  after { %i[loud broken nothing].each { |name| LH::User.remove_method(name) } }
+  after do
+    %i[loud broken nothing].each { |name| LH::User.remove_method(name) }
+    LH::Company.remove_method(:nothing)
+  end
 
   def run(query, **options)
     Lighthouse::GraphQL::Incremental::Run.new(schema, query, **options).start
@@ -849,6 +853,27 @@ RSpec.describe 'Deferring fields' do
     end
   end
 
+  describe 'the delivery of a fragment' do
+    it 'is all or nothing: a fragment one of whose parts fails beyond its root sends no data, and completes with the errors' do
+      all = payloads('{ user(id: 1) { company { name } ... @defer { name company { strict } } } }')
+
+      expect(all.last['incremental']).to be_nil
+      expect(all.last['completed'].first['errors'].pluck('path')).to eq([%w[user company strict]])
+    end
+
+    it 'sends no entry that carries nothing: its extensions go on the payload' do
+      allow_any_instance_of(Lighthouse::GraphQL::Incremental::Run).to receive(:run).and_wrap_original do |original, partials| # rubocop:disable RSpec/AnyInstance
+        original.call(partials).map { |response| response.merge('data' => {}, 'extensions' => { 'seen' => true }) }
+      end
+
+      later = payloads('{ user(id: 1) { company { name } ... @defer { name company { id } } } }').last
+
+      expect(later['incremental']).to be_nil
+      expect(later['extensions']).to eq('seen' => true)
+      expect(later['completed']).to eq([{ 'id' => '0' }])
+    end
+  end
+
   describe 'a failure in a later round' do
     # A controller whose response is on its way once the first payload is written, as
     # ActionController::Live's is: it has performed, and can render nothing more.
@@ -867,6 +892,23 @@ RSpec.describe 'Deferring fields' do
 
         def note_it = @notes << :limited
       end.new
+    end
+
+    it 'ends the stream when a later payload cannot be written, completing every id the client was sent' do
+      run = run('{ users { ... @defer(label: "a") { name posts { ... @defer(label: "b") { title } } } } }')
+      all = []
+      failed = false
+      write = lambda do |payload|
+        if all.size == 2 && !failed
+          failed = true
+          raise IOError, 'cannot encode'
+        end
+        all << payload
+      end
+
+      expect { run.each_payload(&write) }.to raise_error(IOError, 'cannot encode')
+      expect(all.last).to eq('completed' => %w[3 4 5].map { |id| { 'id' => id, 'errors' => [{ 'message' => 'Internal server error' }] } },
+                             'hasNext' => false)
     end
 
     def streamed(query)

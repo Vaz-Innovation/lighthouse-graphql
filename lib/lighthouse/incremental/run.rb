@@ -48,6 +48,7 @@ class Lighthouse::GraphQL::Incremental::Run
     @running = []
     @round = 0
     @errors = []
+    @open = {}
   end
 
   def start
@@ -62,20 +63,20 @@ class Lighthouse::GraphQL::Incremental::Run
     !@queue.empty?
   end
 
-  # The initial payload, then each later one, until `hasNext` is false. A round that fails
-  # ends the stream with a last payload, which completes, with an error, the ids the client
-  # was sent and has not seen completed, then raises again. However it ends, the `on_finish`
-  # block gets the response.
-  def each_payload
-    yield Serializer.initial(@result, @announced, has_next: deferred?)
+  # The initial payload, then each later one, until `hasNext` is false. A later payload that
+  # fails, to run or to be written (the block raised: its app values did not encode), ends the
+  # stream with a last payload, which completes, with an error, every id the client was sent and
+  # has not seen completed, then raises again. A first payload that fails raises, nothing being
+  # sent. However it ends, the `on_finish` block gets the response.
+  def each_payload(&block)
+    emit(Serializer.initial(@result, @announced, has_next: deferred?), &block)
     until @queue.empty?
       begin
-        payload = next_payload
+        emit(next_payload, &block)
       rescue StandardError
-        yield failure_payload
+        emit(failure_payload, &block)
         raise
       end
-      yield payload
     end
   ensure
     finish
@@ -154,16 +155,23 @@ class Lighthouse::GraphQL::Incremental::Run
     plan = Lighthouse::GraphQL::Incremental::Plan.new(@result.query, @state, @tree)
     units = plan.units(@running)
     partials = units.map { |unit| partial(unit) }
-    payload = deliver(units, partials, run(partials))
-    found(plan, partials)
-    Serializer.subsequent(**payload, pending: @announced, has_next: deferred?).tap { @running = [] }
+    outcome = Lighthouse::GraphQL::Incremental::Delivery.new(@state, @tree).call(units, partials, run(partials))
+    @errors.concat(outcome.errors)
+    found(plan, partials, outcome)
+    completed = @running.map { |pending| { 'id' => pending.id, 'errors' => outcome.failed[pending] }.compact }
+    Serializer.subsequent(incremental: outcome.incremental, completed: completed, extensions: outcome.extensions,
+                          pending: @announced, has_next: deferred?)
   end
 
-  # Announce the fragments the round found: Plan, and each unit's Partial.
-  def found(plan, partials)
+  # Announce the fragments the round found: Plan, and each unit's Partial, but those of a
+  # fragment that failed.
+  def found(plan, partials, outcome)
     @announced = []
-    announce(@state.drain(plan))
-    partials.each { |partial| announce(@state.drain(partial)) }
+    announce(@state.drain(plan).reject { |pending| outcome.failed.key?(pending.parent) })
+    partials.each do |partial|
+      found = @state.drain(partial)
+      announce(found) if outcome.delivered.key?(partial)
+    end
   end
 
   # May the fragments of this round defer the fragments they hold? Not past the limits:
@@ -201,55 +209,6 @@ class Lighthouse::GraphQL::Incremental::Run
     running { @schema.multiplex(partials, context: multiplex_context, max_complexity: nil).map(&:to_h) }
   end
 
-  # The payload's `incremental`, `completed` and `extensions` for the units' responses, which
-  # go in the response's data so far.
-  def deliver(units, partials, results)
-    incremental = []
-    extensions = {}
-    failed = {}.compare_by_identity
-    units.each_with_index do |unit, index|
-      entry = entry(unit, partials[index], results[index])
-      next incremental << entry if entry.key?('data') || entry.key?('items')
-
-      unit.pendings.each { |pending| failed[pending] = failed.fetch(pending, []) + entry['errors'].to_a }
-      extensions.merge!(entry['extensions'].to_h)
-    end
-    { incremental: incremental.reject { |entry| empty?(entry) }, completed: completed(failed), extensions: extensions }
-  end
-
-  # Each fragment and list of the round is complete, with the errors of a unit that left no data.
-  def completed(failed)
-    @running.map { |pending| { 'id' => pending.id, 'errors' => failed[pending] }.compact }
-  end
-
-  # A unit's incremental entry (a stream's `items`, data below its fragment's path at its
-  # `subPath`), with the errors and the extensions of its run (BuildExtensionsResponse,
-  # ManipulateResult); with no data (a non-null field failed beyond the unit), its errors only.
-  def entry(unit, partial, response)
-    data, errors, extensions = response.values_at('data', 'errors', 'extensions')
-    absolute_errors(errors, partial) if unit.stream?
-    @errors.concat(errors.to_a)
-    return { 'errors' => errors, 'extensions' => extensions } if data.nil?
-
-    merge(unit, data)
-    sub_path = unit.sub_path unless unit.stream? || unit.sub_path.empty?
-    { 'id' => unit.owner.id, 'subPath' => sub_path, (unit.stream? ? 'items' : 'data') => data, 'errors' => errors,
-      'extensions' => extensions }.compact
-  end
-
-  def empty?(entry) = entry.size == 2 && (entry['data'] || entry['items']).empty?
-
-  # The response's data so far, with a unit's: a stream's items after the list's, a fragment's
-  # fields in its object.
-  def merge(unit, data)
-    unit.stream? ? @tree.append(unit.path, data) : @tree.merge(unit.path, data)
-  end
-
-  # The paths of a stream's errors, as the response's.
-  def absolute_errors(errors, partial)
-    errors&.each { |error| error['path'] = @state.absolute(partial, error['path']) if error['path'] }
-  end
-
   # Give the fragments found their ids, and queue them. Those whose object an error nulled
   # out of the response are dropped.
   def announce(found)
@@ -272,13 +231,17 @@ class Lighthouse::GraphQL::Incremental::Run
     finished&.call(response)
   end
 
-  # The round that failed: its fragments were announced in an earlier payload. Those it
-  # found itself (queued) were never sent, and are not completed.
+  # Yields a payload, and keeps the ids the client was sent and has not seen completed.
+  def emit(payload)
+    yield payload
+    payload['pending'].to_a.each { |entry| @open[entry['id']] = true }
+    payload['completed'].to_a.each { |entry| @open.delete(entry['id']) }
+  end
+
+  # The last payload of a stream that failed: every id still open completes, with an error.
   def failure_payload
     errors = [{ 'message' => 'Internal server error' }]
     @errors.concat(errors)
-    Serializer.subsequent(incremental: [], completed: @running.map do |pending|
-      { 'id' => pending.id, 'errors' => errors }
-    end, pending: [], has_next: false)
+    Serializer.subsequent(incremental: [], completed: @open.keys.map { |id| { 'id' => id, 'errors' => errors } }, pending: [], has_next: false)
   end
 end

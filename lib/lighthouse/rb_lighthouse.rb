@@ -72,6 +72,7 @@ require_relative 'namespaces'
   incremental/document
   incremental/rules
   incremental/tree
+  incremental/delivery
   incremental/plan
   incremental/serializer
   incremental/multipart
