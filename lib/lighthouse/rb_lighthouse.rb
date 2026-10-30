@@ -23,6 +23,7 @@ require_relative 'namespaces'
   graphql_ruby_patches
   reference_resolver
   support/naming
+  support/count
   support/directive_args
   support/argument_walk
   support/relations

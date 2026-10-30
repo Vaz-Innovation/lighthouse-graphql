@@ -420,6 +420,11 @@ module Lighthouse
   end
 
   module Support
+    # A count a setting holds: an Integer of 0 or more, or a String of digits read as its number.
+    module Count
+      def self?.read: (Symbol name, Integer | String | nil value) -> Integer?
+    end
+
     module SoftDeletes
       # :only, :with or :without, for a Trashed enum value; a client error for any other.
       def self.trashed: (untyped value) -> (:only | :with | :without)
