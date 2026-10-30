@@ -329,7 +329,7 @@ RSpec.describe 'GraphQL @search', type: :request do
       end
 
       it "reads the fields an index holds from the engine's mapping, which @trashed falls back on" do
-        expect(Lighthouse::Search::Searchkick.new.send(:mapped_columns, SearchedPost, nil)).to include('title', 'author_id', 'published')
+        expect(Lighthouse::Search::Searchkick.new.send(:read_mapping, SearchedPost, nil)).to include('title', 'author_id', 'published')
       end
 
       it 'refuses what an engine cannot apply' do

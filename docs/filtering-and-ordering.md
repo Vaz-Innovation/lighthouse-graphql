@@ -522,7 +522,8 @@ With Searchkick, `@trashed` filters on the soft-delete column the index holds, s
 it (`deleted_at: deleted_at`), or `ONLY` and `WITHOUT` are an error (`WITH` filters nothing): `Comment's
 index does not hold deleted_at, which @trashed filters the search on: add it to search_data.` Lighthouse
 reads the columns from `search_data` on a blank record; when that raises (it reads an association), from
-the index's mapping on the engine, once per model; and when neither can be read, it refuses the search
+the index's mapping on the engine, kept per model and read again when it lacks the column (a reindex may
+have added it) or could not be read; and when neither can be read, it refuses the search
 rather than filter on a column the index may not hold. (A column every document leaves null has no
 mapping yet: let `search_data` run on a blank record.) The column is the one the database path filters on
 ([`Config.soft_deletes`](configuration.md#soft-deletes)): paranoia's (`paranoia_column`, and its

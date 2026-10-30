@@ -31,6 +31,7 @@ class Lighthouse::Search::Searchkick
 
   def initialize
     @per_model = {}
+    @mappings = {}
   end
 
   def searchable?(model, _index = nil)
@@ -183,7 +184,7 @@ class Lighthouse::Search::Searchkick
   # It fails closed: when the columns cannot be told, the search is refused too.
   def require_indexed!(query, column)
     model = query.model
-    indexed = indexed_columns(model) || mapped_columns(model, query.index)
+    indexed = indexed_columns(model) || mapped_columns(model, query.index, column)
     unless indexed
       raise ::GraphQL::ExecutionError,
             "@trashed cannot tell whether #{model.name}'s index holds #{column}, which it filters the search on: " \
@@ -204,16 +205,26 @@ class Lighthouse::Search::Searchkick
     end
   end
 
-  # The fields the index the search reads holds, from its mapping on the engine,
-  # read once per model class and index; nil when it cannot be read (no index).
-  # A field every document leaves null has no mapping yet.
-  def mapped_columns(model, index)
-    per_model([:mapped_columns, index], model) do
-      name = index || model.searchkick_index.name
-      ::Searchkick.client.indices.get_mapping(index: name).to_h.values.flat_map { |mapping| mapping.dig('mappings', 'properties')&.keys || [] }
-    rescue StandardError
-      nil
-    end
+  # The fields the index the search reads holds, from its mapping on the engine;
+  # nil when it cannot be read (no index yet). A mapping read is kept per model
+  # class and index, and read again when it lacks `column`, which a reindex may
+  # have added since; a failed read is not kept. A field every document leaves
+  # null has no mapping yet.
+  def mapped_columns(model, index, column)
+    key = [model.name, index]
+    kept_class, columns = @mappings[key]
+    return columns if kept_class.equal?(model) && columns.include?(column.to_s)
+
+    columns = read_mapping(model, index)
+    @mappings[key] = [model, columns] if columns
+    columns
+  end
+
+  def read_mapping(model, index)
+    name = index || model.searchkick_index.name
+    ::Searchkick.client.indices.get_mapping(index: name).to_h.values.flat_map { |mapping| mapping.dig('mappings', 'properties')&.keys || [] }
+  rescue StandardError
+    nil
   end
 
   # What the block answers for the model, worked out once per model class: a

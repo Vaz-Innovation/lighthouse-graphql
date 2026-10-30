@@ -195,6 +195,19 @@ RSpec.describe 'search adapters' do
           expect { where_of(:only) }.to raise_error(GraphQL::ExecutionError, /SearchkickPost's index does not hold deleted_at/)
         end
 
+        it 'reads the mapping again when it could not, or when the one it read lacks the column: a reindex adds it' do
+          answers = [-> { raise 'no index yet' }, lambda {
+            mappings.dig('search_posts_1', 'mappings', 'properties').delete('deleted_at')
+            mappings
+          }, -> { mappings.deep_merge('search_posts_1' => { 'mappings' => { 'properties' => { 'deleted_at' => {} } } }) }]
+          mapping_answers { answers.shift.call }
+
+          expect { where_of(:only) }.to raise_error(GraphQL::ExecutionError, /cannot tell/)
+          expect { where_of(:only) }.to raise_error(GraphQL::ExecutionError, /does not hold deleted_at/)
+          2.times { expect(where_of(:only)).to eq(deleted_at: { not: nil }) }
+          expect(indices).to have_received(:get_mapping).exactly(3).times
+        end
+
         it 'refuses when it cannot tell, rather than filter on a column the index may not hold' do
           mapping_answers { raise 'no index' }
 
