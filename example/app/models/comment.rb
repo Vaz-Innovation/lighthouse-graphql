@@ -13,8 +13,9 @@ class Comment < ApplicationRecord
   # be indexed. Post reindexes its comments when it is published or unpublished.
   searchkick callbacks: :async
 
-  # What the index holds: `body` to search, `post_id` for searchComments' @eq.
-  def search_data = { body: body, post_id: post_id }
+  # What the index holds: `body` to search, `post_id` for searchComments' @eq, and
+  # whether the post is published, which search_where filters on.
+  def search_data = { body: body, post_id: post_id, published: post.published? }
 
   def should_index? = post.published?
 
@@ -25,4 +26,8 @@ class Comment < ApplicationRecord
   # (Lighthouse's search_results): the index lags behind until the job has run, and
   # keeps a comment of an unpublished post for good if the job fails.
   scope :search_results, -> { where(post: Post.published) }
+
+  # The same, in the engine (Lighthouse's search_where), so that totals and pages
+  # count only the comments of published posts the index says it holds.
+  def self.search_where = { published: true }
 end

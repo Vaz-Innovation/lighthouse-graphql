@@ -62,6 +62,9 @@ module Lighthouse
       # @trashed filters on the column Config.soft_deletes tells (Support::SoftDeletes.column).
       def initialize: () -> void
 
+      # Why the model cannot be searched as it is (a narrowing default scope or search_results, without search_where), or nil.
+      def model_error: (Class model) -> String?
+
       # The model's max_result_window, a billion with deep_paging, else 10,000; nil for another index `within:` names.
       def result_window: (Query query) -> Integer?
     end

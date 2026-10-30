@@ -265,6 +265,8 @@ module Lighthouse
   end
 
   # `page` answers one entry per hit, nil for a hit it could not load, and the total.
+  # It may answer `model_error(model)`: why a model cannot be searched as it is, which
+  # Search::FieldCheck makes a schema error.
   # It may also answer `result_window(query)`: how many matches it pages through
   # (Search::Result::MAX_WINDOW when it does not), or nil when it cannot tell.
   interface _EngineSearchAdapter

@@ -447,7 +447,25 @@ RSpec.describe '@search' do
         GRAPHQL
 
         expect(titles(run(schema, '{ posts(search: "x", trashed: ONLY) { title } }'))).to eq(['archived'])
-        expect(SearchkickHiddenPost.searches.last[:where]).to eq(discarded_at: { not: nil })
+        expect(SearchkickHiddenPost.searches.last[:where]).to eq(deleted_at: nil, discarded_at: { not: nil }) # its search_where too
+      end
+
+      it 'refuses a model whose default scope narrows what loads, unless it tells the engine how (search_where)' do
+        expect do
+          build_schema('type SearchkickTenantPost { title: String! } type Query { posts(search: String @search): [SearchkickTenantPost!]! @all }')
+        end.to raise_error(Lighthouse::DefinitionError, /SearchkickTenantPost's default scope narrows what a search loads.*search_where/)
+      end
+
+      it "counts only what loads, the engine applying the model's search_where" do
+        [1, 1, 2].each { |author| SearchkickTenantPost.unscoped.create!(title: 'tenant', author_id: author) }
+        schema = build_schema(<<~GRAPHQL)
+          type SearchkickTenantFilteredPost { title: String! }
+          type Query { posts(search: String @search): [SearchkickTenantFilteredPost!]! @paginate }
+        GRAPHQL
+
+        page = run(schema, '{ posts(first: 10, search: "x") { data { title } paginatorInfo { total } } }').dig('data', 'posts')
+
+        expect([page['data'].size, page.dig('paginatorInfo', 'total')]).to eq([2, 2])
       end
 
       it "loads the hits through the model's search_results scope, which a stale index cannot get past" do

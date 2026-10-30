@@ -478,6 +478,17 @@ RSpec.describe 'GraphQL @search', type: :request do
           end
         end
 
+        it 'counts no comment of an unpublished post the index holds, the engine applying search_where' do
+          draft_comment = create(:comment, post: create(:post, :draft, author: ada), author: grace, body: 'A brilliant secret.')
+          Comment.search_index.store(draft_comment) # past should_index?, as a published flag the index holds
+          Comment.search_index.refresh
+
+          page = graphql('{ searchComments(search: "brilliant") { data { body } paginatorInfo { total } } }').dig('data', 'searchComments')
+
+          expect(page['data'].pluck('body')).not_to include('A brilliant secret.')
+          expect(page.dig('paginatorInfo', 'total')).to eq(3)
+        end
+
         it "reads every comment's post in one query when it reindexes" do
           sql = sql_in { Comment.reindex }
 

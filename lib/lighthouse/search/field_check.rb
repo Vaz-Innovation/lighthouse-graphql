@@ -71,8 +71,11 @@ class Lighthouse::Search::FieldCheck
     outside_database!(path, adapter) unless adapter.relational?
   end
 
+  # The adapter that searches the model, which must be able to as it is (`model_error`, optional).
   def adapter!(path, model, index)
-    Lighthouse::Search.adapter_for(model, index) || fail!(path, "#{model.name} is not searchable (#{HINT})")
+    adapter = Lighthouse::Search.adapter_for(model, index) || fail!(path, "#{model.name} is not searchable (#{HINT})")
+    error = adapter.model_error(model) if adapter.respond_to?(:model_error)
+    error ? fail!(path, error) : adapter
   end
 
   def outside_database!(path, adapter)

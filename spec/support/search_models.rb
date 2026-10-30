@@ -156,6 +156,8 @@ class SearchkickParanoidPost < ApplicationRecord
   self.table_name = 'search_posts'
   acts_as_paranoid
   extend FakeSearch::Searchkicked
+
+  def self.search_where = { deleted_at: nil }
 end
 
 # paranoia with a sentinel: a kept record holds it in deleted_at, not null.
@@ -163,6 +165,8 @@ class SearchkickSentinelPost < ApplicationRecord
   self.table_name = 'search_posts'
   acts_as_paranoid sentinel_value: DateTime.new(0)
   extend FakeSearch::Searchkicked
+
+  def self.search_where = { deleted_at: DateTime.new(0) }
 end
 
 class SearchkickDiscardPost < ApplicationRecord
@@ -171,6 +175,8 @@ class SearchkickDiscardPost < ApplicationRecord
   extend FakeSearch::Searchkicked
 
   default_scope -> { kept }
+
+  def self.search_where = { discarded_at: nil }
 end
 
 class SearchkickHiddenPost < ApplicationRecord
@@ -178,6 +184,8 @@ class SearchkickHiddenPost < ApplicationRecord
   extend FakeSearch::Searchkicked
 
   default_scope { where(deleted_at: nil) }
+
+  def self.search_where = { deleted_at: nil }
 end
 
 # One whose `search_results` scope keeps what a search may return, whatever the index holds.
@@ -186,6 +194,9 @@ class SearchkickGuardedPost < ApplicationRecord
   extend FakeSearch::Searchkicked
 
   scope :search_results, -> { where.not(title: 'stale') }
+
+  # The index holds 'stale' (not yet removed): the engine counts it, the load drops it.
+  def self.search_where = {}
 end
 
 class PgSearchGuardedPost < PgSearchPost
@@ -219,4 +230,17 @@ end
 
 class SearchPlainPostWithPaged < SearchPlainPost
   has_many :paged, class_name: 'SearchPost', foreign_key: :author_id, primary_key: :id, inverse_of: false, dependent: nil
+end
+
+# A tenant's default scope: what the index holds of every tenant must not be counted.
+class SearchkickTenantPost < ApplicationRecord
+  self.table_name = 'search_posts'
+  extend FakeSearch::Searchkicked
+
+  default_scope { where(author_id: 1) }
+end
+
+# The same, telling the engine its tenant's condition.
+class SearchkickTenantFilteredPost < SearchkickTenantPost
+  def self.search_where = { author_id: 1 }
 end

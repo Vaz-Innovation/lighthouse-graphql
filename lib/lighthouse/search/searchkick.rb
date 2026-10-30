@@ -66,6 +66,24 @@ class Lighthouse::Search::Searchkick
     end
   end
 
+  # Why the model cannot be searched as it is, or nil: a default scope that
+  # narrows the records it loads (a tenant's, a soft delete's), or a
+  # search_results scope, needs `search_where`, the engine's `where:` for the
+  # same records. Without it the engine would count, and page through, records
+  # that do not load: its totals would include other tenants' matches.
+  # Search::FieldCheck asks when the schema is built; a search asks too.
+  def model_error(model)
+    return nil if model.respond_to?(:search_where)
+
+    narrowing = ("#{model.name}'s default scope" if default_conditions?(model)) ||
+                ("#{model.name}.search_results" if Lighthouse::Search.results_scope?(model))
+    return nil unless narrowing
+
+    "#{narrowing} narrows what a search loads, which the engine does not apply: its totals and pages would count records that " \
+      "do not load. Define #{model.name}.search_where, the engine's `where:` for the same records (`{ tenant_id: Current.tenant_id }`), " \
+      'or `{}` when the index holds no other'
+  end
+
   private
 
   # The response's records in their hits' places, nil where one did not load.
@@ -87,8 +105,10 @@ class Lighthouse::Search::Searchkick
   end
 
   def search_options(query)
+    searchable!(query.model)
     options = query.options.dup
-    options[:where] = all_of(options[:where], *query.wheres.map { |column, value| { column => value } }, trashed_filter(query))
+    wheres = query.wheres.map { |column, value| { column => value } }
+    options[:where] = all_of(options[:where], engine_where(query), *wheres, trashed_filter(query))
     options[:index_name] = query.index if query.index
     options[:load] = true unless options.key?(:load)
     options[:body_options] = { track_total_hits: true }.merge(options[:body_options] || {})
@@ -111,6 +131,33 @@ class Lighthouse::Search::Searchkick
       records = Lighthouse::Search.results(records)
       own ? own.call(records) : records
     end
+  end
+
+  # A search of a model that cannot be searched as it is (model_error) is the
+  # schema's error, when Search::FieldCheck could not tell the field's model.
+  def searchable!(model)
+    error = per_model(:model_error, model) { model_error(model) }
+    raise Lighthouse::DefinitionError, "@search: #{error}." if error
+  end
+
+  # Does the model's default scope narrow its records (conditions, joins)? When it
+  # cannot be told (it raises outside a request), it is taken to.
+  def default_conditions?(model)
+    base = model.all
+    !(base.where_clause.empty? && base.joins_values.empty? && base.left_outer_joins_values.empty? && base.from_clause.empty?)
+  rescue StandardError
+    true
+  end
+
+  # The model's search_where, the engine's `where:` for what its default scope and
+  # search_results keep; its condition on the soft-delete column yields to @trashed.
+  def engine_where(query)
+    model = query.model
+    where = (model.search_where if model.respond_to?(:search_where)).to_h
+    return where unless query.trashed
+
+    column = trashed_column(model).first.to_s
+    where.reject { |key, _value| key.to_s == column }
   end
 
   # The conditions as one Searchkick `where:`, all of which hold: the app's
