@@ -298,6 +298,22 @@ RSpec.describe '@search' do
       expect(engine.requests.last).to include(offset: 0, limit: 50_000)
     end
 
+    it 'says when @all without first leaves matches unread, next to the records it read' do
+      schema = build_schema('type SearchPost { title: String! } type Query { posts(first: Int, search: String @search): [SearchPost!]! @all }')
+      many = ->(original, *args, **options) { [original.call(*args, **options).first, 10_001] }
+      allow(engine).to receive(:page).and_wrap_original(&many)
+      allow(engine).to receive(:result_window).and_return(20_000)
+
+      result = run(schema, '{ posts(search: "great") { title } }')
+
+      expect(titles(result)).to eq(['great title', 'Really great title'])
+      expect(result['errors'].pluck('message')).to eq(
+        ['@all reads 10000 matches at most without `first`, and this search finds 10001: give the field `first` and `offset`, ' \
+         'or use @paginate, to read the others.']
+      )
+      expect(run(schema, '{ posts(search: "great", first: 2) { title } }')['errors']).to be_nil
+    end
+
     it "reads @all no further than the engine's result window, whatever the offset" do
       schema = build_schema(<<~GRAPHQL)
         type SearchPost { title: String! }

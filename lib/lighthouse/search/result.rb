@@ -48,17 +48,26 @@ class Lighthouse::Search::Result
   end
 
   # What @all returns: `first` records from `offset`, else READ_LIMIT of them at
-  # most; within the result window either way.
+  # most (`truncated?` tells when that left matches unread); within the result
+  # window either way.
   def records(first: nil, offset: nil)
-    window(offset || 0, first || READ_LIMIT)
+    offset ||= 0
+    found = window(offset, first || READ_LIMIT)
+    @truncated = first.nil? && reachable > offset + Lighthouse::GraphQL::Pagination.covered(found)
+    found
   end
+
+  # Did the last read without `first` leave matches a page could reach unread?
+  def truncated? = @truncated == true
+
+  # How many matches a page can reach: the total, within the result window.
+  def reachable = result_window ? [count, result_window].min : count
 
   # Every record the search finds that a page can reach, for @canQuery to check:
   # one request, of READ_LIMIT records at most. A search that finds more within
   # the result window is a client error, as a page could reach a record not checked.
   def every_record
     found = records
-    reachable = result_window ? [count, result_window].min : count
     return found if reachable <= READ_LIMIT
 
     raise ::GraphQL::ExecutionError,

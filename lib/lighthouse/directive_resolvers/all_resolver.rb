@@ -40,11 +40,24 @@ class Lighthouse::GraphQL::DirectiveResolvers::AllDirectiveResolver < Lighthouse
     relation = apply_scopes(model_class.all)
 
     relation = apply_where_filters(relation, args, ctx, search: :model)
-    return relation.records(first: args[:first], offset: args[:offset]) if relation.is_a?(Lighthouse::Search::Result)
+    return search_records(relation, args, ctx) if relation.is_a?(Lighthouse::Search::Result)
 
     relation = relation.limit(args[:first]) if args[:first]
     relation = relation.offset(args[:offset]) if args[:offset]
     relation
+  end
+
+  # The records a search found: without `first`, Search::Result::READ_LIMIT of them
+  # at most, and an error next to them when that leaves matches unread.
+  def search_records(result, args, ctx)
+    records = result.records(first: args[:first], offset: args[:offset])
+    if result.truncated? && ctx.respond_to?(:add_error)
+      ctx.add_error(::GraphQL::ExecutionError.new(
+                      "@all reads #{Lighthouse::Search::Result::READ_LIMIT} matches at most without `first`, and this search finds " \
+                      "#{result.reachable}: give the field `first` and `offset`, or use @paginate, to read the others."
+                    ))
+    end
+    records
   end
 
   def extract_model_name

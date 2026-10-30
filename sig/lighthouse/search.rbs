@@ -48,6 +48,9 @@ module Lighthouse
       def records: (?first: Integer?, ?offset: Integer?) -> Array[_Record]
       # Every record a page can reach, for @canQuery: READ_LIMIT at most, else a GraphQL::ExecutionError.
       def every_record: () -> Array[_Record]
+      # Did the last read without `first` leave matches unread? How many can a page reach?
+      def truncated?: () -> bool
+      def reachable: () -> Integer
       # How many of the matches the engine pages through: the adapter's `result_window(query)`, else MAX_WINDOW; nil when the adapter cannot tell.
       def result_window: () -> Integer?
     end
