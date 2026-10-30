@@ -47,6 +47,13 @@ module Lighthouse
     module FieldBuilder
       include Directive
     end
+
+    # An argument directive that also narrows a full-text search: its instances,
+    # built with (arg_node, directive_node), answer `handle_search_builder(query, value)`
+    # with the Search::Query. @eq, @trashed and @builder on an argument do.
+    module SearchBuilder
+      include Directive
+    end
   end
 
   class DirectiveRegistry
@@ -150,7 +157,8 @@ module Lighthouse
         def define_resolver: (Class target_type_class) -> void
 
         # `ctx`: the query's context, which @builder on an argument receives.
-        def apply_where_filters: (relation relation, _ArgumentSet? args, ?context? ctx) -> relation
+        # `search_results`: the caller takes a Search::Result in place of a relation, which a search outside the database answers with.
+        def apply_where_filters: (relation relation, _ArgumentSet? args, ?context? ctx, ?search_results: bool) -> (relation | Search::Result)
         def apply_arg_builders: (relation relation, arguments args_h, ?context? ctx) -> relation
         def apply_field_builders: (relation relation, ?arguments args_h, ?context? ctx) -> relation
         def constantize_model: (String? name) -> Class?

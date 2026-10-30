@@ -1,0 +1,65 @@
+# Full-text search for @search: the query the directives write to, the result an
+# engine outside the database answers with, and the adapters of the two gems.
+# The adapter protocol (_SearchAdapter) is experimental. See docs/filtering-and-ordering.md.
+module Lighthouse
+  module Search
+    # The adapter in use: Config.search, else the detecting Search::Auto.
+    def self.adapter: () -> (_SearchAdapter | _SearchAdapterChooser)
+
+    # The adapter that searches the model (within the scope or index `index` names), or nil.
+    def self.adapter_for: (Class model, ?String? index) -> _SearchAdapter?
+
+    # What a search holds: the model, the term and what narrows it.
+    class Query
+      attr_reader model: Class
+      attr_reader term: String
+      attr_reader index: String?
+      # { column => value }, from @eq.
+      attr_reader wheres: Hash[String, untyped]
+      # Adapter-specific options, from @builder on an argument.
+      attr_reader options: Hash[Symbol, untyped]
+      # :with, :only or :without, from @trashed; nil: not given.
+      attr_accessor trashed: (:with | :only | :without)?
+
+      def initialize: (Class model, String term, ?String? index) -> void
+      def where: (String | Symbol column, untyped value) -> self
+    end
+
+    # A search an engine answers: the page it is asked for and its total.
+    class Result
+      MAX_WINDOW: Integer
+
+      attr_reader query: Query
+
+      def initialize: (_EngineSearchAdapter adapter, Query query) -> void
+      def window: (Integer offset, Integer limit) -> Array[_Record]
+      def count: () -> Integer
+      def records: (?first: Integer?, ?offset: Integer?) -> Array[_Record]
+    end
+
+    # Searchkick (Elasticsearch / OpenSearch), outside the database.
+    class Searchkick
+      include _EngineSearchAdapter
+
+      DEFAULT_TRASHED_COLUMN: String
+
+      # `trashed_column`: the indexed column @trashed filters on; default deleted_at (discard's, paranoia's).
+      def initialize: (?trashed_column: (String | Symbol)?) -> void
+    end
+
+    # pg_search (PostgreSQL full-text search), in the database.
+    class PgSearch
+      include _RelationalSearchAdapter
+
+      DEFAULT_SCOPE: Symbol
+    end
+
+    # Picks Searchkick, then pg_search, per model.
+    class Auto
+      include _SearchAdapterChooser
+
+      def initialize: (?Array[_SearchAdapter]? adapters) -> void
+      def searchable?: (Class model, ?String? index) -> bool
+    end
+  end
+end

@@ -5,6 +5,8 @@ require_relative 'base'
 module Lighthouse::GraphQL::Directives::Arguments
   # @eq — equality filter (the default). `field(status: String @eq)`
   class Eq < Base
+    include Lighthouse::Contracts::SearchBuilder
+
     def self.directive_name = 'eq'
     def self.definition = sdl('eq', 'Add an equality filter to the query: the column equals the value.')
 
@@ -12,6 +14,10 @@ module Lighthouse::GraphQL::Directives::Arguments
       return relation if value.nil?
 
       relation.where(column => value)
+    end
+
+    def handle_search_builder(query, value)
+      value.nil? ? query : query.where(column, value)
     end
   end
 

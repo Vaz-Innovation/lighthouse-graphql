@@ -240,6 +240,32 @@ module Lighthouse
     def force_delete: (_Record record) -> boolish
   end
 
+  # Config.search: what searches a model (see Lighthouse::Search). The protocol is
+  # experimental. `searchable?` says whether the model can be searched, within
+  # the pg_search scope or the index `index` names. A relational adapter
+  # (pg_search) narrows the field's relation, and every other directive applies
+  # on top; the others answer a page of records and the total, and take only
+  # the directives that include Contracts::SearchBuilder.
+  interface _SearchAdapter
+    def searchable?: (Class model, ?String? index) -> boolish
+    def relational?: () -> boolish
+  end
+
+  interface _RelationalSearchAdapter
+    include _SearchAdapter
+    def scope: (relation relation, Search::Query query) -> relation
+  end
+
+  interface _EngineSearchAdapter
+    include _SearchAdapter
+    def page: (Search::Query query, offset: Integer, limit: Integer) -> [Array[_Record], Integer]
+  end
+
+  # Search::Auto: picks the adapter per model.
+  interface _SearchAdapterChooser
+    def adapter_for: (Class model, ?String? index) -> _SearchAdapter?
+  end
+
   # What DirectiveRegistry#register_manipulator takes: it transforms the SDL
   # before the schema is built.
   interface _SdlManipulator
@@ -343,6 +369,10 @@ module Lighthouse
 
     def self.soft_deletes: () -> _SoftDeletes?
     def self.soft_deletes=: (_SoftDeletes? adapter) -> _SoftDeletes?
+
+    # What searches a model for @search; nil: detected per model (Search::Auto).
+    def self.search: () -> (_SearchAdapter | _SearchAdapterChooser)?
+    def self.search=: ((_SearchAdapter | _SearchAdapterChooser)? adapter) -> (_SearchAdapter | _SearchAdapterChooser)?
 
     def self.feature_checker: () -> _FeatureChecker
     def self.feature_checker=: (_FeatureChecker? checker) -> _FeatureChecker?

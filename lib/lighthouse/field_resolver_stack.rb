@@ -16,6 +16,7 @@ module Lighthouse::GraphQL::FieldResolverStack
   # resolve its fields that have no resolving directive.
   def apply(type, field_def, root_kind, bases: {}, type_class: nil)
     directives = field_def.ast_node.directives || []
+    Lighthouse::Search::FieldCheck.check!(type, field_def, directives, root_kind)
     opts = { root_kind: root_kind, bases: bases }
     steps = directive_steps(type, field_def, directives, opts)
     steps << limit_step(type, field_def, opts) if Lighthouse::GraphQL::DirectiveResolvers::LimitResolver.keyword(field_def)

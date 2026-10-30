@@ -11,6 +11,10 @@ module Lighthouse::GraphQL::Directives::Arguments
   #
   # Usually added by @softDeletes: `tasks: [Task!]! @all @softDeletes`.
   class Trashed < Base
+    include Lighthouse::Contracts::SearchBuilder
+
+    TRASHED = { 'ONLY' => :only, 'WITH' => :with, 'WITHOUT' => :without }.freeze
+
     def self.directive_name = 'trashed'
 
     def self.definition
@@ -26,6 +30,17 @@ module Lighthouse::GraphQL::Directives::Arguments
       return relation if value.nil?
 
       Lighthouse::Support::SoftDeletes.filter(relation, value)
+    end
+
+    # In a search, the engine decides what trashed records it holds (see Search::Searchkick).
+    def handle_search_builder(query, value)
+      return query if value.nil?
+
+      Lighthouse::Support::SoftDeletes.require_support!(query.model)
+      query.trashed = TRASHED.fetch(value.to_s.upcase) do
+        raise ::GraphQL::ExecutionError, "Unknown trashed value #{value.inspect}, expected ONLY, WITH or WITHOUT."
+      end
+      query
     end
   end
 

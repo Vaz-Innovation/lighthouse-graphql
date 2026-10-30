@@ -209,7 +209,7 @@ class Lighthouse::DirectiveRegistry
   # Argument-builder filter/sort directives.
   ARG_BUILDERS = %i[
     Eq Neq In NotIn Like Where WhereKey OrderBy WhereConditions WhereHasConditions Trashed WithoutGlobalScopes
-    WhereNull WhereNotNull WhereBetween WhereNotBetween WhereJsonContains Scope Limit
+    WhereNull WhereNotNull WhereBetween WhereNotBetween WhereJsonContains Scope Limit Search
   ].freeze
 
   def register_defaults

@@ -30,6 +30,7 @@ module Lighthouse
       feature_checker feature_actor
       convert_empty_strings_to_null
       soft_deletes
+      search
       queue_broadcasts broadcast_queue
       global_id
       schema_output schema_log
@@ -200,6 +201,14 @@ module Lighthouse
       # per model (Support::SoftDeletes::Auto); `Support::SoftDeletes::Column.new(:archived_at)`
       # is one for another column.
       attr_accessor :soft_deletes
+
+      # --- Full-text search (used by @search) ------------------------------------
+
+      # Teaches Lighthouse which engine searches a model: an adapter (see Lighthouse::Search
+      # for what it answers), such as `Lighthouse::Search::PgSearch.new` or
+      # `Lighthouse::Search::Searchkick.new(trashed_column: :archived_at)`, or the app's own.
+      # Defaults to detecting Searchkick, then pg_search, per model (Search::Auto).
+      attr_accessor :search
 
       def configure
         yield(self) if block_given?

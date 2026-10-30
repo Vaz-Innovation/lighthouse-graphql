@@ -31,17 +31,16 @@ class Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
   end
 
   # `ctx`: the query's context, for @builder on an argument.
-  def apply_where_filters(relation, args, ctx = nil)
+  # `search_results`: the caller can take a Search::Result in place of a relation,
+  # which a search outside the database (Searchkick) answers with.
+  def apply_where_filters(relation, args, ctx = nil, search_results: false)
     return relation unless relation.respond_to?(:where)
 
     args_h = args.respond_to?(:to_h) ? args.to_h : (args || {})
+    relation = apply_search(relation, args_h, ctx, search_results)
+    return relation if relation.is_a?(Lighthouse::Search::Result)
 
-    apply_field_builders(apply_arg_builders(relation, args_h, ctx), args_h, ctx)
-  rescue ::GraphQL::ExecutionError
-    raise
-  rescue StandardError => e
-    Lighthouse::Config.handle_error(e)
-    relation
+    apply_query_filters(relation, args_h, ctx)
   end
 
   # Compose argument-builder directives (@eq, @neq, @in, @notIn, @like,
@@ -103,6 +102,36 @@ class Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
   end
 
   private
+
+  # The field's arguments and own query directives, on the relation: what is left
+  # after the search, if any.
+  def apply_query_filters(relation, args_h, ctx)
+    apply_field_builders(apply_arg_builders(relation, args_h, ctx), args_h, ctx)
+  rescue ::GraphQL::ExecutionError
+    raise
+  rescue StandardError => e
+    Lighthouse::Config.handle_error(e)
+    relation
+  end
+
+  # The relation searched, when the client sent a string for an argument with @search
+  # (Search::Enhancer): its errors are the client's or the schema's, never swallowed.
+  def apply_search(relation, args_h, ctx, results)
+    return relation unless searching? && @field_def.ast_node
+
+    arguments = arg_builders(args_h).map do |values, node, dnode, builder_class|
+      path = [node.name]
+      Lighthouse::Search::Enhancer::Argument.new(node, dnode, builder_class, dig_arg(values, path), arg_present?(values, path))
+    end
+    Lighthouse::Search::Enhancer.new(arguments, relation, results: results, context: ctx).enhance
+  end
+
+  # Does the field have an argument or input field with @search? Known when the schema is built.
+  def searching?
+    return @searching if defined?(@searching)
+
+    @searching = Lighthouse::Search.directives(@field_def).any?
+  end
 
   def sibling_model_name
     (@field_def.ast_node&.directives || []).filter_map do |d|

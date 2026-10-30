@@ -39,6 +39,7 @@ require_relative 'namespaces'
   contracts/arg_manipulator
   contracts/arg_builder
   contracts/field_builder
+  contracts/search_builder
   schema_stitcher
   document_ast
   generated_resolvers
@@ -83,6 +84,14 @@ require_relative 'namespaces'
   node_registry
   scalar_coercion
   pagination
+  search
+  search/query
+  search/result
+  search/searchkick
+  search/pg_search
+  search/auto
+  search/enhancer
+  search/field_check
   relation_batch
   relation_counts
   nested_mutations
@@ -142,6 +151,7 @@ require_relative 'namespaces'
   directives/arguments/where_conditions
   directives/arguments/where_has_conditions
   directives/arguments/soft_deletes
+  directives/arguments/search
   directives/definitions
   directives/registry
   dataloader_sources/association_loader

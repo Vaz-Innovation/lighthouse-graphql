@@ -9,6 +9,7 @@ module Lighthouse
   module Events; end
   module Generators; end
   module OrderBy; end
+  module Search; end
   module Support; end
   module WhereConditions; end
 
