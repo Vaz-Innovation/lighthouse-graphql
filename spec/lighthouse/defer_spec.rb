@@ -204,6 +204,19 @@ RSpec.describe 'Deferring fields' do
       expect(whole).to eq([{ 'data' => { 'user' => { 'name' => 'u0' } }, 'pending' => [], 'hasNext' => false }])
     end
 
+    it 'parses the query once, and stamps only a document that uses @defer or @stream, on a streamed response' do
+      allow(GraphQL).to receive(:parse).and_call_original
+      allow(Lighthouse::GraphQL::Incremental::Document).to receive(:prepare).and_call_original
+
+      expect(run('{ users { name } }').result.to_h['data']['users'].size).to eq(3)
+      expect(run('{ users { ... @defer { name } } }', stream: false).result.to_h['data']['users'].first).to eq('name' => 'u0')
+      expect(GraphQL).to have_received(:parse).twice
+      expect(Lighthouse::GraphQL::Incremental::Document).not_to have_received(:prepare)
+
+      expect(run('{ users { ... @defer { name } } }')).to be_deferred
+      expect(GraphQL).to have_received(:parse).thrice
+    end
+
     it 'runs a fragment with `if: false` where it stands' do
       expect(payloads('{ users { ... @defer(if: false) { name } } }').first['data']['users'].first).to eq('name' => 'u0')
     end

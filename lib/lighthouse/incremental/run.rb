@@ -63,12 +63,15 @@ class Lighthouse::GraphQL::Incremental::Run
 
   private
 
+  # The query is parsed once, here; one that does not parse goes to graphql-ruby as it
+  # came, which answers its error. Document reads only a document that uses the directives.
   def execute
     document = parse
     return @schema.execute(@query_string, **@options) unless document
+    return @schema.execute(document: document, **@options) unless @stream && Lighthouse::GraphQL::Incremental::Document.incremental?(document)
 
     prepared = Lighthouse::GraphQL::Incremental::Document.prepare(@schema, document)
-    return @schema.execute(@query_string, **@options) unless @stream && !prepared.fragments.empty?
+    return @schema.execute(document: document, **@options) if prepared.fragments.empty?
 
     @state = State.new(prepared.fragments)
     context = (@options[:context] || {}).merge(State::CONTEXT_KEY => @state)
