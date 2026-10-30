@@ -96,9 +96,9 @@ With no listener, and no `ActiveSupport::Notifications` subscriber, they cost
 one lookup per request.
 
 The fragments deferred with [`@defer`](performance.md#deferring-fields-experimental) run after the
-first response, a round of them in a multiplex of its own: the events fire again for each fragment
-on each object it runs on, with the operation's `query`, `variables` and `operation_name`, and the
-result of that fragment.
+first response, a round of them in a multiplex of its own: the events fire again for each unit the
+round runs (the fragments of one path on its object), with the operation's `query` (the client's
+document, never rewritten), `variables` and `operation_name`, and the result of that unit.
 
 `StartExecution#query` is the parsed `GraphQL::Language::Nodes::Document`, and
 `operation_name` the one the client gave. Both events carry the `GraphQL::Query` as

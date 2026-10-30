@@ -227,13 +227,18 @@ answered the errors, without data):
   "The @defer directive cannot be used on a root mutation field.", whether the fragment is inline or
   named. A fragment deeper in a mutation's response defers as in a query.
 - In a subscription, `@defer` must be disabled with `if: false` (or a variable).
-- `label` is a string, not a variable, and no two `@defer` or `@stream` share one.
-- A field is deferred only if every declaration of it is, as in Apollo and PHP Lighthouse: in
-  `{ ...UserWithParent ... @defer { parent { name } } }`, where `UserWithParent` also selects
-  `parent`, `parent` comes in the first payload, with the selections of both declarations, and is
-  resolved once. A fragment left with nothing of its own is not deferred at all.
+- `label` is a string, not a variable, and no two `@defer` or `@stream` of the document share one
+  (in any of its operations and fragments).
 - `@skip` and `@include` on the fragment answer first: a fragment they leave out is neither
   deferred nor resolved.
+- A fragment with `if` not false is always deferred, and completes. A field it selects that the
+  rest of the query also asks for at the same path (itself, or through an inline or a named
+  fragment) comes in the first payload as usual, resolved once, and is not sent again: in
+  `{ ...UserWithParent ... @defer { parent { name } } }`, where `UserWithParent` also selects
+  `parent { name }`, the fragment is pending, then completes with no data of its own. A fragment
+  that adds selections to such a field (`... @defer { parent { email } }`) gets them, without
+  `parent` resolving again, at the `subPath` of `parent`. Two fragments of a round that select
+  one field send it once.
 - A fragment on a type the object does not have runs nowhere, and one on a union with no type
   condition runs where it stands, as the specification has it.
 
@@ -249,6 +254,18 @@ fragments that round found; the last part has `hasNext: false`.
 { "data": { "posts": { "data": [{ "title": "Hello" }] } },
   "pending": [{ "id": "0", "path": ["posts", "data", 0], "label": "details" }], "hasNext": true }
 { "incremental": [{ "id": "0", "data": { "author": { "name": "Ana" }, "comments": { "data": [] } } }],
+  "completed": [{ "id": "0" }], "hasNext": false }
+```
+
+An entry carries what was not sent yet: the fragments of a round at one path send one entry, under
+the first one's `id`, and complete together; what a fragment adds to an object field already sent
+comes in an entry of its own, at the field's `subPath` from the fragment's path:
+
+```json
+{ "data": { "user": { "parent": { "name": "Ana" } } },
+  "pending": [{ "id": "0", "path": ["user"] }], "hasNext": true }
+{ "incremental": [{ "id": "0", "data": { "name": "Bo" } },
+                  { "id": "0", "subPath": ["parent"], "data": { "email": "ana@example.com" } }],
   "completed": [{ "id": "0" }], "hasNext": false }
 ```
 
@@ -280,7 +297,11 @@ says, and the selections of the items that follow run in the next round, all tog
 Dataloader batches across them. A list of scalars streams too, and so does a paginated field's
 `data`. A list that resolves to `null` is `null`. An item may carry `@defer`: its fragment is
 announced with the items, at the index the item has in the list, and arrives after them. The rest
-of a list is one batch: the specification allows a server to cut it as it pleases.
+of a list is one batch: the specification allows a server to cut it as it pleases. The later items
+run what every declaration of the field selects (`users @stream { id } ... on Query { users { name }
+}`), and nothing of another field of the same name. Where that depends on more than the field's
+object (a declaration under a type condition above it, or in another deferred fragment), the list
+is answered whole.
 
 `@stream` needs a list field (a validation error otherwise), follows the rules of `@defer` for
 `label`, mutations ("The @stream directive cannot be used on a root mutation field.") and
@@ -294,9 +315,9 @@ The controller streams the response, as `multipart/mixed` parts (graphql-over-ht
 delivery), when three things hold: the schema uses the plugin, the controller includes
 `ActionController::Live`, and the request's `Accept` header prefers `multipart/mixed` (without the
 older format's `deferSpec` parameter) to a JSON response: not at `q=0`, and ranked, by q and then by
-order as Rails ranks types, before `application/json` and `application/graphql-response+json`. In every other case the whole response comes at once, the
-deferred fragments in it, as the specification allows: a JSON client, `schema.execute`, a batch (a
-JSON array). A query that defers nothing is answered as JSON, whatever the client accepts. A part's
+order as Rails ranks types, before `application/json` and `application/graphql-response+json`. In
+every other case the whole response comes at once, the deferred fragments in it, as the
+specification allows: a JSON client, `schema.execute`, a batch (a JSON array). A query that defers nothing is answered as JSON, whatever the client accepts. A part's
 JSON is encoded as `render json:` encodes any response.
 
 Streaming needs a server that writes as the action goes (Puma; not a single-threaded buffering
@@ -306,19 +327,32 @@ one) and proxies that do not buffer: the response sends `X-Accel-Buffering: no` 
 thread, keep thread-locals (`ActiveSupport::CurrentAttributes`) in mind in hooks of your own.
 `@cacheControl` does not apply to a streamed response (`Cache-Control: no-cache`).
 
+Once the first part is sent, the response can no longer be refused: a `@throttle` past its limit in
+a later round is the field's error ("Rate limit for Query.x exceeded. Try again later."), and its
+`with:` method is not called. A round that fails ends the stream all the same, with a last part
+that completes, with an error, every id the client was sent.
+
 ### How it runs
 
+- **The client's document, as it came.** It is never rewritten: validation, analysis, listeners
+  (`StartExecution#query`), `query.query_string`, the operation's fingerprint and tracing see the
+  document the client sent, streamed or not. graphql-ruby hands `@defer` its arguments, not its node;
+  Lighthouse knows the node by the arguments graphql-ruby caches for it.
 - **Every field resolves once.** The first pass leaves the deferred fragments out; each round
   then runs the pending fragments on the objects the passes before it loaded
-  (`GraphQL::Query::Partial`), never by running their parents again. `@throttle`, `@guard`,
-  `@cache`, events and the rest of a field's directives run in the pass that resolves the field; a
-  mutation does not run twice.
+  (`GraphQL::Query::Partial`), never by running their parents again, and leaves out what the
+  response already holds. `@throttle`, `@guard`, `@cache`, events and the rest of a field's
+  directives run in the pass that resolves the field; a mutation does not run twice. To reach an
+  object field the response already holds, a streamed response runs in a graphql-ruby trace mode
+  of the plugin's, which keeps those objects; where the app picks its own `trace_mode`, the field
+  resolves again for what the fragment adds.
 - **No N+1.** All the fragments of a round run in one multiplex, so the Dataloader batches across
   them: a deferred fragment under a list of 50 costs the queries it costs without `@defer`.
 - **Validation and complexity cover the whole document**, before the first pass: the deferred
   fragments count for `max_complexity` and `max_depth`, as they would without `@defer`.
-- **Events.** `StartExecution` and `EndExecution` fire for the first pass, and again for each
-  fragment a round runs (on each object); `EndRequest` after the last part.
+- **Events.** `StartExecution` and `EndExecution` fire for the first pass, and again for each unit a
+  round runs (the fragments of one path on its object, or a stream's items), with the client's
+  document; `EndRequest` after the last part.
 
 ### Differences from PHP Lighthouse
 
@@ -334,6 +368,11 @@ thread, keep thread-locals (`ActiveSupport::CurrentAttributes`) in mind in hooks
   each round, and answers what it already has from the previous result; this runs only the deferred
   fragments, on the objects already loaded. A field resolves once, and a mutation runs once.
 - **`@stream` is added.** PHP Lighthouse has none.
+- **A field asked for outside the fragment too is sent once, and the fragment still completes.**
+  PHP Lighthouse (as Apollo) does not defer a field one of whose declarations is not deferred: the
+  field, with everything any declaration selects of it, comes in the first payload. As the draft
+  has it, the fragment here is deferred all the same: the field comes in the first payload with
+  what the rest of the query selects of it, the fragment sends what it adds, and completes.
 - **Non-null fields can be deferred.** PHP Lighthouse refuses `@defer` on a Non-Null field ("The
   @defer directive cannot be used on a Non-Nullable field.") because it answers `null` for it first;
   the draft's format leaves the field out instead, so nothing needs refusing.
