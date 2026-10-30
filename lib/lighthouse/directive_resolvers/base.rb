@@ -37,10 +37,11 @@ class Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
     return relation unless relation.respond_to?(:where)
 
     args_h = args.respond_to?(:to_h) ? args.to_h : (args || {})
-    searched = apply_search(relation, args_h, ctx, search_results)
+    builders = arg_builders(args_h) if searching?
+    searched = apply_search(relation, builders, ctx, search_results)
     return searched if searched.is_a?(Lighthouse::Search::Result)
 
-    filtered = apply_query_filters(searched, args_h, ctx)
+    filtered = apply_query_filters(searched, args_h, ctx, builders)
     searched.equal?(relation) ? filtered : Lighthouse::GraphQL::Pagination.stable_order(filtered)
   end
 
@@ -52,16 +53,7 @@ class Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
     return relation unless relation.respond_to?(:where)
     return relation unless @field_def.ast_node
 
-    arg_builders(args_h).each do |values, node, dnode, builder_class|
-      relation = apply_arg_builder(relation, values, ctx, [[node.name], node, dnode, builder_class])
-    end
-
-    relation
-  rescue ::GraphQL::ExecutionError
-    raise
-  rescue StandardError => e
-    Lighthouse::Config.handle_error(e)
-    relation
+    apply_builders(relation, arg_builders(args_h), ctx)
   end
 
   def constantize_model(name)
@@ -105,9 +97,24 @@ class Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
   private
 
   # The field's arguments and own query directives, on the relation: what is left
-  # after the search, if any.
-  def apply_query_filters(relation, args_h, ctx)
-    apply_field_builders(apply_arg_builders(relation, args_h, ctx), args_h, ctx)
+  # after the search, if any. `builders`: the field's arg_builders, when the search walked them.
+  def apply_query_filters(relation, args_h, ctx, builders = nil)
+    filtered = builders ? apply_builders(relation, builders, ctx) : apply_arg_builders(relation, args_h, ctx)
+    apply_field_builders(filtered, args_h, ctx)
+  rescue ::GraphQL::ExecutionError
+    raise
+  rescue StandardError => e
+    Lighthouse::Config.handle_error(e)
+    relation
+  end
+
+  # The argument builders (arg_builders) on the relation, in order.
+  def apply_builders(relation, builders, ctx)
+    builders.each do |values, node, dnode, builder_class|
+      relation = apply_arg_builder(relation, values, ctx, [[node.name], node, dnode, builder_class])
+    end
+
+    relation
   rescue ::GraphQL::ExecutionError
     raise
   rescue StandardError => e
@@ -120,10 +127,12 @@ class Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
   # the schema's, never swallowed. A relational search's order ends with the primary
   # key once every other order applies (apply_where_filters), so the matches that
   # rank, and sort, alike come back in one order, whatever the field resolves with.
-  def apply_search(relation, args_h, ctx, results)
-    return relation unless searching? && @field_def.ast_node
+  # `builders`: the field's arg_builders, walked once for the search and the
+  # filters after it; nil when the field has no @search.
+  def apply_search(relation, builders, ctx, results)
+    return relation unless builders
 
-    arguments = arg_builders(args_h).map do |values, node, dnode, builder_class|
+    arguments = builders.map do |values, node, dnode, builder_class|
       path = [node.name]
       Lighthouse::Search::Enhancer::Argument.new(node, dnode, builder_class, dig_arg(values, path), arg_present?(values, path))
     end
@@ -132,9 +141,7 @@ class Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
 
   # Does the field have an argument or input field with @search? Known when the schema is built.
   def searching?
-    return @searching if defined?(@searching)
-
-    @searching = Lighthouse::Search.directives(@field_def).any?
+    @field_def.ast_node && Lighthouse::Search.searching?(@field_def)
   end
 
   # The field's own query directives (@builder, @whereAuth, @orderBy(column:)),

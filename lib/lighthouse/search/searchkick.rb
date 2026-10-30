@@ -29,6 +29,7 @@ class Lighthouse::Search::Searchkick
 
   def initialize(trashed_column: nil)
     @trashed_column = trashed_column&.to_s
+    @indexed = {}
   end
 
   def searchable?(model, _index = nil)
@@ -119,10 +120,18 @@ class Lighthouse::Search::Searchkick
     raise ::GraphQL::ExecutionError, "#{model.name}.search_data does not index #{column}, which @trashed filters the search on."
   end
 
-  # What `search_data` holds, or nil when it cannot run on a blank record.
+  # What `search_data` holds, or nil when it cannot run on a blank record. Read
+  # once per model class: a class code reloading makes is read again.
   def indexed_columns(model)
-    model.new.search_data.keys.map(&:to_s)
-  rescue StandardError
-    nil
+    model_class, columns = @indexed[model.name]
+    return columns if model_class.equal?(model)
+
+    columns = begin
+      model.new.search_data.keys.map(&:to_s)
+    rescue StandardError
+      nil
+    end
+    @indexed[model.name] = [model, columns]
+    columns
   end
 end

@@ -651,6 +651,20 @@ RSpec.describe '@search' do
       expect(relational.queries).to be_empty
     end
 
+    it "walks the field's argument directives once a request, and its @search arguments once a schema" do
+      schema
+      walks = 0
+      count = ->(original, *args) { (walks += 1) && original.call(*args) }
+      allow(Lighthouse::Search).to receive(:directives).and_call_original
+      allow_any_instance_of(Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver) # rubocop:disable RSpec/AnyInstance
+        .to receive(:arg_builders).and_wrap_original(&count)
+
+      2.times { run(schema, '{ posts(search: "great", authorId: 1) { title } }') }
+
+      expect(walks).to eq(2)
+      expect(Lighthouse::Search).not_to have_received(:directives)
+    end
+
     it 'ends the order with the primary key, after the orders that decide ties, once' do
       last_order = lambda do |query|
         queries_in { run(schema, query) }.grep(/FROM "search_posts"/).last[/ORDER BY .*\z/]

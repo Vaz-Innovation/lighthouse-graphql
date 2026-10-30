@@ -27,8 +27,9 @@ class Lighthouse::Search::FieldCheck
   end
 
   def check!
+    return unless Lighthouse::Search.searching?(@field_def)
+
     searches = Lighthouse::Search.directives(@field_def)
-    return if searches.empty?
 
     searches.each { |path, directive| within_string!(path, directive) }
     model = model_class

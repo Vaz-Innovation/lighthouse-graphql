@@ -53,6 +53,15 @@ module Lighthouse::Search
     in_arguments(field_def.arguments, nil, Set.new)
   end
 
+  # Does the field have an argument or input field with @search? Walked once per
+  # field, the first time it is asked (Search::FieldCheck, when the schema is
+  # built), and kept on the field: a schema built again on reload starts afresh.
+  def searching?(field_def)
+    return field_def.instance_variable_get(:@lighthouse_searching) if field_def.instance_variable_defined?(:@lighthouse_searching)
+
+    field_def.instance_variable_set(:@lighthouse_searching, directives(field_def).any?)
+  end
+
   def in_arguments(arguments, prefix, seen)
     arguments.each_value.flat_map do |argument|
       path = [prefix, argument.graphql_name].compact.join('.')

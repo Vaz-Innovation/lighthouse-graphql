@@ -113,6 +113,20 @@ RSpec.describe 'search adapters' do
         expect { where_of(:only) }.to raise_error(GraphQL::ExecutionError, /SearchkickPost.search_data does not index deleted_at/)
       end
 
+      it "reads what the model's search_data holds once, and again for the class code reloading makes" do
+        reloaded = Class.new(SearchkickPost) { def self.name = 'SearchkickPost' }
+        reloaded.searches = []
+        reloaded.indexed = %w[deleted_at]
+        reads = Hash.new(0)
+        count = ->(original, *args) { (reads[original.receiver.class] += 1) && original.call(*args) }
+        allow_any_instance_of(SearchkickPost).to receive(:search_data).and_wrap_original(&count) # rubocop:disable RSpec/AnyInstance
+
+        2.times { where_of(:only) }
+        adapter.page(Lighthouse::Search::Query.new(reloaded, 'milk').tap { |again| again.trashed = :only }, offset: 0, limit: 1)
+
+        expect(reads).to eq(SearchkickPost => 1, reloaded => 1)
+      end
+
       it 'takes the column as indexed when search_data cannot run on a blank record' do
         SearchkickPost.indexed = :raise
 
