@@ -15,14 +15,14 @@ class Lighthouse::GraphQL::Incremental::StreamDirective < GraphQL::Schema::Direc
 
   graphql_name 'stream'
   description 'Deliver the items of a list after the first `initialCount`, when the client accepts a streamed response (experimental).'
-  locations GraphQL::Schema::Directive::FIELD
+  locations ::GraphQL::Schema::Directive::FIELD
 
-  argument :if, GraphQL::Types::Boolean, required: true, default_value: true,
-                                         description: 'Stream the list only when true.'
-  argument :label, GraphQL::Types::String, required: false,
-                                           description: 'Names the stream in the streamed response. Unique in the document, and not a variable.'
-  argument :initial_count, GraphQL::Types::Int, required: true, default_value: 0,
-                                                description: 'How many items come with the first response.'
+  argument :if, ::GraphQL::Types::Boolean, required: true, default_value: true,
+                                           description: 'Stream the list only when true.'
+  argument :label, ::GraphQL::Types::String, required: false,
+                                             description: 'Names the stream in the streamed response. Unique in the document, and not a variable.'
+  argument :initial_count, ::GraphQL::Types::Int, required: true, default_value: 0,
+                                                  description: 'How many items come with the first response.'
 
   class << self
     def resolve(_object, arguments, context)
