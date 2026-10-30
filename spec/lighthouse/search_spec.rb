@@ -353,6 +353,37 @@ RSpec.describe '@search' do
         end
       end
 
+      it "filters on paranoia's sentinel, which a kept record holds in place of null" do
+        model = SearchkickSentinelPost
+        model.create!(title: 'kept')
+        model.create!(title: 'trashed').destroy
+        schema = build_schema(<<~GRAPHQL)
+          type SearchkickSentinelPost { title: String! }
+          type Query { posts(search: String @search): [SearchkickSentinelPost!]! @paginate @softDeletes }
+        GRAPHQL
+        titles_of = lambda do |trashed|
+          run(schema, "{ posts(first: 10, search: \"x\", trashed: #{trashed}) { data { title } } }").dig('data', 'posts', 'data').pluck('title')
+        end
+
+        expect(model.unscoped.pluck(:title, :deleted_at).map { |title, at| [title, at.year] })
+          .to contain_exactly(['kept', 0], ['trashed', Time.current.year])
+        expect([titles_of.call('ONLY'), titles_of.call('WITHOUT')]).to eq([['trashed'], ['kept']])
+        expect(model.searches.last[:where]).to eq(deleted_at: DateTime.new(0))
+      end
+
+      it 'filters on the column Config.soft_deletes names' do
+        Lighthouse::Config.soft_deletes = Lighthouse::Support::SoftDeletes::Column.new(:discarded_at)
+        SearchkickHiddenPost.create!(title: 'kept')
+        SearchkickHiddenPost.create!(title: 'archived', discarded_at: Time.current)
+        schema = build_schema(<<~GRAPHQL)
+          type SearchkickHiddenPost { title: String! }
+          type Query { posts(search: String @search): [SearchkickHiddenPost!]! @all @softDeletes }
+        GRAPHQL
+
+        expect(titles(run(schema, '{ posts(search: "x", trashed: ONLY) { title } }'))).to eq(['archived'])
+        expect(SearchkickHiddenPost.searches.last[:where]).to eq(discarded_at: { not: nil })
+      end
+
       it "loads the hits through the model's search_results scope, which a stale index cannot get past" do
         SearchkickGuardedPost.create!(title: 'fresh')
         SearchkickGuardedPost.create!(title: 'stale')

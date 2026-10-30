@@ -137,11 +137,16 @@ module FakeSearch::Searchkicked
 
   def searchkick_search(_term, **options)
     (self.searches ||= []) << options
-    hits = unscoped.order(:id)
-    (options[:where] || {}).each { |column, value| hits = value.is_a?(Hash) ? hits.where.not(column => nil) : hits.where(column => value) }
+    hits = filtered(options[:where] || {})
     ids = hits.offset(options[:offset]).limit(options[:limit]).pluck(:id)
     records = options[:scope_results] ? options[:scope_results].call(self) : self
     FakeSearch::Response.new(records.where(id: ids).sort_by { |record| ids.index(record.id) }, hits.count)
+  end
+
+  def filtered(wheres)
+    wheres.reduce(unscoped.order(:id)) do |hits, (column, value)|
+      value.is_a?(Hash) ? hits.where.not(column => value[:not]) : hits.where(column => value)
+    end
   end
 end
 
@@ -150,6 +155,13 @@ end
 class SearchkickParanoidPost < ApplicationRecord
   self.table_name = 'search_posts'
   acts_as_paranoid
+  extend FakeSearch::Searchkicked
+end
+
+# paranoia with a sentinel: a kept record holds it in deleted_at, not null.
+class SearchkickSentinelPost < ApplicationRecord
+  self.table_name = 'search_posts'
+  acts_as_paranoid sentinel_value: DateTime.new(0)
   extend FakeSearch::Searchkicked
 end
 

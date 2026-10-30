@@ -10,9 +10,11 @@
 # `within:` names the index (`index_name:`), the model's own by default.
 #
 # Searchkick indexes what the model's `search_data` says. For @trashed the
-# model must index its soft-delete column (`deleted_at`, or paranoia's / discard's;
-# `trashed_column:` names another): ONLY keeps the records with a value in it, WITHOUT
-# the ones without, and WITH both, if the index holds trashed records at all.
+# model must index its soft-delete column, the one Support::SoftDeletes filters
+# the database on (paranoia's, discard's, Config.soft_deletes', else `deleted_at`;
+# `trashed_column:` names another): ONLY keeps the records with a value in it
+# (other than paranoia's sentinel), WITHOUT the ones without, and WITH both, if
+# the index holds trashed records at all.
 # Searchkick loads what it finds through the model, whose default scope may hide
 # trashed records (paranoia's): with ONLY and WITH they load past it.
 #
@@ -108,18 +110,23 @@ class Lighthouse::Search::Searchkick
   def trashed_filter(query)
     return {} unless query.trashed
 
-    column = trashed_column(query.model)
+    column, kept = trashed_column(query.model)
     require_indexed!(query.model, column)
     case query.trashed
-    when :only then { column.to_sym => { not: nil } }
-    when :without then { column.to_sym => nil }
+    when :only then { column.to_sym => { not: kept } }
+    when :without then { column.to_sym => kept }
     else {}
     end
   end
 
+  # [the indexed column that marks trashed records, its value for the others]:
+  # `trashed_column:`, else the soft-delete adapter's (paranoia's, with its
+  # sentinel; discard's; Config.soft_deletes'), else deleted_at, as the database
+  # filters do.
   def trashed_column(model)
-    @trashed_column || (model.respond_to?(:discard_column) && model.discard_column) ||
-      (model.respond_to?(:paranoia_column) && model.paranoia_column) || DEFAULT_TRASHED_COLUMN
+    return [@trashed_column, nil] if @trashed_column
+
+    [Lighthouse::Support::SoftDeletes.column(model) || DEFAULT_TRASHED_COLUMN, Lighthouse::Support::SoftDeletes.kept_value(model)]
   end
 
   # The index must hold the column, or the filter would match nothing (or everything).

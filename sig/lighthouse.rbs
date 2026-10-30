@@ -236,7 +236,9 @@ module Lighthouse
   # Config.soft_deletes: what "trashed" means for @softDeletes, @trashed,
   # @restore, @forceDelete and @withoutGlobalScopes. The filters take a model's
   # relation and answer the constrained one; `restore` and `force_delete` act
-  # on a record and answer whether they succeeded.
+  # on a record and answer whether they succeeded. It may also answer
+  # `column(model)` and `kept_value(model)`: the column that marks trashed records
+  # and its value for the others, which a Searchkick search filters on.
   interface _SoftDeletes
     def soft_deletes?: (Class model) -> boolish
     def only_trashed: (relation relation) -> relation
@@ -398,6 +400,10 @@ module Lighthouse
         DEFAULT_COLUMN: String
 
         def initialize: (?String | Symbol column) -> void
+
+        # The column that marks trashed records, and its value for the others, for a search engine to filter on.
+        def column: (Class model) -> String
+        def kept_value: (Class model) -> nil
       end
     end
   end

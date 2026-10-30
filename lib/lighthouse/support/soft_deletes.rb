@@ -12,8 +12,11 @@
 # `Config.soft_deletes` replaces the detection with an adapter of the app's
 # own: any object answering `soft_deletes?(model)`, `only_trashed(relation)`,
 # `with_trashed(relation)`, `without_trashed(relation)`, `restore(record)` and
-# `force_delete(record)` (the last two answering whether they succeeded).
-# `Column.new(:archived_at)` is a ready-made one for another column name.
+# `force_delete(record)` (the last two answering whether they succeeded), and
+# optionally `column(model)` and `kept_value(model)`: the column that marks the
+# trashed records and its value for the others, which a search engine filters on
+# (Search::Searchkick). `Column.new(:archived_at)` is a ready-made one for another
+# column name.
 module Lighthouse::Support::SoftDeletes
   module_function
 
@@ -67,6 +70,18 @@ module Lighthouse::Support::SoftDeletes
     end
   end
 
+  # The column that marks the model's trashed records, as the adapter tells it
+  # (`column(model)`), for a search engine to filter on; nil when it does not.
+  def column(model)
+    adapter.respond_to?(:column) ? adapter.column(model)&.to_s : nil
+  end
+
+  # What that column holds for the records that are not trashed: nil, or
+  # paranoia's sentinel value (`kept_value(model)`).
+  def kept_value(model)
+    adapter.respond_to?(:kept_value) ? adapter.kept_value(model) : nil
+  end
+
   def restore(record)
     require_support!(record.class)
     adapter.restore(record)
@@ -96,6 +111,9 @@ module Lighthouse::Support::SoftDeletes
     def restore(record) = record.restore
 
     def force_delete(record) = record.really_destroy!
+
+    def column(model) = model.paranoia_column
+    def kept_value(model) = model.paranoia_sentinel_value
   end
 
   # discard: `kept` / `discarded` scopes, `#undiscard`; `#destroy` really deletes.
@@ -113,6 +131,9 @@ module Lighthouse::Support::SoftDeletes
     def restore(record) = record.undiscard
 
     def force_delete(record) = record.destroy
+
+    def column(model) = model.discard_column
+    def kept_value(_model) = nil
   end
 
   # A nullable timestamp column (`deleted_at` by default) and no gem. It marks
@@ -141,6 +162,9 @@ module Lighthouse::Support::SoftDeletes
     end
 
     def force_delete(record) = record.destroy
+
+    def column(_model) = @column
+    def kept_value(_model) = nil
   end
 
   # The default adapter: asks each strategy, in order, whether the model uses it.
@@ -158,6 +182,8 @@ module Lighthouse::Support::SoftDeletes
     def without_trashed(relation) = strategy!(relation.klass).without_trashed(relation)
     def restore(record) = strategy!(record.class).restore(record)
     def force_delete(record) = strategy!(record.class).force_delete(record)
+    def column(model) = strategy(model)&.column(model)
+    def kept_value(model) = strategy(model)&.kept_value(model)
 
     private
 
