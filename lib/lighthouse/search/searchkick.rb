@@ -3,7 +3,9 @@
 # Searchkick (Elasticsearch / OpenSearch), outside the database: the filters the
 # client sends are translated into Searchkick's `where:`, and what comes back are
 # Active Record records in relevance order, so nested fields and the Dataloader
-# work on them as usual. One request returns a page and the total.
+# work on them as usual. One request returns a page and the total, which is
+# exact: Elasticsearch and OpenSearch 7+ stop counting at 10,000 unless asked
+# (`track_total_hits`), so Lighthouse asks, unless the app's `body_options:` say otherwise.
 #
 # `within:` names the index (`index_name:`), the model's own by default.
 #
@@ -40,6 +42,7 @@ class Lighthouse::Search::Searchkick
     options[:where] = (options[:where] || {}).merge(filters(query))
     options[:index_name] = query.index if query.index
     options[:load] = true unless options.key?(:load)
+    options[:body_options] = { track_total_hits: true }.merge(options[:body_options] || {})
     options
   end
 

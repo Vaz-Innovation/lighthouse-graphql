@@ -203,6 +203,24 @@ RSpec.describe 'GraphQL @search', type: :request do
         expect(result.dig('data', 'paged')).to eq('data' => [], 'paginatorInfo' => { 'total' => 3 })
       end
 
+      it 'counts every match, past the 10,000 the engine stops at unless asked for the exact total' do
+        # Indexed through the client, without rows: `first: 0` loads no record, it only counts.
+        index = 'lighthouse_example_many_posts'
+        client = Searchkick.client
+        client.indices.delete(index: index) if client.indices.exists(index: index)
+        client.bulk(index: index, refresh: true, body: Array.new(10_001) { |id| [{ index: { _id: id + 1 } }, { title: 'many' }] }.flatten)
+        many = schema_from(<<~GRAPHQL)
+          type SearchedPost { id: ID! }
+          type Query { many(search: String @search(within: "#{index}")): [SearchedPost!]! @paginate }
+        GRAPHQL
+
+        result = run(many, '{ many(first: 0, search: "*") { paginatorInfo { total } } }')
+
+        expect(result.dig('data', 'many', 'paginatorInfo', 'total')).to eq(10_001)
+      ensure
+        client&.indices&.delete(index: index)
+      end
+
       it 'walks a connection by position' do
         page = '{ feed(first: 2, %s search: "great") { edges { node { title } } pageInfo { hasNextPage endCursor total } } }'
         first = run(schema, format(page, '')).dig('data', 'feed')

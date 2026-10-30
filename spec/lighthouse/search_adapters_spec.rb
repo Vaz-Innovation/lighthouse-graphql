@@ -35,7 +35,18 @@ RSpec.describe 'search adapters' do
 
       records, total = adapter.page(query, offset: 20, limit: 10)
       expect([records.map(&:title), total]).to eq([%w[a b], 7])
-      expect(SearchkickPost.searches).to eq([['milk', { where: { author_id: 3 }, fields: ['title'], load: true, offset: 20, limit: 10 }]])
+      expect(SearchkickPost.searches).to eq(
+        [['milk', { where: { author_id: 3 }, fields: ['title'], load: true, body_options: { track_total_hits: true }, offset: 20, limit: 10 }]]
+      )
+    end
+
+    it 'asks for the exact total, which Elasticsearch and OpenSearch 7+ stop counting at 10,000, unless the app says otherwise' do
+      adapter.page(query, offset: 0, limit: 1)
+      expect(searched.last[:body_options]).to eq(track_total_hits: true)
+
+      query.options[:body_options] = { track_total_hits: 50_000, min_score: 1 }
+      adapter.page(query, offset: 0, limit: 1)
+      expect(searched.last[:body_options]).to eq(track_total_hits: 50_000, min_score: 1)
     end
 
     it 'searches the index within: names, and merges the where of a builder' do
@@ -45,7 +56,7 @@ RSpec.describe 'search adapters' do
 
       adapter.page(query, offset: 0, limit: 1)
 
-      expect(searched.last).to eq(where: { published: true, author_id: 3 }, index_name: 'other_index', load: true, offset: 0, limit: 1)
+      expect(searched.last).to include(where: { published: true, author_id: 3 }, index_name: 'other_index', offset: 0, limit: 1)
     end
 
     describe 'trashed records' do
