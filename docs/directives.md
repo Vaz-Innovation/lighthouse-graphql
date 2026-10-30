@@ -669,7 +669,10 @@ each engine up.
 
 A model's `search_results` scope, when it has one, is what a search of it may return:
 Searchkick loads the records it finds through it, so a record the index still holds after it
-should have left is not returned. `@canQuery` on the field checks every record the search
+should have left is not returned. A search counts only what it can load: a Searchkick model
+whose default scope or `search_results` narrows its records defines `search_where`, the
+engine's `where:` for the same records, or the schema does not build; pages follow the
+engine's positions, so a hit that does not load is never shown twice nor skips another. `@canQuery` on the field checks every record the search
 finds, as PHP Lighthouse does (with Searchkick, 10,000 at most: more is an error).
 
 Two `@search` arguments sent together, and (Searchkick) an argument whose directive an

@@ -44,6 +44,28 @@ def self.definition = 'directive @upcase on FIELD_DEFINITION'
 If the definition refers to types of its own (an enum argument, say), return
 them from `def self.type_definitions = { 'Mode' => 'enum Mode { A B }' }`.
 
+### With `@search`
+
+A `@search` on a field needs its resolver to apply it, which Lighthouse asks the
+resolving directive's class when the schema is built. `Contracts::FieldResolver`
+answers no by default, so a `@search` on a field your directive resolves is a schema
+error until the class opts in:
+
+```ruby
+# It runs the field's argument filters, a relational search (pg_search) among them:
+# apply_where_filters, or resolve_info.enhance_builder.
+def self.applies_search? = true
+
+# It also takes the records Searchkick answers with, a Lighthouse::Search::Result
+# (apply_where_filters(..., search: :model) on the model's own relation).
+def self.takes_search_results?(type, field_def, directive, root_kind) = true
+```
+
+An argument directive (`Arguments::Base`) says whether, as the SDL writes it, it
+changes the field's query: `def self.changes_query?(directive_node) = false` lets a
+Searchkick search take it (as `@limit` without `builder: true`, which cuts the
+result after). See [Full-text search](filtering-and-ordering.md#full-text-search).
+
 Lighthouse injects that `definition` into the schema automatically, so apps never
 hand-declare your directive, and `bin/rails lighthouse:ide_helper` writes it out
 for the IDE (see [IDE support](getting-started.md#ide-support)).

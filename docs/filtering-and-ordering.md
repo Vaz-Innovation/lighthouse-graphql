@@ -322,8 +322,9 @@ end
 ```
 
 Then the model. The index is a copy of what `search_data` says, so it must hold the text to search
-**and every column a filter of the field reads**: the `key:` of each `@eq`, and the soft-delete
-column for `@trashed`. An `@eq` on a column the index does not hold matches nothing.
+**and every column a filter of the field reads**: the `key:` of each `@eq`, the soft-delete
+column for `@trashed`, and those `search_where` filters on. An `@eq` on a column the index does not
+hold matches nothing.
 
 ```ruby
 class Comment < ApplicationRecord
@@ -331,8 +332,9 @@ class Comment < ApplicationRecord
 
   searchkick callbacks: :async
 
-  # What the index holds: `body` to search, `post_id` for an `@eq(key: "post_id")` argument.
-  def search_data = { body: body, post_id: post_id }
+  # What the index holds: `body` to search, `post_id` for an `@eq(key: "post_id")` argument,
+  # and whether the post is published, for search_where.
+  def search_data = { body: body, post_id: post_id, published: post.published? }
 
   # Which records are indexed at all: what must not be found must not be indexed.
   def should_index? = post.published?
@@ -342,6 +344,9 @@ class Comment < ApplicationRecord
 
   # What a search may return, checked in the database as the records it finds load.
   scope :search_results, -> { where(post: Post.published) }
+
+  # The same, in the engine, so that totals and pages count only those.
+  def self.search_where = { published: true }
 end
 ```
 
@@ -428,12 +433,17 @@ relationship, a mass mutation), or your own code, which reads it through
 field, or a method of the type's class. A field nothing resolves but graphql-ruby's default reader,
 which reads it off the parent (`type User { comments(search: String @search): [Comment!]! }`), or one
 whose directive runs no filters (`@create`, `@method`, ...), would ignore the search: it is a schema
-error, `nothing applies the search`. Each resolver class says what it does (`applies_search?`,
-`takes_search_results?`), so a directive of your own can take part.
+error, `nothing applies the search`. Each resolver class says what it does, through
+`Contracts::FieldResolver`, which by default says it applies no search: a directive of your own opts in
+with `def self.applies_search? = true` (it runs the field's filters, `apply_where_filters` or
+`resolve_info.enhance_builder`), and `def self.takes_search_results?(type, field_def, directive,
+root_kind) = true` when it also takes a Searchkick `Lighthouse::Search::Result`.
 
 The engine answers with records, not a relation, so `@search` with Searchkick is for `@all`, `@paginate`
-of the model's whole table (on a root field, with its own `model:`, or where the parent has no
-association of the field's name) and your own code. Any other field (`@find`, `@first`, `@count`, a
+of the model's whole table (on a root field, with its own `model:`, or where the parent type's model has
+no association of the field's name; a parent type that is no model is refused, as only a query's records
+would tell what it pages, and a record that turns out to page an association answers a client error)
+and your own code. Any other field (`@find`, `@first`, `@count`, a
 mass mutation, a nested relationship) is a schema error at build, when Lighthouse can tell the field's
 model. For the same reason a field with `scopes:`, `@builder`,
 `@whereAuth` or `@orderBy(column:)`, or an `@canQuery` with `scopes:`, is a schema error: **PHP
@@ -444,7 +454,9 @@ scope](#keeping-private-records-out-of-a-search), or search with pg_search.
 
 At run time, a client that sends an argument whose directive the engine cannot apply (`@neq`, `@in`,
 `@like`, `@orderBy`, `@whereConditions`, ...) with a search, or two `@search` arguments, gets an error,
-as in PHP Lighthouse. Such an argument with a **default value** would be sent on every search, as
+as in PHP Lighthouse. A directive that does not change the query is taken: `@limit` cuts what the
+field resolved (not `@limit(builder: true)`, a LIMIT on the query, which is refused); an argument
+directive of your own says so with `def self.changes_query?(directive_node) = false`. Such an argument with a **default value** would be sent on every search, as
 graphql-ruby fills the default in (and PHP Lighthouse fails every search of the field): it is a schema
 error. So is an input field that holds a value the client did not send, as graphql-ruby fills it in:
 the value an argument's default object gives it, else its own default, inside a default object or an
@@ -464,6 +476,13 @@ are positions. With pg_search it pages the relation, as any other. With Searchki
 engine request (`offset:` and `limit:`), whose response holds the total too, so a page and
 `paginatorInfo { total }` cost **one request**. Unlike Scout, `first: 0` can still count.
 
+**Pages follow the engine's positions.** A hit may not load (the model's default scope or
+`search_results` scope drops it, or its row is gone from the database): the page then holds fewer
+records than `first`, but its positions are still the engine's. `SIMPLE`'s `hasMorePages` says whether
+the engine has hits past the page, and a `CONNECTION`'s cursors are the records' engine positions, its
+`endCursor` past the hits that did not load: the next page starts after them, so no record shows twice
+and none is skipped.
+
 **The total is exact.** Elasticsearch and OpenSearch stop counting matches at 10,000 unless asked
 (`track_total_hits`), which made `total`, `lastPage` and `hasMorePages` wrong past it. Lighthouse asks
 on every search. Counting every match costs the engine more on very large result sets; an `@builder`
@@ -471,7 +490,9 @@ on an argument can set `query.options[:body_options] = { track_total_hits: false
 search where an estimate will do.
 
 **Reads without `first`.** `@all` without `first` reads 10,000 records at most, in one request,
-whatever the result window: give the field `first` and `offset`, or use `@paginate`, to read further.
+whatever the result window. When the search finds more, the field answers those records with an error
+next to them: `@all reads 10000 matches at most without first, and this search finds 12345: give the
+field first and offset, or use @paginate, to read the others.`
 
 **The result window.** The engines page through the first 10,000 matches only (the index's
 `index.max_result_window`). Lighthouse reads no further: a page that runs past it is cut at its end, and
@@ -507,12 +528,44 @@ engine's filter and the records' load all read it, as the database filters do.
 | `ONLY` | a value in the column, other than paranoia's sentinel | past the default scope that hides trashed records |
 | `WITH` | no filter | past that default scope |
 | `WITHOUT` | no value in the column, or the sentinel | through the model, as usual |
-| omitted | no filter | through the model: a default scope that hides trashed records (paranoia's) drops them, though the total counts them |
+| omitted | the model's `search_where` | through the model |
 
-The default scope is paranoia's, discard's `kept` when the model adds it, or your own on the column;
+A model whose default scope hides trashed records (paranoia's, discard's `kept` when the model adds it,
+or your own on the column) defines `search_where` with the same condition, `{ deleted_at: nil }`
+([below](#what-a-search-counts)); its condition on the soft-delete column gives way to `@trashed` when
+the client sends it. Lighthouse loads past that default scope with `Support::SoftDeletes.with_trashed`,
 Lighthouse loads past it with `Support::SoftDeletes.with_trashed`, through Searchkick's `scope_results:`,
 as Scout loads them `withTrashed()`. All of this needs trashed records in the index: a model that leaves
 them out (`should_index?` returning false once trashed) finds none with `ONLY`.
+
+### What a search counts
+
+**A search counts only what it can load**: its total, `lastPage` and pages are the engine's, and the
+engine knows nothing of the database. What narrows the records a search loads must narrow the engine's
+hits the same way, or a total would count what the client cannot see: with `default_scope {
+where(tenant_id: Current.tenant_id) }`, one tenant's search would load its own records but count every
+tenant's matches. So a Searchkick model whose default scope narrows its records (conditions, joins), or
+that has a `search_results` scope (below), must define **`search_where`**: the engine's `where:` for the
+same records, from what `search_data` indexes. Every search of the model ANDs it in. Without it the
+model is a schema error (or, for a field whose model Lighthouse cannot tell, an error at the first
+search):
+
+```ruby
+class Post < ApplicationRecord
+  searchkick
+  default_scope { where(tenant_id: Current.tenant_id) }
+
+  def search_data = { title: title, tenant_id: tenant_id }
+  def self.search_where = { tenant_id: Current.tenant_id }
+end
+```
+
+`search_where` returns `{}` when the index holds no record the scopes would leave out (should_index?
+keeps them out). The scopes still apply as the hits load, a guard for an index not yet updated: a
+record the index holds after it should have left is never returned, and until the index is updated,
+the total counts it. That window, the time a reindex job takes, is the only one where a count includes
+a record the client cannot load; filter on an indexed column in `search_where` to keep counts exact
+even then, for what the index itself says.
 
 ### Keeping private records out of a search
 
@@ -522,13 +575,15 @@ or for good if a job fails, the index still holds a record that must no longer b
 
 A model's `search_results` scope, when it has one, is what a search of it may return, checked in the
 database. Lighthouse loads the records Searchkick finds through it (Searchkick's `scope_results:`), so
-a record the index still holds is not returned; the total counts it until the index is updated, a
-page may come out short, and Searchkick logs it as a record the database does not have ("Records in
-search index do not exist in database"). With pg_search the scope narrows the search itself, totals
-included.
+a record the index still holds is not returned; a page may come out short (its positions are still
+the engine's), and Searchkick logs it as a record the database does not have ("Records in search index
+do not exist in database"). With Searchkick it needs its engine counterpart, `search_where`
+([above](#what-a-search-counts)), so that totals count the same records. With pg_search the scope
+narrows the search itself, totals included.
 
 ```ruby
 scope :search_results, -> { where(post: Post.published) }
+def self.search_where = { published: true } # search_data indexes `published: post.published?`
 ```
 
 It is the model's, the same for every client: what depends on the user belongs in `@canQuery` or
@@ -581,9 +636,11 @@ By default the engine is detected per model: Searchkick if it calls `searchkick`
 includes `PgSearch::Model`. [`Config.search`](configuration.md#search) replaces that with one adapter
 (`Lighthouse::Search::PgSearch.new`, `Lighthouse::Search::Searchkick.new`) or your own. An adapter
 answers `searchable?(model, index)`, `relational?` and either `scope(relation, query)` (a relational one,
-like pg_search) or `page(query, offset:, limit:)` returning `[records, total]`, and optionally
-`result_window(query)` (10,000 when it does not, nil when it cannot tell) and `named?(model, index)`
-(does `within:` name something of its own on the model: picked first when it does). This protocol is
+like pg_search) or `page(query, offset:, limit:)` returning `[entries, total]`, one entry per engine
+hit (the record, or nil for one it could not load), and optionally `result_window(query)` (10,000 when
+it does not, nil when it cannot tell), `named?(model, index)` (does `within:` name something of its own
+on the model: picked first when it does) and `model_error(model)` (why a model cannot be searched as it
+is: a schema error). This protocol is
 experimental.
 
 ### Errors
@@ -604,6 +661,11 @@ experimental.
 | `@canQuery` on more than 10,000 matches a page can reach | checks the hits Scout's `get()` returns | client error |
 | `enhance_builder` given a narrowed relation | conditions dropped | `Lighthouse::DefinitionError` |
 | A `@search` nothing applies (the default reader, `@create`, ...) | ignored | schema error |
+| A directive of your own on a searched field, which does not say it applies a search | (no such contract) | schema error |
+| A Searchkick model whose default scope or `search_results` narrows what loads, without `search_where` | the engine counts what does not load | schema error |
+| A nested `@paginate` whose record pages an association its type's model lacks | `ScoutException` at run time | client error |
+| A filter of a searched field raises | the error | client error, "Could not apply the filters of …", reported to `Config.on_error` |
+| `@all` without `first` on more than 10,000 matches | Scout's `get()` answers its driver's default | the first 10,000, with an error next to them |
 
 ## Complex where conditions
 

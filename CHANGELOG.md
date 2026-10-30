@@ -19,7 +19,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   counting at (`track_total_hits`), a search reads within the index's result window
   (`max_result_window`, read from the model, whatever its settings' keys; left to the engine for
   another index `within:` names): a page past it is an error the client reads, and `@all` without
-  `first` reads 10,000 records at most, even with `deep_paging`. **pg_search** (2.3 and 2.4) is a
+  `first` reads 10,000 records at most, even with `deep_paging`, with an error next to them when the
+  search finds more. A search counts only what it can load: a Searchkick model whose default scope or
+  `search_results` scope narrows its records defines `search_where`, the engine's `where:` for the
+  same records (a tenant's, a published flag's), which every search ANDs in; and pages follow the
+  engine's positions, so a hit that does not load (a stale index) is neither shown twice nor skips
+  another, in `SIMPLE` and `CONNECTION` alike. **pg_search** (2.3 and 2.4) is a
   scope on the relation, so `scopes:`, `@builder`, `@whereAuth`, the argument filters, `@orderBy`,
   nested fields, batched nested `@paginate` and mass mutations all apply on top of it, the rank
   first (before the model's default order too), then the orders that break its ties, then the
@@ -27,7 +32,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the search runs, as PHP Lighthouse. The engine is detected per model, and for a model with both
   gems a `within:` naming a pg_search scope picks pg_search; `Config.search` replaces the detection. `@eq`,
   `@trashed` and `@builder` on an argument narrow a Searchkick search through the new
-  `Contracts::SearchBuilder` and `Lighthouse::Search::Query`, as Scout's `ScoutBuilderDirective`.
+  `Contracts::SearchBuilder` and `Lighthouse::Search::Query`, as Scout's `ScoutBuilderDirective`,
+  every condition holding (one column's conditions are ANDed, never overwritten); `@limit`, which
+  only cuts the result, is taken too.
   `@trashed` filters on the soft-delete column the index holds, the one `Config.soft_deletes` filters
   the database on (with paranoia's sentinel value; adapters may tell it with `column(model)` and
   `kept_value(model)`; it is the one place to name it), and `ONLY` / `WITH` load the trashed records
@@ -40,7 +47,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Searchkick search, as PHP Lighthouse answers Scout's builder, so a field your own class resolves
   can search through it; the relation it gets must select what the model's own does (`Post.all`,
   or `Post`), any other is refused. Each resolver class declares whether it applies a search and
-  takes an engine's records (`applies_search?`, `takes_search_results?`).
+  takes an engine's records (`applies_search?`, `takes_search_results?`; `Contracts::FieldResolver`
+  says no by default, so a directive of your own opts in). A filter of a searched field that raises
+  fails the field, reported to `Config.on_error`, rather than answer what it would have left out.
   See [Full-text search](docs/filtering-and-ordering.md#full-text-search).
 
 ### Changed
@@ -57,7 +66,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Lighthouse fails every search of such a field). A relational engine (pg_search) applies them all.
   `enhance_builder` refuses, with Searchkick, a relation that selects other records than the
   model's own (a narrowed one, `unscoped`, `with_deleted`, ...), whose conditions PHP Lighthouse
-  drops.
+  drops. A Searchkick model that narrows what loads without `search_where`, whose totals PHP
+  Lighthouse lets count other tenants' matches, is a schema error too; a nested `@paginate` whose
+  parent type is no model is one, and a record that pages an association there a client error.
 
 ## [0.8.2] - 2026-10-30
 
