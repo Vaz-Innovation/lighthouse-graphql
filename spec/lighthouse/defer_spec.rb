@@ -14,6 +14,10 @@ class DeferSpecNames
   def self.call(*) = %w[ann bob cat dan]
 end
 
+class DeferSpecNothing
+  def self.call(*) = nil
+end
+
 # @defer (Lighthouse::GraphQL::Defer): the fields of a fragment arrive after the rest.
 RSpec.describe 'Deferring fields' do
   include_context 'with PHP Lighthouse models'
@@ -25,6 +29,7 @@ RSpec.describe 'Deferring fields' do
         user(id: ID! @eq): User @find(model: "LH::User")
         shelf: [Titled!]! @field(resolver: "DeferSpecShelf")
         names: [String!]! @field(resolver: "DeferSpecNames")
+        maybe: [String!] @field(resolver: "DeferSpecNothing")
       }
       type Mutation {
         createUser(name: String!): User @create(model: "LH::User")
@@ -298,6 +303,10 @@ RSpec.describe 'Deferring fields' do
 
       expect(all.first['data']).to eq('names' => %w[ann bob])
       expect(all.last['incremental']).to eq([{ 'id' => '0', 'items' => %w[cat dan] }])
+    end
+
+    it 'answers null for a nullable list that resolves to null, as without @stream' do
+      expect(payloads('{ maybe @stream(initialCount: 1) }')).to eq([{ 'data' => { 'maybe' => nil }, 'pending' => [], 'hasNext' => false }])
     end
 
     it 'answers the whole list when it is shorter than initialCount, or the stream is off' do

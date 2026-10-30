@@ -31,8 +31,9 @@ class Lighthouse::GraphQL::Incremental::StreamExtension < GraphQL::Schema::Field
 
   private
 
+  # A list the resolver answered; nil (a nullable list's null) answers to `to_a` too, and stays null.
   def list?(value)
-    value.respond_to?(:to_a) && !value.is_a?(Hash)
+    !value.nil? && value.respond_to?(:to_a) && !value.is_a?(Hash)
   end
 
   # The first `initial` items, with the rest kept in the State; the list as it is when there is no rest to stream.
