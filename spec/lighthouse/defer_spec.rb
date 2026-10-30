@@ -225,6 +225,37 @@ RSpec.describe 'Deferring fields' do
       expect(loud_calls.size).to eq(3)
     end
 
+    describe 'a field asked for outside a @defer too' do
+      it 'comes in the first payload, deferred only where every declaration is, as Apollo and PHP Lighthouse have it' do
+        query = <<~GRAPHQL
+          { user(id: 1) { ...UserWithCompany ... @defer { company { name } } } }
+          fragment UserWithCompany on User { name company { name } }
+        GRAPHQL
+
+        expect(payloads(query)).to eq([{ 'data' => { 'user' => { 'name' => 'u0', 'company' => { 'name' => 'Acme' } } }, 'pending' => [],
+                                         'hasNext' => false }])
+      end
+
+      it 'brings the selections the deferred declaration adds with it, and defers the rest of the fragment' do
+        all = payloads('{ users { company { name } ... @defer { name company { id } } } }')
+
+        expect(all.first['data']['users'].first).to eq('company' => { 'name' => 'Acme', 'id' => '1' })
+        expect(all.last['incremental'].first['data']).to eq('name' => 'u0')
+      end
+
+      it 'keeps the @include of the fragment on what it brings' do
+        query = 'query($on: Boolean!) { users { company { name } ... @defer @include(if: $on) { name company { id } } } }'
+
+        expect(payloads(query, variables: { 'on' => false }).first['data']['users'].first).to eq('company' => { 'name' => 'Acme' })
+      end
+
+      it 'is not a fragment nested in one that delivers it' do
+        all = payloads('{ user(id: 1) { ... @defer(label: "a") { name company { name } ... @defer(label: "b") { company { name } } } } }')
+
+        expect(pending(*all).pluck('label')).to eq(%w[a])
+      end
+    end
+
     it 'does not skip an @include the fragment is under' do
       all = payloads('query($on: Boolean!) { users { ... @defer @include(if: $on) { name } } }', variables: { 'on' => false })
 

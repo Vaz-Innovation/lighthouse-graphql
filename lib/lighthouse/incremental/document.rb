@@ -1,19 +1,29 @@
 # frozen_string_literal: true
 
+require 'set'
+
 # Reads a query's @defer and @stream for Run: stamps each with the number of its
 # fragment (as its `label`, see DeferDirective) in a copy of the document, with
 # the fragments it found. The rules the directives follow are Rules', which
 # graphql-ruby checks for every query, before the first pass runs.
 #
-# A fragment leaves out the fields its selection set already asks for outside
-# it (`id` in `{ id ... @defer { id name } }`), which the first response delivers:
-# only those without selections or directives of their own, so no field resolves twice.
+# A field is deferred only when every declaration of it is, as Apollo and PHP
+# Lighthouse have it: a field of a deferred fragment that the selection set also
+# asks for outside any @defer (itself, or through a fragment without directives)
+# comes in the payload that delivers the other declaration, and does not resolve
+# again. A leaf (`id` in `{ id ... @defer { id name } }`) is left out of the
+# fragment; a field with selections moves, with them, to an inline fragment next
+# to it that is not deferred (with the fragment's type condition, @skip and
+# @include), so graphql-ruby merges it into the other declaration. A fragment
+# left with nothing of its own is not deferred at all. Only the fragment's own
+# fields are looked at, not those of the fragments it holds.
 class Lighthouse::GraphQL::Incremental::Document
   Nodes = ::GraphQL::Language::Nodes
   DIRECTIVES = %w[defer stream].freeze
   Prepared = Struct.new(:document, :fragments, keyword_init: true)
 
-  # Where a selection set sits: the type it selects on, and the response keys of the fields it asks for itself.
+  # Where a selection set sits: the type it selects on, and the response keys it asks for
+  # outside any @defer (its own, and an enclosing one's on the same object).
   Scope = Struct.new(:type, :covered)
 
   def self.prepare(schema, document)
@@ -54,7 +64,7 @@ class Lighthouse::GraphQL::Incremental::Document
   private
 
   def operation(definition)
-    scope = Scope.new(@schema.root_type_for_operation(definition.operation_type))
+    scope = Scope.new(@schema.root_type_for_operation(definition.operation_type), Set.new)
     definition.merge(selections: walk(definition.selections, scope))
   end
 
@@ -64,15 +74,15 @@ class Lighthouse::GraphQL::Incremental::Document
 
     definition = @definitions[name] or return nil
     @stamped[name] = definition
-    scope = Scope.new(@schema.get_type(definition.type.name))
+    scope = Scope.new(@schema.get_type(definition.type.name), Set.new)
     @stamped[name] = definition.merge(selections: walk(definition.selections, scope))
   end
 
+  # `scope.covered`: what an enclosing selection set on the same object asks for.
   def walk(selections, scope)
-    scope = scope.dup
-    scope.covered = selections.grep(Nodes::Field).select { |field| field.directives.empty? }.to_set { |field| field.alias || field.name }
+    scope = Scope.new(scope.type, scope.covered | covered(selections, scope.type))
 
-    selections.map do |selection|
+    selections.flat_map do |selection|
       case selection
       when Nodes::Field then field(selection, scope)
       when Nodes::InlineFragment then inline_fragment(selection, scope)
@@ -86,7 +96,7 @@ class Lighthouse::GraphQL::Incremental::Document
     type = scope.type
     definition = type && !type.kind.union? ? @schema.get_field(type, node.name) : nil
     selections = node.selections
-    selections = walk(selections, Scope.new(definition&.type&.unwrap)) unless selections.empty?
+    selections = walk(selections, Scope.new(definition&.type&.unwrap, Set.new)) unless selections.empty?
     node.merge(selections: selections, directives: stamp_stream(node.directives))
   end
 
@@ -102,7 +112,7 @@ class Lighthouse::GraphQL::Incremental::Document
 
   def inline_fragment(node, scope)
     condition = node.type&.name
-    inner = walk(node.selections, Scope.new(condition ? @schema.get_type(condition) : scope.type))
+    inner = walk(node.selections, Scope.new(condition ? @schema.get_type(condition) : scope.type, scope.covered))
     stamp(node, inner, scope, condition) { |selections| node.merge(selections: selections) }
   end
 
@@ -113,20 +123,74 @@ class Lighthouse::GraphQL::Incremental::Document
     stamp(node, definition.selections, scope, definition.type.name) { |_| node }
   end
 
-  # `node` with its @defer stamped; `selections` are what a deferred fragment runs,
-  # `condition` the name of its type condition.
+  # `node` with its @defer stamped (and, next to it, what it brings to the first payload);
+  # `selections` are what a deferred fragment runs, `condition` the name of its type condition.
   def stamp(node, selections, scope, condition)
-    directives = node.directives
-    defer = directives.find { |directive| directive.name == 'defer' }
-    return yield(selections).merge(directives: directives) unless stampable?(defer)
+    defer = node.directives.find { |directive| directive.name == 'defer' }
+    return yield(selections).merge(directives: node.directives) unless stampable?(defer)
 
-    id = @fragments.size
+    others = node.directives.reject { |directive| directive.equal?(defer) }
+    shared, kept = selections.partition { |selection| shared?(selection, scope) }
+    return yield(selections).merge(directives: others) if kept.empty?
+
+    id = register(defer, kept, scope, condition)
+    # @skip and @include answer before @defer does.
+    [yield(selections).merge(directives: others + [stamp_label(defer, id)]), *brought(shared, condition, others)]
+  end
+
+  # A deferred fragment that runs `selections`: its number.
+  def register(defer, selections, scope, condition)
     @fragments << Lighthouse::GraphQL::Incremental::State::Fragment.new(
-      id: id, node: Nodes::InlineFragment.new(selections: prune(selections, scope.covered)),
+      id: @fragments.size, node: Nodes::InlineFragment.new(selections: selections),
       condition: condition, parent_type: scope.type&.graphql_name, label: label_of(defer)
     )
-    # @skip and @include answer before @defer does.
-    yield(selections).merge(directives: directives.reject { |directive| directive.equal?(defer) } + [stamp_label(defer, id)])
+    @fragments.size - 1
+  end
+
+  # The fields with selections a deferred fragment shares with the rest, in an inline fragment that is not deferred.
+  def brought(shared, condition, directives)
+    shared = shared.reject { |field| field.selections.empty? }
+    return [] if shared.empty?
+
+    [Nodes::InlineFragment.new(type: condition && Nodes::TypeName.new(name: condition), directives: directives, selections: shared)]
+  end
+
+  # The response keys `selections` ask for wherever they run on an object of `type`, outside any
+  # @defer: their fields without directives, and those of their fragments without directives that
+  # apply to every object of the type.
+  def covered(selections, type, seen = Set.new)
+    selections.each_with_object(Set.new) do |selection, keys|
+      next unless selection.directives.empty?
+
+      selection.is_a?(Nodes::Field) ? keys << response_key(selection) : keys.merge(fragment_keys(selection, type, seen))
+    end
+  end
+
+  # Those of an inline fragment or a fragment spread (each definition once).
+  def fragment_keys(fragment, type, seen)
+    if fragment.is_a?(Nodes::FragmentSpread)
+      definition = @definitions[fragment.name]
+      return [] unless definition && seen.add?(fragment.name)
+
+      fragment = definition
+    end
+    applies?(fragment.type&.name, type) ? covered(fragment.selections, type, seen) : []
+  end
+
+  # Does a type condition hold for every object of `type`?
+  def applies?(condition, type)
+    return true if condition.nil? || condition == type&.graphql_name
+    return false unless type&.kind&.object?
+
+    named = @schema.get_type(condition)
+    !named.nil? && @schema.possible_types(named).include?(type)
+  end
+
+  def response_key(field) = field.alias || field.name
+
+  # A field the selection set asks for outside any @defer.
+  def shared?(selection, scope)
+    selection.is_a?(Nodes::Field) && scope.covered.include?(response_key(selection))
   end
 
   # A directive Document can stamp: one with no label, or a literal one. A label that is a
@@ -139,16 +203,6 @@ class Lighthouse::GraphQL::Incremental::Document
   def stamp_label(directive, id)
     label = Nodes::Argument.new(name: 'label', value: Lighthouse::GraphQL::Incremental::State.stamp(id, label_of(directive)))
     directive.merge(arguments: directive.arguments.reject { |argument| argument.name == 'label' } + [label])
-  end
-
-  # The fragment's fields, but those the rest of the selection set delivers.
-  def prune(selections, covered)
-    return selections if covered.empty?
-
-    selections.reject do |selection|
-      selection.is_a?(Nodes::Field) && selection.selections.empty? && selection.directives.empty? &&
-        covered.include?(selection.alias || selection.name)
-    end
   end
 
   def label_of(directive)
