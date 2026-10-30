@@ -173,8 +173,16 @@ class Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
 
   # Did the client send an argument or input field, at any depth, that
   # carries an argument-builder directive? As PHP Lighthouse's wouldEnhanceBuilder.
+  # A @search argument narrows only when a search runs, for a string: null or
+  # nothing leaves the query whole (PHP Lighthouse's ScoutEnhancer#wouldEnhanceBuilder).
   def filtering?(args_h)
-    arg_builders(args_h).any? { |values, node, _dnode, _builder_class| arg_present?(values, [node.name]) }
+    arg_builders(args_h).any? do |values, node, _dnode, builder_class|
+      if builder_class == Lighthouse::GraphQL::Directives::Arguments::Search
+        dig_arg(values, [node.name]).is_a?(String)
+      else
+        arg_present?(values, [node.name])
+      end
+    end
   end
 
   # [values, node, directive, builder class] for every argument-builder

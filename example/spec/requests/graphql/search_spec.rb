@@ -440,6 +440,22 @@ RSpec.describe 'GraphQL @search', type: :request do
         .to match(/rank"? DESC, #{Regexp.escape(key)} DESC\z/)
     end
 
+    it 'deletes what a search finds, and refuses to delete every post when no search runs' do
+      mutations = schema_from(<<~GRAPHQL)
+        type PgSearchedPost { id: ID! title: String! }
+        type Query { posts: [PgSearchedPost!]! @all }
+        type Mutation { deletePosts(search: String @search): [PgSearchedPost!]! @delete }
+      GRAPHQL
+
+      ['', '(search: null)'].each do |arguments|
+        expect(run(mutations, "mutation { deletePosts#{arguments} { id } }")['errors'].pluck('message'))
+          .to eq(['Would modify all models, use an argument to filter.'])
+      end
+      expect(run(mutations, 'mutation { deletePosts(search: "") { id } }').dig('data', 'deletePosts')).to eq([])
+      expect(titles(run(mutations, 'mutation { deletePosts(search: "bad") { title } }'), 'deletePosts')).to eq(['Bad title'])
+      expect(PgSearchedPost.count).to eq(3)
+    end
+
     it 'searches within the pg_search scope that is named' do
       expect(titles(run(schema, '{ byTitle(search: "plain") { title } }'), 'byTitle')).to eq(['Plain'])
     end

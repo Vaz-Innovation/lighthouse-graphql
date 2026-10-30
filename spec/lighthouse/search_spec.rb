@@ -563,7 +563,7 @@ RSpec.describe '@search' do
       end
 
       it 'refuses any other directive: the engine answers with records, not a relation' do
-        %w[@first @count].each do |directive|
+        %w[@first @count @delete].each do |directive|
           expect { build_posts("posts(search: String @search): SearchPost #{directive}(model: \"SearchPost\")") }
             .to raise_error(Lighthouse::DefinitionError, /needs @all or @paginate on a root field/)
         end
@@ -649,6 +649,39 @@ RSpec.describe '@search' do
     it 'does not search without the argument' do
       expect(titles(run(schema, '{ posts { title } }')).size).to eq(3)
       expect(relational.queries).to be_empty
+    end
+
+    describe 'on a mass mutation' do
+      let(:relational) { FakeSearch::Relational.new([SearchPost, SearchSoftPost]) }
+      let(:mutations) do
+        build_schema(<<~GRAPHQL)
+          type SearchPost { id: ID! title: String! }
+          type SearchSoftPost { id: ID! title: String! }
+          type Query { posts: [SearchPost!]! @all }
+          type Mutation {
+            deletePosts(search: String @search): [SearchPost!]! @delete
+            forceDeletePosts(search: String @search): [SearchSoftPost!]! @forceDelete
+            restorePosts(search: String @search): [SearchSoftPost!]! @restore
+          }
+        GRAPHQL
+      end
+
+      it 'refuses to modify every row when the client sends no search, or null: a search that does not run filters nothing' do
+        SearchSoftPost.where(title: 'bad').update_all(deleted_at: Time.current) # rubocop:disable Rails/SkipsModelValidations
+
+        %w[deletePosts forceDeletePosts restorePosts].product(['', '(search: null)']).each do |field, arguments|
+          result = run(mutations, "mutation { #{field}#{arguments} { id } }")
+
+          expect(result['errors'].pluck('message')).to eq(['Would modify all models, use an argument to filter.'])
+        end
+        expect([SearchPost.count, SearchSoftPost.where.not(deleted_at: nil).count]).to eq([4, 1])
+      end
+
+      it 'modifies what the search finds' do
+        run(mutations, 'mutation { deletePosts(search: "great") { id } }')
+
+        expect(SearchPost.pluck(:title)).to eq(['bad'])
+      end
     end
 
     it "walks the field's argument directives once a request, and its @search arguments once a schema" do
