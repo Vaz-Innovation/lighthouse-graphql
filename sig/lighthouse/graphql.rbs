@@ -238,6 +238,10 @@ module Lighthouse
         def deferred?: () -> bool
         # The initial payload, then one per round of deferred fragments, until `hasNext` is false.
         def each_payload: () { (Hash[String, json]) -> void } -> void
+        # The block each_payload calls with the whole response once it is done.
+        def on_finish: () { (Hash[String, untyped]) -> void } -> void
+        # The whole response: the data and the errors of every round.
+        def response: () -> Hash[String, untyped]
       end
 
       # The parts of a `multipart/mixed` response (graphql-over-http's IncrementalDelivery).

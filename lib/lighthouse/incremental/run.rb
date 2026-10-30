@@ -48,6 +48,7 @@ class Lighthouse::GraphQL::Incremental::Run
     @next_id = 0
     @running = []
     @round = 0
+    @errors = []
   end
 
   def start
@@ -65,7 +66,8 @@ class Lighthouse::GraphQL::Incremental::Run
   # The initial payload, then each later one, until `hasNext` is false. A round that fails
   # ends the stream with a last payload, which completes, with an error, the ids the client
   # was sent and has not seen completed (Controller::Performed is not a StandardError, but
-  # ends the round all the same), then raises again.
+  # ends the round all the same), then raises again. However it ends, the `on_finish`
+  # block gets the response.
   def each_payload
     yield Serializer.initial(@result, @announced, has_next: deferred?)
     until @queue.empty?
@@ -77,6 +79,20 @@ class Lighthouse::GraphQL::Incremental::Run
       end
       yield payload
     end
+  ensure
+    finish
+  end
+
+  # The block to call with the whole response once the last payload is out.
+  def on_finish(&block)
+    @finished = block
+  end
+
+  # The whole response as the client puts it together: the data of every round, the errors of
+  # every round (the first pass's first), the first pass's extensions.
+  def response
+    first = @result.to_h
+    { 'data' => @tree, 'errors' => (first['errors'].to_a + @errors).presence, 'extensions' => first['extensions'] }.compact
   end
 
   private
@@ -198,6 +214,7 @@ class Lighthouse::GraphQL::Incremental::Run
   def entry(unit, partial, response)
     data, errors, extensions = response.values_at('data', 'errors', 'extensions')
     absolute_errors(errors, partial) if unit.stream?
+    @errors.concat(errors.to_a)
     return { 'errors' => errors, 'extensions' => extensions } if data.nil?
 
     merge(unit, data.deep_dup)
@@ -249,10 +266,17 @@ class Lighthouse::GraphQL::Incremental::Run
     !data.nil?
   end
 
+  def finish
+    finished = @finished
+    @finished = nil
+    finished&.call(response)
+  end
+
   # The round that failed: its fragments were announced in an earlier payload. Those it
   # found itself (queued) were never sent, and are not completed.
   def failure_payload
     errors = [{ 'message' => 'Internal server error' }]
+    @errors.concat(errors)
     Serializer.subsequent(incremental: [], completed: @running.map do |pending|
       { 'id' => pending.id, 'errors' => errors }
     end, pending: [], has_next: false)

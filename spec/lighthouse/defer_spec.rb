@@ -840,6 +840,28 @@ RSpec.describe 'Deferring fields' do
     end
   end
 
+  describe 'the operation events of a streamed response' do
+    it 'ends the operation after the last round, with the data and the errors of every round' do
+      log = []
+      Lighthouse::Events.listen(Lighthouse::Events::EndOperationOrOperations) { |event| (log << [:end, event.result_or_results.to_h]) && nil }
+      run = Lighthouse::GraphQL::PersistedQueries.incremental(schema, query: '{ user(id: 1) { id ... @defer { name broken } } }')
+      run.each_payload { |payload| log << [:payload, payload['hasNext']] }
+
+      expect(log.map(&:first)).to eq(%i[payload payload end])
+      expect(log.last.last['data']).to eq('user' => { 'id' => '1', 'name' => 'u0', 'broken' => nil })
+      expect(log.last.last['errors'].pluck('message', 'path')).to eq([['no u0', %w[user broken]]])
+    end
+
+    it 'ends one that defers nothing at once, with its result, as schema.execute' do
+      ended = []
+      Lighthouse::Events.listen(Lighthouse::Events::EndOperationOrOperations) { |event| (ended << event.result_or_results) && nil }
+
+      run = Lighthouse::GraphQL::PersistedQueries.incremental(schema, query: '{ user(id: 1) { id } }')
+
+      expect(ended).to eq([run.result])
+    end
+  end
+
   describe Lighthouse::GraphQL::Defer do
     it 'streams to a client that accepts multipart/mixed, in this gem\'s format' do
       expect(described_class.accepts?('multipart/mixed;incrementalSpec=v0.2,application/json')).to be(true)

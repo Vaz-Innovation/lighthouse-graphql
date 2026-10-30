@@ -60,15 +60,17 @@ module Lighthouse::GraphQL::PersistedQueries
 
   # `execute` for a response that may be streamed (Defer): the Incremental::Run
   # of the query, started (its first pass has run), or the ready-to-render Hash
-  # of a protocol error. Dispatches the same events as `execute`, the end one
-  # with the first pass's result.
+  # of a protocol error. Dispatches the same events as `execute`; for a run
+  # that defers, EndOperationOrOperations comes once its last round has run,
+  # with the whole response (Incremental::Run#response): the data of every
+  # round, and the errors of every round.
   def incremental(schema, query:, extensions: nil, **options)
     operation(query, extensions, options) { |text| Lighthouse::GraphQL::Incremental::Run.new(schema, text, **options).start }
   end
 
   # What `execute` and `incremental` share: the block runs the query the request names
-  # (`text`), between StartOperationOrOperations and EndOperationOrOperations; a protocol
-  # error comes back as its Hash.
+  # (`text`), between StartOperationOrOperations and EndOperationOrOperations (which a
+  # Run that defers dispatches when it is done); a protocol error comes back as its Hash.
   def operation(query, extensions, options)
     operation = { query: query, variables: options[:variables], operation_name: options[:operation_name], extensions: extensions }
     Lighthouse::Events.dispatch(Lighthouse::Events::StartOperationOrOperations.new(operation))
@@ -78,8 +80,10 @@ module Lighthouse::GraphQL::PersistedQueries
       rescue Error => e
         e.to_h
       end
-    ended = result.is_a?(Lighthouse::GraphQL::Incremental::Run) ? result.result : result
-    Lighthouse::Events.dispatch(Lighthouse::Events::EndOperationOrOperations.new(ended))
+    ended = ->(response) { Lighthouse::Events.dispatch(Lighthouse::Events::EndOperationOrOperations.new(response)) }
+    return result.tap { |run| run.on_finish(&ended) } if result.is_a?(Lighthouse::GraphQL::Incremental::Run) && result.deferred?
+
+    ended.call(result.is_a?(Lighthouse::GraphQL::Incremental::Run) ? result.result : result)
     result
   end
 
