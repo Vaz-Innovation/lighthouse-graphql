@@ -218,7 +218,7 @@ class Lighthouse::GraphQL::Incremental::Run
   # The response's data so far, with (a copy of) a unit's: a stream's items after the list's, a
   # fragment's fields in its object.
   def merge(unit, data)
-    target = unit.path.reduce(@tree) { |value, key| value.is_a?(Array) || value.is_a?(Hash) ? value[key] : nil }
+    target = State.at(@tree, unit.path)
     unit.stream? ? target&.concat(data) : deep_merge(target, data)
   end
 
@@ -247,14 +247,7 @@ class Lighthouse::GraphQL::Incremental::Run
   end
 
   # Does `path` lead to a value in the response's data so far?
-  def present?(path)
-    data = @tree
-    path.each do |key|
-      data = data.is_a?(Array) || data.is_a?(Hash) ? data[key] : nil
-      return false if data.nil?
-    end
-    !data.nil?
-  end
+  def present?(path) = !State.at(@tree, path).nil?
 
   def finish
     finished = @finished

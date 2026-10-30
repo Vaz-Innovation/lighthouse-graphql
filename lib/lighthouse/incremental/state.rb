@@ -17,6 +17,11 @@ class Lighthouse::GraphQL::Incremental::State
   CONTEXT_KEY = :lighthouse_incremental
   MISSING = Object.new.freeze
 
+  # What `path` leads to in a response's `data` (Hashes and lists), or nil where it leads nowhere.
+  def self.at(data, path)
+    path.reduce(data) { |value, key| (value.is_a?(Array) && key.is_a?(Integer)) || value.is_a?(Hash) ? value[key] : nil }
+  end
+
   # A deferred fragment waiting to run on `object` (the application value, not graphql-ruby's
   # wrapper) of the object type `type`, at `path` of the response; or, with a `list_type`, the
   # items of a streamed list that the first response left out (`object`), which start at index

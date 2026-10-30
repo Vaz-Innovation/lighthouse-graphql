@@ -168,7 +168,5 @@ class Lighthouse::GraphQL::Incremental::Plan
     unit.selections.each { |selection| keys[selection.alias || selection.name] ||= unit if selection.is_a?(Nodes::Field) }
   end
 
-  def at(path)
-    path.reduce(@tree) { |data, key| data.is_a?(Array) || data.is_a?(Hash) ? data[key] : nil }
-  end
+  def at(path) = State.at(@tree, path)
 end

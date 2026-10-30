@@ -928,6 +928,17 @@ RSpec.describe 'Deferring fields' do
     end
   end
 
+  describe Lighthouse::GraphQL::Incremental::State do
+    it 'walks a response path, in Hashes and lists, to nil where it leads nowhere' do
+      data = { 'users' => [{ 'posts' => [{ 'title' => 'p0' }] }, nil] }
+
+      expect(described_class.at(data, ['users', 0, 'posts', 0, 'title'])).to eq('p0')
+      expect([described_class.at(data, ['users', 1, 'posts']), described_class.at(data, %w[users posts]), described_class.at(nil, ['users'])])
+        .to eq([nil, nil, nil])
+      expect(described_class.at(data, [])).to equal(data)
+    end
+  end
+
   describe Lighthouse::GraphQL::Incremental::Multipart do
     it 'writes the parts of a multipart/mixed body, each ending with the boundary that opens the next' do
       stream = StringIO.new
