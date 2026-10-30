@@ -25,6 +25,11 @@ class DeferSpecNothing
   def self.call(*) = nil
 end
 
+# Users, with a null between them.
+class DeferSpecGaps
+  def self.call(*) = [LH::User.first, nil, LH::User.second]
+end
+
 # @defer (Lighthouse::GraphQL::Defer): the fields of a fragment arrive after the rest.
 RSpec.describe 'Deferring fields' do
   include_context 'with PHP Lighthouse models'
@@ -40,7 +45,10 @@ RSpec.describe 'Deferring fields' do
         someNames: [String!] @field(resolver: "DeferSpecNames")
         limited: String @throttle(maxAttempts: 0) @field(resolver: "DeferSpecNames")
         noted: String @throttle(maxAttempts: 0, with: "note_it") @field(resolver: "DeferSpecNames")
+        gaps: [User] @field(resolver: "DeferSpecGaps")
+        strictGaps: [User!] @field(resolver: "DeferSpecGaps")
       }
+      directive @mark on INLINE_FRAGMENT
       type Mutation {
         createUser(name: String!): User @create(model: "LH::User")
       }
@@ -212,7 +220,7 @@ RSpec.describe 'Deferring fields' do
       expect(all.map { |payload| payload['pending'].to_a.pluck('label') }).to eq([%w[a c], %w[b d], []])
       expect(all[1]['incremental']).to eq([{ 'id' => '0', 'data' => { 'name' => 'u0' } }])
       expect(all[1]['completed'].pluck('id')).to eq(%w[0 1])
-      expect(all[2]['incremental']).to eq([{ 'id' => '2', 'data' => { 'loud' => 'U0', 'id' => '1' } }])
+      expect(all[2]['incremental']).to eq([{ 'id' => '2', 'data' => { 'loud' => 'U0' } }, { 'id' => '3', 'data' => { 'id' => '1' } }])
     end
 
     it 'costs the queries of the same fragments inline' do
@@ -442,7 +450,9 @@ RSpec.describe 'Deferring fields' do
       it 'is sent once when two fragments of a round share it' do
         all = payloads('{ user(id: 1) { ... @defer(label: "a") { name loud } ... @defer(label: "b") { loud id } } }')
 
-        expect(all.last['incremental']).to eq([{ 'id' => '0', 'data' => { 'name' => 'u0', 'loud' => 'U0', 'id' => '1' } }])
+        # Three grouped field sets: a's, the one a and b share (sent under a's id), b's.
+        expect(all.last['incremental']).to eq([{ 'id' => '0', 'data' => { 'name' => 'u0' } }, { 'id' => '0', 'data' => { 'loud' => 'U0' } },
+                                               { 'id' => '1', 'data' => { 'id' => '1' } }])
         expect(all.last['completed']).to eq([{ 'id' => '0' }, { 'id' => '1' }])
         expect(loud_calls).to eq([1])
       end
@@ -520,6 +530,36 @@ RSpec.describe 'Deferring fields' do
   end
 
   describe '@stream' do
+    it 'streams the null items of a list of objects as null' do
+      all = payloads('{ gaps @stream(initialCount: 0) { name } }')
+
+      expect(all.last['incremental']).to eq([{ 'id' => '0', 'items' => [{ 'name' => 'u0' }, nil, { 'name' => 'u1' }] }])
+    end
+
+    it 'fails a stream with a null item where the list has non-null items' do
+      all = payloads('{ strictGaps @stream(initialCount: 1) { name } }')
+
+      expect(all.last['incremental']).to be_nil
+      message = "Cannot return null for non-nullable element of type 'User!' for Query.strictGaps"
+      expect(all.last['completed']).to eq([{ 'id' => '0', 'errors' => [{ 'message' => message, 'path' => ['strictGaps', 1] }] }])
+    end
+
+    it 'fails a stream whose non-null item an error nulls' do
+      all = payloads('{ users @stream(initialCount: 0) { required } }')
+
+      expect(all.last['incremental']).to be_nil
+      expect(all.last['completed'].first['errors'].pluck('path')).to eq((0..2).map { |index| ['users', index, 'required'] })
+    end
+
+    it 'leaves out of the later items what a fragment selects when the streamed field is spread both inside it and outside' do
+      all = payloads(<<~GRAPHQL)
+        { user(id: 1) { ... @defer(label: "a") { required posts { title } ...F } ...F } }
+        fragment F on User { posts @stream(initialCount: 0) { id } }
+      GRAPHQL
+
+      expect(assembled(all)).to eq('user' => { 'posts' => [{ 'id' => LH::Post.first.id.to_s }] })
+    end
+
     it 'answers the first items at once and the others later, as the draft does' do
       all = payloads('{ users @stream(initialCount: 1, label: "more") { name } }')
 
@@ -912,6 +952,41 @@ RSpec.describe 'Deferring fields' do
       expect(all.last['incremental']).to eq([{ 'id' => ids['a'], 'subPath' => ['user'], 'data' => { 'name' => 'u0' } }])
       expect(all.last['completed'].find { |entry| entry['id'] == ids['a'] }).to eq('id' => ids['a'])
       expect(all.last['completed'].find { |entry| entry['id'] == ids['b'] }['errors'].pluck('path')).to eq([%w[user required]])
+    end
+
+    it "sends a fragment's fields when another fragment at its path fails" do
+      all = payloads('{ user(id: 1) { ... @defer(label: "a") { name } ... @defer(label: "b") { required } } }')
+
+      expect(all.last['incremental']).to eq([{ 'id' => '0', 'data' => { 'name' => 'u0' } }])
+      expect(all.last['completed']).to match([{ 'id' => '0' }, { 'id' => '1', 'errors' => [hash_including('path' => %w[user required])] }])
+    end
+
+    it 'sends none of what a fragment that fails adds to an object field it shares with one that does not' do
+      all = payloads('{ user(id: 1) { ... @defer(label: "a") { required company { name } } ... @defer(label: "b") { company { id } } } }')
+
+      expect(assembled(all)).to eq('user' => { 'company' => { 'id' => LH::Company.first.id.to_s } })
+      expect(all.last['completed'].map { |entry| [entry['id'], entry['errors']&.pluck('path')] }).to eq([['0', [%w[user required]]], ['1', nil]])
+    end
+
+    it 'fails only the fragment whose field of a shared object nulls it' do
+      all = payloads('{ user(id: 1) { ... @defer(label: "a") { company { strict } } ... @defer(label: "b") { company { name } } } }')
+
+      expect(assembled(all)).to eq('user' => { 'company' => { 'name' => 'Acme' } })
+      expect(all.last['completed'].find { |entry| entry['id'] == '0' }['errors'].pluck('path')).to eq([%w[user company strict]])
+    end
+
+    it 'delivers the fragment nested in one that does not fail, beside one that does' do
+      all = payloads('{ user(id: 1) { ... @defer(label: "a") { required } ... @defer(label: "b") { name ... @defer(label: "c") { loud } } } }')
+
+      expect(pending(*all).pluck('label')).to eq(%w[a b c])
+      expect(assembled(all)).to eq('user' => { 'name' => 'u0', 'loud' => 'U0' })
+    end
+
+    it 'announces the fragments a unit that carries no data found' do
+      all = payloads('{ user(id: 1) { ... @defer(label: "a") { ... @mark { ... @defer(label: "b") { name } } } } }')
+
+      expect(pending(*all).pluck('label')).to eq(%w[a b])
+      expect(assembled(all)).to eq('user' => { 'name' => 'u0' })
     end
 
     it 'sends no entry that carries nothing: its extensions go on the payload' do

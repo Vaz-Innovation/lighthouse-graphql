@@ -16,8 +16,9 @@
 # Then it goes in rounds, as PHP Lighthouse's Defer: each round runs every
 # fragment pending, on the object it was found on, as Plan cuts them into units
 # (GraphQL::Query::Partial), all in one multiplex so the Dataloader batches across
-# them, and is one payload; the fragments they hold are announced in it, and make
-# the next round. A field resolves once: what the response already holds is not
+# them (and in a pass after it, those Plan plans below the object fields they
+# resolve), and is one payload; the fragments they hold are announced in it, and
+# make the next round. A field resolves once: what the response already holds is not
 # run again, and a mutation does not run again (PHP Lighthouse runs the whole
 # query again each round).
 #
@@ -48,6 +49,7 @@ class Lighthouse::GraphQL::Incremental::Run
     @round = 0
     @errors = []
     @open = {}
+    @found = Set.new
   end
 
   # Runs the first pass. The block, if given, gets what ends the operation (`finish`): the first
@@ -168,25 +170,39 @@ class Lighthouse::GraphQL::Incremental::Run
     @running = @queue
     @queue = []
     plan = Lighthouse::GraphQL::Incremental::Plan.new(@result.query, @state, @tree)
-    units = plan.units(@running)
-    partials = units.map { |unit| partial(unit) }
-    outcome = Lighthouse::GraphQL::Incremental::Delivery.new(@state, @tree).call(units, partials, run(partials))
+    units, partials, responses = passes(plan)
+    outcome = Lighthouse::GraphQL::Incremental::Delivery.new(@state, @tree).call(units, partials, responses)
     @unsent = outcome.errors
-    found(plan, partials, outcome)
+    found(plan, units, partials, outcome.failed)
     completed = @running.map { |pending| { 'id' => pending.id, 'errors' => outcome.failed[pending] }.compact }
     Serializer.subsequent(incremental: outcome.incremental, completed: completed, extensions: outcome.extensions,
                           pending: @announced, has_next: deferred?)
   end
 
-  # Announce the fragments the round found: Plan, and each unit's Partial, but those of a
-  # fragment that failed.
-  def found(plan, partials, outcome)
-    @announced = []
-    announce(@state.drain(plan).reject { |pending| outcome.failed.key?(pending.parent) })
-    partials.each do |partial|
-      found = @state.drain(partial)
-      announce(found) if outcome.delivered.key?(partial)
+  # The round's units, their partials and their responses: each pass's, until Plan has no more.
+  def passes(plan)
+    units = plan.units(@running)
+    all = [[], [], []]
+    until units.empty?
+      partials = units.map { |unit| partial(unit) }
+      responses = run(partials)
+      [units, partials, responses].each_with_index { |list, index| all[index].concat(list) }
+      units = plan.follow(units, responses)
     end
+    all
+  end
+
+  # Announce the fragments the round found, but those found only in fragments that `failed`: by
+  # Plan, in the fragments `parents`, and by each unit's Partial, in those the unit serves.
+  def found(plan, units, partials, failed)
+    @announced = []
+    lost = ->(pendings) { pendings.all? { |pending| failed.key?(pending) } }
+    found = @state.drain(plan).reject { |pending| lost.call(pending.parents) }
+    units.each_with_index do |unit, index|
+      drained = @state.drain(partials[index])
+      found.concat(drained) unless lost.call(unit.pendings)
+    end
+    announce(found)
   end
 
   # May the fragments of this round defer the fragments they hold? Not past the limits:
@@ -212,9 +228,9 @@ class Lighthouse::GraphQL::Incremental::Run
 
   def leaf_items?(unit) = unit.stream? && unit.type.unwrap.kind.leaf?
 
-  # A stream's Partial counts its items from 0: State puts them where they are in the list.
+  # A stream's Partial counts the items it runs from 0: State puts them where they are in the list.
   def place(partial, unit)
-    @state.offset(partial, unit.path, unit.owner.offset) if unit.stream?
+    @state.offset(partial, unit.path, unit.positions.map { |position| position + unit.owner.offset }) if unit.stream?
   end
 
   # The responses of the partials, run in one multiplex so the Dataloader batches across them.
@@ -224,11 +240,12 @@ class Lighthouse::GraphQL::Incremental::Run
     running { @schema.multiplex(partials, context: multiplex_context, max_complexity: nil).map(&:to_h) }
   end
 
-  # Give the fragments found their ids, and queue them. Those whose object an error nulled
-  # out of the response are dropped.
+  # Give the fragments found their ids, and queue them: each once at a path (a fragment spread
+  # twice on an object, or found by two units, is deferred once). Those whose object an error
+  # nulled out of the response are dropped.
   def announce(found)
     found.each do |pending|
-      next unless present?(pending.path)
+      next unless present?(pending.path) && @found.add?([pending.node.object_id, pending.path])
 
       pending.id = @next_id.to_s
       @next_id += 1

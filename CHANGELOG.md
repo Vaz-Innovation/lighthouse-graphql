@@ -87,7 +87,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   already loaded (`GraphQL::Query::Partial`), not the whole query again, so a field resolves once, a
   mutation runs once and the Dataloader batches across a round; a field also asked for outside the
   fragment comes in the first payload, once, and the fragment still completes, as the draft has it
-  (PHP Lighthouse and Apollo do not defer it); and a Non-Null field can be deferred. Needs
+  (PHP Lighthouse and Apollo do not defer it); the fields the same fragments select make one
+  grouped field set, as the draft's, so a fragment that fails fails only those it shares fields
+  with, and sends nothing (not even what it adds to a shared field); and a Non-Null field can be deferred. Needs
   graphql-ruby 2.5.23. See [performance.md](docs/performance.md#deferring-fields-experimental),
   which lists the differences.
 - **`@stream` (experimental)**, with `@defer` (PHP Lighthouse has none): `users @stream(initialCount: 2)
@@ -95,7 +97,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   format). A graphql-ruby trace module on the schema that uses the plugin cuts the list after its
   resolver ran, once, on any of its fields; a field that is not streamed costs it next to nothing. The later items run
   what the field's declarations select, together, so the Dataloader still batches. Items may carry
-  `@defer`. A negative `initialCount` is a field error.
+  `@defer`. A `null` item where the list's items are non-null fails the stream. A negative
+  `initialCount` is a field error.
 
 ### Changed
 

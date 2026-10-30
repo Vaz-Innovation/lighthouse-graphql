@@ -18,12 +18,16 @@ class Lighthouse::GraphQL::Incremental::State
   MISSING = Object.new.freeze
 
   # A deferred fragment waiting to run on `object` (the application value, not graphql-ruby's
-  # wrapper) of the object type `type`, at `path` of the response; or, with a `list_type`, the
-  # items of a streamed list that the first response left out (`object`), which start at index
-  # `offset` and run `selections`. `node`: the fragment, or the @stream directive. `id` is its
-  # string id in `pending` entries, set once announced.
-  Pending = Struct.new(:node, :object, :type, :path, :label, :id, :offset, :selections, :list_type, :parent, keyword_init: true) do
-    def stream? = !list_type.nil?
+  # wrapper) of the object type `type`, at `path` of the response, found by a round's Plan in the
+  # fragments `parents`; or, for the list `field` of `type`, the items of a streamed list that
+  # the response left out (`object`), which start at index `offset` and run `selections`.
+  # `node`: the fragment, or the @stream directive. `id` is its string id in `pending` entries,
+  # set once announced.
+  Pending = Struct.new(:node, :object, :type, :path, :label, :id, :offset, :selections, :field, :parents, keyword_init: true) do
+    def stream? = !field.nil?
+
+    # A stream's list type, nullable.
+    def list_type = field.type.non_null? ? field.type.of_type : field.type
   end
 
   # false once a limit is reached (Run): every fragment then runs where it stands,
@@ -36,7 +40,6 @@ class Lighthouse::GraphQL::Incremental::State
   def initialize
     @deferring = true
     @recorded = {}.compare_by_identity
-    @seen = {}.compare_by_identity
     @needed = Set.new
     @keys = Set.new
     @objects = {}
@@ -48,19 +51,19 @@ class Lighthouse::GraphQL::Incremental::State
     @document ||= Lighthouse::GraphQL::Incremental::Document.new(@query.schema, @query.document, @query.selected_operation)
   end
 
-  # A stream's Partial (`query`) runs the items of the list at `path` from 0, and they start at
-  # index `offset` of the response's list.
-  def offset(query, path, offset)
-    @offsets[query] = [path.size, offset]
+  # A stream's Partial (`query`) runs items of the list at `path`, counted from 0, that are at
+  # `positions` of the response's list.
+  def offset(query, path, positions)
+    @offsets[query] = [path.size, positions]
   end
 
   # `path` as a path of the response: in a stream's Partial, its items' indices count from the
   # list's first item. Everything keyed or answered by path goes through it.
   def absolute(query, path)
-    size, offset = @offsets[query]
-    return path unless offset&.positive? && path[size].is_a?(Integer)
+    size, positions = @offsets[query]
+    return path unless positions && path[size].is_a?(Integer)
 
-    path.dup.tap { |copy| copy[size] += offset }
+    path.dup.tap { |copy| copy[size] = positions[copy[size]] }
   end
 
   # true when the fragment of the @defer whose `arguments` graphql-ruby evaluates is deferred
@@ -78,10 +81,10 @@ class Lighthouse::GraphQL::Incremental::State
     true
   end
 
-  # true when the list field whose @stream has `arguments` streams: `items` (what is left of
+  # true when the list `field` whose @stream has `arguments` streams: `items` (what is left of
   # the list after the `initialCount` the first response has) will follow, with the selections
   # every declaration of the field gives them. `parent`: the wrapper of the field's object.
-  def stream(parent, arguments, items, context, list_type)
+  def stream(parent, arguments, items, context, field)
     return false unless @deferring
 
     query = context.query
@@ -89,21 +92,22 @@ class Lighthouse::GraphQL::Incremental::State
     path = absolute(query, context[:current_path])
     selections = document.merged(directive, path, parent.class, query, @deferring) or return false
 
-    record(query, Pending.new(node: directive, object: items, path: path, label: arguments[:label], offset: arguments[:initial_count],
-                              selections: selections, list_type: list_type))
+    record(query, Pending.new(node: directive, object: items, type: parent.class, path: path, label: arguments[:label],
+                              offset: arguments[:initial_count], selections: selections, field: field))
   end
 
-  # A deferred fragment `query` found (or a round's Plan, as `defer` would have), once per path.
+  # A deferred fragment `query` found (or a round's Plan, as `defer` would have). Run announces a
+  # fragment once at a path, however many times it is found there.
   def found(query, pending)
-    return unless (@seen[query] ||= Set.new).add?([pending.node.object_id, pending.path])
-
     need(pending.node, pending.path)
     record(query, pending)
   end
 
   # The pending fragments and lists `query` found (the GraphQL::Query of the first pass, a
-  # GraphQL::Query::Partial of a later one, or a round's Plan), forgotten once drained.
+  # GraphQL::Query::Partial of a later one, or a round's Plan), forgotten once drained, with
+  # what State knew of `query`.
   def drain(query)
+    @offsets.delete(query)
     @recorded.delete(query) || []
   end
 

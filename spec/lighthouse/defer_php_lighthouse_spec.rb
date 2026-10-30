@@ -46,8 +46,13 @@ RSpec.describe 'Deferring fields, as PHP Lighthouse tests it' do
   def chunks(payloads)
     paths = payloads.flat_map { |payload| payload['pending'].to_a }.to_h { |entry| [entry['id'], entry['path'].join('.')] }
     [{ 'data' => payloads.first['data'] }] + payloads.drop(1).map do |payload|
-      payload['incremental'].to_a.to_h { |entry| [paths.fetch(entry['id']), entry.except('id')] }
+      payload['incremental'].to_a.group_by { |entry| paths.fetch(entry['id']) }.transform_values { |entries| chunk(entries) }
     end
+  end
+
+  # The entries at one path, as PHP Lighthouse's one chunk a path.
+  def chunk(entries)
+    entries.map { |entry| entry.except('id') }.reduce { |all, entry| all.merge(entry) { |_, mine, theirs| mine.merge(theirs) } }
   end
 
   describe 'DeferTest' do
@@ -137,7 +142,7 @@ RSpec.describe 'Deferring fields, as PHP Lighthouse tests it' do
         # Two fields, each deferred on its own in PHP Lighthouse: two fragments here, one round.
         payloads = stream('{ posts { title ... @defer { author { name } } ... @defer { comments { message } } } }')
 
-        # The fragments of a round at one path run together: one entry each path, under the first id.
+        # The fragments of a round run together, each with an entry of its own at its path.
         expect(payloads.size).to eq(2)
         expect(payloads.first['pending'].pluck('path')).to eq([['posts', 0], ['posts', 0], ['posts', 1], ['posts', 1]])
         comments = [{ 'message' => 'foobar' }]

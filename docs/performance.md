@@ -253,7 +253,7 @@ answered the errors, without data):
   `parent { name }`, the fragment is pending, then completes with no data of its own. A fragment
   that adds selections to such a field (`... @defer { parent { email } }`) gets them, without
   `parent` resolving again, at the `subPath` of `parent`. Two fragments of a round that select
-  one field send it once.
+  one field send it once, as the draft's grouped field sets do (below).
 - A fragment on a type the object does not have runs nowhere, and one on a union with no type
   condition runs where it stands, as the specification has it.
 
@@ -272,9 +272,13 @@ fragments that round found; the last part has `hasNext: false`.
   "completed": [{ "id": "0" }], "hasNext": false }
 ```
 
-An entry carries what was not sent yet: the fragments of a round at one path send one entry, under
-the first one's `id`, and complete together; what a fragment adds to an object field already sent
-comes in an entry of its own, at the field's `subPath` from the fragment's path:
+An entry carries what was not sent yet, and is one grouped field set of the draft: the fields that
+the same fragments of a round select at a path. Of `... @defer(label: "a") { name loud } ...
+@defer(label: "b") { loud id }`, `name` is a's, `id` is b's, and `loud` is sent once, for both,
+under the first one's `id`; below an object field two fragments select differently, the fields are
+grouped the same way, the object field coming first in an entry of its own. What a fragment adds to
+an object field already sent comes in an entry of its own, at the field's `subPath` from the
+fragment's path:
 
 ```json
 { "data": { "user": { "parent": { "name": "Ana" } } },
@@ -287,7 +291,10 @@ comes in an entry of its own, at the field's `subPath` from the fragment's path:
 The errors of a deferred field come with it, on its `incremental` entry, with the path the field
 has in the response. A fragment's delivery is all or nothing: when a non-null field fails beyond
 any part of it (its object, or an object it adds to at a `subPath`), it sends no data at all, and
-its `id` is `completed` with the `errors`. The `extensions` that `BuildExtensionsResponse` and
+its `id` is `completed` with the `errors`; the fragments it holds are not announced. A field it
+shares with another fragment fails that one too, as the draft has it, but a field of its own does
+not: the other fragment sends its fields all the same. A field a fragment that failed had resolved
+resolves again for a later fragment that selects it (its value was never sent). The `extensions` that `BuildExtensionsResponse` and
 `ManipulateResult` listeners add while a fragment runs are on its `incremental` entry too; an entry
 that would carry nothing else (no data, no errors) is not sent, and its extensions go on the
 part's own `extensions`, as those of a fragment that sends no data.
@@ -312,13 +319,16 @@ query { posts(first: 50) { data @stream(initialCount: 5, label: "rest") { title 
 The field's resolver runs once and returns the whole list; `@stream` cuts it where `initialCount`
 says, and the selections of the items that follow run in the next round, all together so the
 Dataloader batches across them. A list of scalars streams too, and so does a paginated field's
-`data`. A list that resolves to `null` is `null`. An item may carry `@defer`: its fragment is
+`data`. A list that resolves to `null` is `null`, and so is a `null` item where the list's items
+may be; where they may not, a `null` item (or one a non-null field's error nulls) fails the
+stream, which completes with the error, the items already sent staying. An item may carry `@defer`: its fragment is
 announced with the items, at the index the item has in the list, and arrives after them. The rest
 of a list is one batch: the specification allows a server to cut it as it pleases. The later items
 run what every declaration of the field selects (`users @stream { id } ... on Query { users { name }
 }`), and nothing of another field of the same name. Where that depends on more than the field's
-object (a declaration under a type condition above it, or in another deferred fragment), the list
-is answered whole.
+object (a declaration under a type condition above it, or in another deferred fragment, or the
+streamed field itself in a named fragment spread both inside a deferred fragment and outside), the
+list is answered whole.
 
 `@stream` needs a list field (a validation error otherwise), follows the rules of `@defer` for
 `label`, mutations ("The @stream directive cannot be used on a root mutation field.") and

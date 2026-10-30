@@ -74,8 +74,7 @@ module Lighthouse::GraphQL::Incremental::StreamTrace
     items = value.to_a
     return items if items.size <= initial
 
-    type = site.field.type.non_null? ? site.field.type.of_type : site.field.type
-    state.stream(site.object, arguments, items.drop(initial), site.query.context, type) ? items.first(initial) : items
+    state.stream(site.object, arguments, items.drop(initial), site.query.context, site.field) ? items.first(initial) : items
   end
 
   # A list the resolver answered; nil (a nullable list's null) answers to `to_a` too, and stays null.
