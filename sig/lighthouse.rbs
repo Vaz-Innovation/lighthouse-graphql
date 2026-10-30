@@ -280,6 +280,14 @@ module Lighthouse
     def adapter_for: (Class model, ?String? index) -> _SearchAdapter?
   end
 
+  # An adapter that searches models together (a union's or an interface's): its `page` (as
+  # _EngineSearchAdapter's) answers a Search::Query with `models`, and `together_error(model)`
+  # why one cannot be searched with others as it is (a schema error).
+  interface _TogetherSearchAdapter
+    def searchable_together?: (Class model) -> boolish
+    def together_error: (Class model) -> String?
+  end
+
   # What DirectiveRegistry#register_manipulator takes: it transforms the SDL
   # before the schema is built.
   interface _SdlManipulator

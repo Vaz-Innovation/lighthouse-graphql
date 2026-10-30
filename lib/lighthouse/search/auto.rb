@@ -18,4 +18,9 @@ class Lighthouse::Search::Auto
   end
 
   def searchable?(model, index = nil) = !adapter_for(model, index).nil?
+
+  # The first adapter that searches every one of `models` together, or nil.
+  def adapter_together(models)
+    @adapters.find { |adapter| adapter.respond_to?(:together_error) && models.all? { |model| adapter.searchable_together?(model) } }
+  end
 end

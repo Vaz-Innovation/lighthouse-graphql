@@ -684,6 +684,85 @@ class Found
 end
 ```
 
+### Searching several models together
+
+A field of a union or an interface searches the models of its types together, in one search: a
+global search box that finds posts and users at once, the best matches of both first. PHP Lighthouse
+has no such search (Scout searches one model).
+
+```graphql
+union SearchResult = Post | User
+
+type Query {
+  everything(search: String! @search): [SearchResult!]! @paginate
+}
+```
+
+```graphql
+{
+  everything(search: "rails", first: 10) {
+    data { __typename ... on Post { title } ... on User { name } }
+    paginatorInfo { total }
+  }
+}
+```
+
+The models are those of the union's types, or of the object types that implement the interface: each
+type is a model's (`@model(class:)`, or its name). Each record answers as its model's type. One search
+over all of them answers one ranked list, paged as any search (`@all`, `@paginate` of any type), with an
+exact total.
+
+- **Searchkick** searches the models' indices in one request (`Searchkick.search(models: [...])`). What
+  narrows a model holds in its own index only, through the engine's `_index` (which Elasticsearch and
+  OpenSearch match against the alias Searchkick names): its `search_where`, and the records its default
+  scope hides. Each model's hits load through its own default scope, `search_results` scope and the
+  conditions the database applies alike, as for a search of it alone, so a model with a default scope or
+  `search_results` still needs `search_where`.
+- **pg_search** searches its [multisearch](https://github.com/Casecommons/pg_search#multi-search)
+  documents (`pg_search_documents`), which each `multisearchable` model keeps, ranked together by
+  `PgSearch.multisearch_options`. A document counts only when its record is one its model's relation
+  selects (its default scope, its `search_results` scope, the field's `@eq`), narrowed in the database, so
+  a page and its total hold only what loads, whatever documents are left behind (a record deleted without
+  its callbacks).
+
+  ```ruby
+  class Post < ApplicationRecord
+    include PgSearch::Model
+    multisearchable against: %i[title body], if: :published?
+  end
+
+  class User < ApplicationRecord
+    include PgSearch::Model
+    multisearchable against: :name
+  end
+
+  # config/initializers/pg_search.rb
+  PgSearch.multisearch_options = { using: { tsearch: { prefix: true } } }
+  ```
+
+The field's other arguments narrow every model alike: `@eq` holds in each index (or each model's
+relation), and matches nothing in one that does not have the column. `@builder` on an argument writes to
+the search as for one model (with pg_search, it may not set Searchkick's options). `@canQuery` checks each
+record the search finds by its own policy.
+
+The schema is refused when it is built, as `nothing applies` would be, where such a field:
+
+- is not a root field with `@all` or `@paginate` (a `model:` on the directive searches that one model,
+  as any field);
+- has no search to run: there is no table to list without one, so it takes one `@search`, on a top-level,
+  non-null argument (`search: String!`), with no `within:`, which names one model's index or scope;
+- has a type that is no model's, or models no one engine searches together (a Searchkick model and a
+  pg_search one; a pg_search model that is not `multisearchable`), or a model the engine cannot search as
+  it is (Searchkick's `search_where`, above);
+- asks for what one model's search would apply, and a search of several cannot: `scopes:`, `@builder`,
+  `@whereAuth` or `@orderBy(column:)` on the field, `@trashed` (each model has its own soft deletes),
+  `scopes:` on `@canQuery`, or a default value for a directive the engine cannot apply.
+
+An adapter of your own searches models together when it answers `searchable_together?(model)`,
+`together_error(model)` (why the model cannot be searched with others as it is, or nil) and `page` for a
+`Lighthouse::Search::Query` that has `models` (and no `model`); `query.for(model)` is the same search of
+one of them.
+
 ### Choosing the engine
 
 By default the engine is detected per model: Searchkick if it calls `searchkick`, else pg_search if it

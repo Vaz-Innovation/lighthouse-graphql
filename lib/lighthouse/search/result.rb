@@ -142,7 +142,7 @@ class Lighthouse::Search::Result
   # Is it the search of `field` that `adapter` runs for `query`? Its options aside,
   # which may hold an @builder's procs, made again for each search.
   def same_search?(adapter, query, field)
-    @adapter.equal?(adapter) && @field == field && query.model.equal?(@query.model) &&
+    @adapter.equal?(adapter) && @field == field && query.model.equal?(@query.model) && query.models == @query.models &&
       [query.term, query.index, query.wheres, query.trashed] == [@query.term, @query.index, @query.wheres, @query.trashed]
   end
 
@@ -176,6 +176,6 @@ class Lighthouse::Search::Result
 
     raise ::GraphQL::ExecutionError,
           "The search reads no further than its first #{result_window} matches (the index.max_result_window of " \
-          "#{@query.model.name}), so offset #{offset} is past them. Narrow the search instead."
+          "#{@query.name}), so offset #{offset} is past them. Narrow the search instead."
   end
 end

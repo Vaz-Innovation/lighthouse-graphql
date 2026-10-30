@@ -116,6 +116,7 @@ require_relative 'namespaces'
   search/auto
   search/enhancer
   search/field_check
+  search/together_check
   relation_batch
   relation_counts
   nested_mutations

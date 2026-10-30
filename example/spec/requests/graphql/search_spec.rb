@@ -259,6 +259,68 @@ RSpec.describe 'GraphQL @search', type: :request do
         expect(run(schema, '{ only(search: "great") { title } }')['errors'].pluck('message')).to eq(['The query returned more than one result.'])
       end
 
+      # @search over a union: posts and comments searched together, one request over both indices,
+      # each model's own narrowing (Comment's search_where) holding in its own index only.
+      describe 'over several models' do
+        let(:together) do
+          schema_from(<<~GRAPHQL)
+            union Found = SearchedPost | Comment
+            type SearchedPost { title: String! }
+            type Comment { body: String! }
+            type Query { found(search: String! @search, authorId: Int @eq(key: "author_id")): [Found!]! @paginate }
+          GRAPHQL
+        end
+        let(:selection) { 'data { __typename ... on SearchedPost { title } ... on Comment { body } } paginatorInfo { total }' }
+
+        before do
+          published = create(:post, author: other, title: 'Plain')
+          draft = create(:post, :draft, author: other, title: 'Hidden')
+          create(:post, :draft, author: author, title: 'A great draft')
+          create(:comment, post: published, body: 'A great comment')
+          hidden = create(:comment, post: draft, body: 'A great hidden comment')
+          SearchedPost.reindex
+          Comment.reindex
+          Comment.search_index.store(hidden) # in the index all the same: search_where must leave it out
+          [SearchedPost, Comment].each { |model| model.search_index.refresh }
+        end
+
+        def found(arguments, first: 10, page: 1)
+          run(together, "{ found(first: #{first}, page: #{page}, #{arguments}) { #{selection} } }")['data']['found']
+        end
+
+        def kinds(page) = page['data'].map { |row| [row['__typename'], row['title'] || row['body']] }
+
+        it 'finds the posts and the comments in one request, the total counting what loads' do
+          page = nil
+          requests = requests_in { page = found('search: "great"') }
+
+          expect(kinds(page)).to contain_exactly(['SearchedPost', 'Great title'], ['SearchedPost', 'Really great great title'],
+                                                 ['SearchedPost', 'Another great one'], ['SearchedPost', 'A great draft'],
+                                                 ['Comment', 'A great comment'])
+          expect(page['paginatorInfo']).to eq('total' => 5)
+          expect(requests).to eq(1)
+        end
+
+        it "applies a model's search_where in its own index only: the draft's comment is left out, the draft post found" do
+          bodies = kinds(found('search: "great"'))
+
+          expect(bodies).not_to include(['Comment', 'A great hidden comment'])
+          expect(bodies).to include(['SearchedPost', 'A great draft'])
+        end
+
+        it 'narrows every index with @eq, an index without the column matching nothing' do
+          expect(kinds(found(%(search: "great", authorId: #{other.id})))).to eq([['SearchedPost', 'Another great one']])
+        end
+
+        it 'pages the hits of both indices as one list' do
+          first = found('search: "great"', first: 3)
+          rest = found('search: "great"', first: 3, page: 2)
+
+          expect((kinds(first) + kinds(rest)).size).to eq(5)
+          expect((kinds(first) & kinds(rest))).to eq([])
+        end
+      end
+
       describe 'an index of 10,001 documents within: names' do
         let(:index) { 'lighthouse_example_many_posts' }
         let(:many) do
@@ -590,6 +652,51 @@ RSpec.describe 'GraphQL @search', type: :request do
           expect(bodies('search: "zzzz"')).to eq([])
         end
       end
+    end
+  end
+
+  # @search over a union: Post and User searched together, through pg_search's multisearch
+  # documents (PgSearch::Document), in one ranked search, paged with an exact total.
+  describe "the app's Query.everything(search:), over several models", if: postgres do
+    let(:selection) { 'data { __typename ... on Post { title } ... on User { name } } paginatorInfo { total }' }
+
+    def everything(search, first: 10) = graphql(%({ everything(search: "#{search}", first: #{first}) { #{selection} } })).dig('data', 'everything')
+
+    def found(search) = everything(search)['data'].map { |row| [row['__typename'], row['title'] || row['name']] }
+
+    before do
+      railsy = create(:user, name: 'Railsy McRailface')
+      create(:post, author: railsy, title: 'Rails engines', body: 'Mountable apps.')
+      create(:post, :draft, author: railsy, title: 'Rails secrets', body: 'Not yet.')
+      create(:user, name: 'Grace')
+    end
+
+    it 'finds published posts and users together, each as its type, the best match first' do
+      expect(found('rail')).to contain_exactly(['Post', 'Rails engines'], ['User', 'Railsy McRailface'])
+      expect(everything('rail')['paginatorInfo']).to eq('total' => 2)
+      expect(found('grace')).to eq([%w[User Grace]])
+    end
+
+    it 'pages them, the total counting only what loads: a record gone without its document is not counted' do
+      expect(everything('rail', first: 1)['data'].size).to eq(1)
+
+      Post.where(title: 'Rails engines').delete_all # skips the callbacks: its document stays
+
+      expect(found('rail')).to eq([['User', 'Railsy McRailface']])
+      expect(everything('rail')['paginatorInfo']).to eq('total' => 1)
+    end
+
+    it 'keeps no document of a draft, and drops the one of a post once unpublished' do
+      expect(found('secrets')).to eq([])
+
+      Post.find_by!(title: 'Rails engines').update!(published: false)
+
+      expect(found('engines')).to eq([])
+    end
+
+    it 'needs a search: there is no table to list without one' do
+      expect(error_messages(graphql('{ everything { data { __typename } } }')))
+        .to eq(["Field 'everything' is missing required arguments: search"])
     end
   end
 

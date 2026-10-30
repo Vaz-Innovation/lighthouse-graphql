@@ -8,6 +8,12 @@
 #   relational?                       is the search a scope on the model's relation (pg_search)?
 #   scope(relation, query)            relational: the relation narrowed to the matches, ranked
 #   page(query, offset:, limit:)      otherwise: [records, total] of the engine's response
+#   searchable_together?(model)       can it search the model with others (optional, with together_error)?
+#   together_error(model)             why it cannot search the model with others as it is, or nil
+#
+# Models searched together (a field of a union or an interface: FieldCheck) are one search
+# over all of them, a Query with `models`, which the adapter answers with `page`, whatever it
+# is: Searchkick over their indices, pg_search through its multisearch documents.
 #
 # `query` is a Search::Query. A relational adapter lets every other directive of
 # the field apply on top of the scope; the others (Searchkick) answer on their own
@@ -75,4 +81,21 @@ module Lighthouse::Search
 
   # Does the field have an argument or input field with @search?
   def searching?(field_def) = directives(field_def).any?
+
+  # The models the field searches together (Search::FieldCheck keeps them when the schema is
+  # built: the models of its union's or interface's types), or nil for a field of one model.
+  def together(field_def) = Lighthouse::Support::Memo.on(field_def, :searched_together) { nil }
+
+  def together!(field_def, models)
+    field_def.instance_variable_set(:@lighthouse_searched_together, models.freeze)
+  end
+
+  # The adapter that searches `models` together (`searchable_together?` each of them, and
+  # `together_error`), or nil when none does.
+  def adapter_together(models)
+    adapter = self.adapter
+    return adapter.adapter_together(models) if adapter.respond_to?(:adapter_together)
+
+    adapter if adapter.respond_to?(:together_error) && models.all? { |model| adapter.searchable_together?(model) }
+  end
 end

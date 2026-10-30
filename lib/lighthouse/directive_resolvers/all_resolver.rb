@@ -33,10 +33,10 @@ class Lighthouse::GraphQL::DirectiveResolvers::AllDirectiveResolver < Lighthouse
   private
 
   def resolve_all(model_class, arguments, ctx)
+    args = arguments.respond_to?(:to_h) ? arguments.to_h : {}
+    return search_records(search_together(args, ctx), args, ctx) if searched_together
     return [] unless model_class
 
-    # apply simple pagination args if present
-    args = arguments.respond_to?(:to_h) ? arguments.to_h : {}
     relation = apply_scopes(model_class.all)
 
     relation = apply_where_filters(relation, args, ctx, search: :model)

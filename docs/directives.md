@@ -694,6 +694,10 @@ each engine up.
   filters the database can apply too (`@trashed`'s, `@eq` on a column), so a stale index never
   answers one that no longer matches.
 
+On a field of a union or an interface (`[SearchResult!]! @paginate`), the search runs over the models
+of its types together, one ranked list: [Searching several models
+together](filtering-and-ordering.md#searching-several-models-together).
+
 A model's `search_results` scope, when it has one, is what a search of it may return:
 Searchkick loads the records it finds through it, so a record the index still holds after it
 should have left is not returned. A search counts only what it can load: a Searchkick model

@@ -21,9 +21,18 @@ module Lighthouse
     # Does the field have an argument or input field with @search? Walked once per field.
     def self.searching?: (_FieldDefinition field_def) -> bool
 
+    # The models the field searches together (a union's or an interface's), kept when the schema is built; nil for one model.
+    def self.together: (_FieldDefinition field_def) -> Array[Class]?
+    def self.together!: (_FieldDefinition field_def, Array[Class] models) -> Array[Class]
+    # The adapter that searches the models together, or nil.
+    def self.adapter_together: (Array[Class] models) -> _TogetherSearchAdapter?
+
     # What a search holds: the model, the term and what narrows it.
     class Query
-      attr_reader model: Class
+      # nil for models searched together.
+      attr_reader model: Class?
+      # The models searched together, or nil for a search of one.
+      attr_reader models: Array[Class]?
       attr_reader term: String
       attr_reader index: String?
       # [column, value] pairs, from @eq, all of which hold.
@@ -33,8 +42,12 @@ module Lighthouse
       # :with, :only or :without, from @trashed; nil: not given.
       attr_accessor trashed: (:with | :only | :without)?
 
-      def initialize: (Class model, String term, ?String? index) -> void
+      def initialize: (Class? model, String term, ?String? index, ?models: Array[Class]?) -> void
       def where: (String | Symbol column, untyped value) -> self
+      # The model's name, or the names of the models searched together.
+      def name: () -> String
+      # The same search of one model.
+      def for: (Class model) -> Query
     end
 
     # A search an engine answers: the page it is asked for and its total.
@@ -74,6 +87,7 @@ module Lighthouse
     # Searchkick (Elasticsearch / OpenSearch), outside the database.
     class Searchkick
       include _EngineSearchAdapter
+      include _TogetherSearchAdapter
 
       DEFAULT_TRASHED_COLUMN: String
       DEEP_PAGING_WINDOW: Integer
@@ -114,8 +128,13 @@ module Lighthouse
     # pg_search (PostgreSQL full-text search), in the database.
     class PgSearch
       include _RelationalSearchAdapter
+      include _EngineSearchAdapter
+      include _TogetherSearchAdapter
 
       DEFAULT_SCOPE: Symbol
+
+      # Models searched together, through multisearch's documents (page), which have no result window.
+      def result_window: (Query query) -> nil
 
       # Does `index` name one of the model's pg_search scopes?
       def named?: (Class model, String? index) -> bool
@@ -127,6 +146,8 @@ module Lighthouse
 
       def initialize: (?Array[_SearchAdapter]? adapters) -> void
       def searchable?: (Class model, ?String? index) -> bool
+      # The first adapter that searches every one of the models together, or nil.
+      def adapter_together: (Array[Class] models) -> _TogetherSearchAdapter?
     end
   end
 end

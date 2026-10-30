@@ -93,6 +93,8 @@ class Lighthouse::GraphQL::DirectiveResolvers::PaginateDirectiveResolver < Light
   # the other parents' when the Dataloader can; otherwise, or with `model:`,
   # the model's whole table.
   def page_list(obj, args, ctx)
+    return search_together(args, ctx) if searched_together
+
     name = Lighthouse::Support::Naming.attribute(@field_def.name)
     return decorate_relation(model_class.all, args, ctx, search: :model) unless nested?(obj, name)
 

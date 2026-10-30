@@ -1,5 +1,10 @@
 class User < ApplicationRecord
+  include PgSearch::Model
+
   ROLES = %w[member admin].freeze
+
+  # Query.everything searches users by name with published posts, through pg_search's multisearch documents.
+  multisearchable against: :name
 
   has_many :posts, foreign_key: :author_id, inverse_of: :author, dependent: :destroy
   has_many :comments, foreign_key: :author_id, inverse_of: :author, dependent: :destroy

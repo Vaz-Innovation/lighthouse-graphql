@@ -21,6 +21,13 @@ type Query {
   "Published posts and users matching a term — resolved by Resolvers::Search. Each result is a Post or a User."
   search(term: String!): [SearchResult!]!
 
+  """
+  Published posts and users matching a term, the best match first, in one search: @search over
+  the SearchResult union searches its models together, through pg_search's multisearch documents
+  (Post and User are multisearchable). Each result is a Post or a User.
+  """
+  everything(search: String! @search): [SearchResult!]! @paginate(defaultCount: 10)
+
   "The newest published posts and comments on them, optionally since a time — resolved by Resolvers::LatestActivity."
   latestActivity(first: Int = 10, since: DateTime): [Authored!]!
 

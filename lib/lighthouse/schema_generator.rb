@@ -134,6 +134,8 @@ module Lighthouse::GraphQL::SchemaGenerator
   # `bases`: { root kind => the base class its fields' classes inherit from } (ResolverBases).
   def post_process(schema, _impl, bases: {}, **_opts)
     root_kinds = root_kinds(schema)
+    # A field of a union or an interface with @search searches its types' models together.
+    Lighthouse::Search::TogetherCheck.check_schema!(schema, root_kinds)
 
     # Inspect types and fields for directives and attach generated resolvers
     schema.types.each_value do |type|

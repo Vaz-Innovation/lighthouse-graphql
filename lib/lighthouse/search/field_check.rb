@@ -18,6 +18,8 @@
 #   user must not see. A relational adapter (pg_search) applies them.
 # - An @canQuery, which runs the search to check the records it finds, searches
 #   a searchable model, and without `scopes:` when the engine cannot apply them.
+#
+# A field of a union or an interface whose models are searched together is TogetherCheck's.
 class Lighthouse::Search::FieldCheck
   HINT = 'it needs searchkick or pg_search, or an adapter in Config.search'
   def self.check!(...) = new(...).check!
@@ -33,7 +35,7 @@ class Lighthouse::Search::FieldCheck
 
   def check!
     searches = Lighthouse::Search.directives(@field_def)
-    return if searches.empty?
+    return if searches.empty? || Lighthouse::Search.together(@field_def)
 
     searches.each { |path, directive| within_string!(path, directive) }
     applied!(searches.first.first)

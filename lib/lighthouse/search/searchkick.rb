@@ -53,15 +53,19 @@ class Lighthouse::Search::Searchkick
   # [one entry per hit at `offset`, `limit` of them, in relevance order: the
   # record, or nil for a hit that did not load; the total that match].
   def page(query, offset:, limit:)
-    response = query.model.searchkick_search(query.term, **search_options(query), offset: offset, limit: limit)
+    response = search(query, offset, limit)
     exact_total!(query, response)
     [entries(response), response.total_count]
   rescue StandardError => e
     raise unless past_window?(e)
 
     # The index's window is smaller than the model's options say: set on the server.
-    raise ::GraphQL::ExecutionError, "The search reads no further than the index.max_result_window of #{query.model.name}. Narrow the search instead."
+    raise ::GraphQL::ExecutionError, "The search reads no further than the index.max_result_window of #{query.name}. Narrow the search instead."
   end
+
+  # Models searched together: those it searches alone, and why one cannot be as it is (model_error).
+  def searchable_together?(model) = searchable?(model)
+  def together_error(model) = model_error(model)
 
   # How many of the matches the index the search reads pages through
   # (Search::Result): its index.max_result_window, read from the engine
@@ -70,6 +74,8 @@ class Lighthouse::Search::Searchkick
   # its index `settings:`, whatever their keys; a billion with `deep_paging:
   # true`), and any index the engines' default, 10,000.
   def result_window(query)
+    return query.models.map { |model| result_window(query.for(model)) }.min if query.models
+
     @index.result_window(query.model, index_name(query)) ||
       (own_index?(query) && options_window(query.model)) || Lighthouse::Search::Result::MAX_WINDOW
   end
@@ -133,7 +139,7 @@ class Lighthouse::Search::Searchkick
     return unless total.is_a?(Hash) && total['relation'] && total['relation'] != 'eq'
 
     raise Lighthouse::DefinitionError,
-          "@search on #{query.model.name}: the engine counted #{total['relation']} #{total['value']} matches, not every one, " \
+          "@search on #{query.name}: the engine counted #{total['relation']} #{total['value']} matches, not every one, " \
           'which totals, pages and @canQuery need (track_total_hits)'
   end
 
@@ -154,14 +160,51 @@ class Lighthouse::Search::Searchkick
     defined?(::Searchkick::InvalidQueryError) && error.is_a?(::Searchkick::InvalidQueryError) && error.message.include?('max_result_window')
   end
 
+  # The engine's response to the search, `limit` hits from `offset`: of the model, or of the
+  # models searched together, in one request over their indices.
+  def search(query, offset, limit)
+    return query.model.searchkick_search(query.term, **search_options(query), offset: offset, limit: limit) unless query.models
+
+    ::Searchkick.search(query.term, models: query.models, **together_options(query), offset: offset, limit: limit)
+  end
+
   def search_options(query)
     options = Lighthouse::Search::Searchkick::Options.builder!(query)
     wheres = query.wheres.map { |column, value| { column => value } }
     options[:where] = all_of(options[:where], engine_where(query), *wheres, trashed_filter(query))
     options[:index_name] = query.index if query.index
+    loaded(options, results_scope(query, options[:scope_results]))
+  end
+
+  # The options of a search of several models, in one request over their indices. What narrows
+  # each model holds in its own index only (`_index`, which the engines match against the
+  # alias Searchkick names): its search_where, and the records its default scope hides; what the
+  # client sends (@eq) holds in every index, matching nothing in one that does not hold the
+  # column. Each model's records load through its own narrowing (results_scope), which Searchkick
+  # calls with each model's relation.
+  def together_options(query)
+    options = Lighthouse::Search::Searchkick::Options.builder!(query)
+    wheres = query.wheres.map { |column, value| { column => value } }
+    each_own = query.models.map { |model| own_where(query.for(model)) }
+    options[:where] = all_of(options[:where], *wheres, { _or: each_own })
+    loads = query.models.index_with { |model| results_scope(query.for(model), options[:scope_results]) }.compact
+    loaded(options, loads.empty? ? nil : ->(records) { (loads[model_of(records)] || :itself.to_proc).call(records) })
+  end
+
+  # What Searchkick loads a model's hits through: the model itself, or a relation of it.
+  def model_of(records) = records.respond_to?(:klass) ? records.klass : records
+
+  # What one model's hits must hold in a search of several: being in its index, and what its own
+  # search would have the engine apply.
+  def own_where(query)
+    all_of({ _index: query.model.searchkick_index.name }, engine_where(query), trashed_filter(query))
+  end
+
+  # The options Lighthouse sets whatever the search: the records load, through `loading` (the
+  # `scope_results:` that narrows them) if any, and every match is counted.
+  def loaded(options, loading)
     options[:load] = true
     options[:body_options] = Lighthouse::Search::Searchkick::Options.counting(options)
-    loading = results_scope(query, options[:scope_results])
     options[:scope_results] = loading if loading
     options
   end

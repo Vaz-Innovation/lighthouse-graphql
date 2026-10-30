@@ -16,6 +16,10 @@ class Post < ApplicationRecord
   # in the title ranking above one in the body, and "Rail" finding "Rails".
   pg_search_scope :search, against: { title: 'A', body: 'B' }, using: { tsearch: { prefix: true } }
 
+  # Query.everything searches it with users, through pg_search's multisearch documents: a
+  # published post keeps one, which unpublishing deletes.
+  multisearchable against: %i[title body], if: :published?
+
   # Comment indexes only the comments of published posts (Comment#should_index?):
   # publishing or unpublishing a post adds its comments to the index or removes them.
   after_commit :reindex_comments, if: -> { saved_change_to_published? && Searchkick.callbacks? }

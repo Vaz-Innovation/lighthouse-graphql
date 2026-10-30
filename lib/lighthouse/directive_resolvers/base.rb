@@ -149,6 +149,23 @@ class Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
     Lighthouse::Search::Enhancer.new(arguments, relation, search: search, context: ctx, field: field).enhance
   end
 
+  public
+
+  # The models the field searches together (a union's or an interface's types': Search.together),
+  # or nil for a field of one model.
+  def searched_together = Lighthouse::Search.together(@field_def)
+
+  # The search of the models the field searches together, narrowed by the field's argument
+  # filters: a Search::Result. Its errors fail the field, as the filters' (Support::Failures).
+  def search_together(args, ctx)
+    Lighthouse::Support::Failures.strictly(ctx) do
+      builders = @field_def.ast_node ? arg_builders(args_hash(args)) : []
+      unconstrained!(apply_search(nil, builders, ctx, searched_together))
+    end
+  end
+
+  private
+
   # Does the field have an argument or input field with @search? Known when the schema is built.
   def searching?
     @field_def.ast_node && Lighthouse::Search.searching?(@field_def)

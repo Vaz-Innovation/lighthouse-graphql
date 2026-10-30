@@ -67,7 +67,7 @@ module Lighthouse::GraphQL::DirectiveResolvers
       # A field whose model cannot be told fails the build, not a query. On an
       # argument, the model is looked for only when the client gives it a value:
       # an input type may be shared with fields that have no model.
-      model_class if self.class.model? && !@opts[:argument]
+      model_class if self.class.model? && !@opts[:argument] && !searched_together
       me = self
       inner = capture_inner(target_type_class)
       install(target_type_class, lambda do |obj, args, ctx|
@@ -225,7 +225,7 @@ module Lighthouse::GraphQL::DirectiveResolvers
     # most, and more that a page could reach is an error (Search::Result#every_record).
     # Answers the Search::Result it checked, else nil.
     def authorize_before(_obj, args, ctx)
-      found = apply_where_filters(scoped(model_class.all), args, ctx, search: :model)
+      found = searched_together ? search_together(args, ctx) : apply_where_filters(scoped(model_class.all), args, ctx, search: :model)
       searched = found.is_a?(Lighthouse::Search::Result)
       authorize_each!(ctx, searched ? found.every_record : found.to_a, args)
       found if searched

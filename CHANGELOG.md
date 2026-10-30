@@ -6,6 +6,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **`@search` over several models**: a field of a union or an interface (`everything(search: String!
+  @search): [SearchResult!]! @paginate`) searches the models of its types together, one ranked list with an
+  exact total, each record answered as its model's type. Searchkick searches their indices in one request,
+  each model's `search_where` and hidden records holding in its own index only (`_index`), each model's hits
+  loading through its own scopes; pg_search searches its multisearch documents, each one counted only when
+  its model's relation selects its record. The schema is refused when the field is not a root `@all` or
+  `@paginate`, has no non-null `@search` argument, has a type that is no model's or models no one engine
+  searches together, or asks for what one model's search applies (`scopes:`, `@builder`, `@whereAuth`,
+  `@orderBy(column:)`, `@trashed`). An adapter of its own opts in with `searchable_together?` and
+  `together_error`. See [filtering-and-ordering.md](docs/filtering-and-ordering.md#searching-several-models-together).
+
 ## [0.9.0] - 2026-10-30
 
 ### Added

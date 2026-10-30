@@ -11,6 +11,8 @@
 #   write to a Search::Query (Contracts::SearchBuilder), and the answer is a
 #   Search::Result instead of a relation. Any other argument directive the client
 #   sends is an error, as is a second @search.
+# - For models searched together (`models`: a union's or an interface's), there is no
+#   relation: the search is one over all of them, a Search::Result, whatever the adapter.
 class Lighthouse::Search::Enhancer
   # An argument directive of the field: its AST nodes, the builder class (or :builder), the client's value.
   Argument = Struct.new(:node, :directive, :builder, :value, :present)
@@ -28,18 +30,21 @@ class Lighthouse::Search::Enhancer
   # nil, a relation only; :model, a Search::Result for the model's own relation it
   # built (with the `scopes:` Search::FieldCheck refuses for an engine), searched
   # whole without a check; :given, one for a relation the app's code gave, checked.
-  # `field`: "Type.field", for the client's errors.
+  # `field`: "Type.field", for the client's errors. `search` is the models searched together, in
+  # place of a relation (nil), for a field of a union's or an interface's (Search.together).
   def initialize(arguments, relation, search:, context:, field: 'the field')
     @arguments = arguments
     @relation = relation
     @search = search
     @context = context
     @field = field
+    @models = search if search.is_a?(Array)
   end
 
   # The relation, searched; or a Search::Result. The relation itself if the client sent no search.
   def enhance
     search = the_search
+    return together(search) if @models
     return @relation unless search
 
     model = @relation.klass
@@ -73,6 +78,25 @@ class Lighthouse::Search::Enhancer
 
     searchable!(adapter, query.model)
     whole_index!(adapter) if @search == :given
+    narrowed(adapter, query)
+  end
+
+  # The search of the models, together: the field's argument is non-null (Search::FieldCheck), so
+  # the client always sends one.
+  def together(search)
+    raise ::GraphQL::ExecutionError, "#{@field} searches #{@models.map(&:name).join(', ')} together: it needs a search." unless search
+
+    adapter = Lighthouse::Search.adapter_together(@models) ||
+              raise(Lighthouse::DefinitionError, "@search: no engine searches #{@models.map(&:name).join(', ')} together.")
+    @models.each do |model|
+      error = adapter.together_error(model)
+      raise Lighthouse::DefinitionError, "@search: #{error}." if error
+    end
+    narrowed(adapter, Lighthouse::Search::Query.new(nil, search.value, models: @models))
+  end
+
+  # The search, narrowed by the other arguments the client sent, which the engine must take.
+  def narrowed(adapter, query)
     reject_incompatible
     query = @arguments.reject { |argument| search?(argument) }.reduce(query) { |narrowed, argument| narrow(narrowed, argument) }
     Lighthouse::Search::Result.checked(adapter, query, @field) || Lighthouse::Search::Result.new(adapter, query, context: @context, field: @field)
