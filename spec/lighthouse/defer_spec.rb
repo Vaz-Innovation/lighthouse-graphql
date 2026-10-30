@@ -1294,8 +1294,9 @@ RSpec.describe 'Deferring fields' do
 
     it 'ends one whose client left before its first part with nothing, as nothing was sent' do
       gone = Class.new(Lighthouse::GraphQL::Incremental::Gone)
+      leaves = ->(_payload) { raise gone }
 
-      expect { incremental('{ users { id ... @defer { name } } }') { |run| run.each_payload { raise gone } } }.to raise_error(gone)
+      expect { incremental('{ users { id ... @defer { name } } }') { |run| run.each_payload(&leaves) } }.to raise_error(gone)
       expect(ended).to eq([{}])
     end
 
