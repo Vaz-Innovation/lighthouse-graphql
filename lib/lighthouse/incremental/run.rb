@@ -74,7 +74,7 @@ class Lighthouse::GraphQL::Incremental::Run
     @state = State.new(prepared.fragments)
     context = (@options[:context] || {}).merge(State::CONTEXT_KEY => @state)
     result = @schema.execute(document: prepared.document, **@options, context: context)
-    announce(@state.drain, result.to_h['data'], [])
+    announce(@state.drain(result.query), result.to_h['data'], [])
     result
   end
 
@@ -90,29 +90,34 @@ class Lighthouse::GraphQL::Incremental::Run
     group = @queue.select { |pending| pending.fragment.equal?(fragment) }
     @queue -= group
     @running = group
-    results = run_fragment(fragment, group)
+    partials = partials(fragment, group)
+    results = run(partials)
     @announced = []
     incremental = []
     completed = []
-    group.zip(results) do |pending, response|
-      deliver(pending, response, incremental, completed)
-      announce(@state.drain, response['data'], pending.path, pending.offset.to_i)
+    # Each Partial's own fragments, against its own data, path and offset.
+    group.each_with_index do |pending, index|
+      deliver(pending, results[index], incremental, completed)
+      announce(@state.drain(partials[index]), results[index]['data'], pending.path, pending.offset.to_i)
     end
     Serializer.subsequent(incremental: incremental, completed: completed, pending: @announced, has_next: deferred?)
   end
 
-  # The responses of `fragment` run on each object of `group` (the items of a stream), in one
-  # multiplex so the Dataloader batches across them.
-  def run_fragment(fragment, group)
+  # A Partial of `fragment` for each object of `group` (the items of a stream).
+  def partials(fragment, group)
     query = @result.query
     type = query.types.type(fragment.type_name) unless fragment.stream
-    partials = group.map do |pending|
+    group.map do |pending|
       options = fragment.stream ? {} : { fragment_node: fragment.node, type: type }
       ::GraphQL::Query::Partial.new(object: pending.object, path: pending.path, query: query, **options)
     end
-    # The first pass analyzed the whole document: no max_complexity again, which analysis
-    # cannot apply to a Partial.
-    @schema.multiplex(partials, context: query.context, max_complexity: nil).map(&:to_h)
+  end
+
+  # The responses of the partials, run in one multiplex so the Dataloader batches across them.
+  # The first pass analyzed the whole document: no max_complexity again, which analysis
+  # cannot apply to a Partial.
+  def run(partials)
+    @schema.multiplex(partials, context: @result.query.context, max_complexity: nil).map(&:to_h)
   end
 
   # A fragment's data goes in `incremental` (a stream's as `items`); a null data (a

@@ -49,7 +49,8 @@ class Lighthouse::GraphQL::Incremental::State
     @fragments = fragments
     @max = max
     @count = 0
-    @recorded = []
+    # The Pending fragments found, by the query (the operation's, or a Partial) that found them.
+    @recorded = {}.compare_by_identity
   end
 
   # true when the fragment `fragment_id` is deferred on `object`: the caller
@@ -61,9 +62,7 @@ class Lighthouse::GraphQL::Incremental::State
     return false unless fragment&.applies_to?(object, context)
     return false if @count >= @max
 
-    @count += 1
-    @recorded << Pending.new(fragment: fragment, object: object.object, path: context[:current_path])
-    true
+    record(context, Pending.new(fragment: fragment, object: object.object, path: context[:current_path]))
   end
 
   # true when the list field of fragment `fragment_id` streams: `items` (what is
@@ -71,13 +70,20 @@ class Lighthouse::GraphQL::Incremental::State
   def stream(fragment_id, items, offset, context)
     return false if @count >= @max
 
-    @count += 1
-    @recorded << Pending.new(fragment: @fragments[fragment_id], object: items, path: context[:current_path], offset: offset)
-    true
+    record(context, Pending.new(fragment: @fragments[fragment_id], object: items, path: context[:current_path], offset: offset))
   end
 
-  # The Pending fragments recorded since the last call.
-  def drain
-    @recorded.tap { @recorded = [] }
+  # The Pending fragments `query` found (the GraphQL::Query of the first pass, or the
+  # GraphQL::Query::Partial of a later one), forgotten once drained.
+  def drain(query)
+    @recorded.delete(query) || []
+  end
+
+  private
+
+  def record(context, pending)
+    @count += 1
+    (@recorded[context.query] ||= []) << pending
+    true
   end
 end

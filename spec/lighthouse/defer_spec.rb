@@ -149,6 +149,18 @@ RSpec.describe 'Deferring fields' do
       expect(all[2]['hasNext']).to be(false)
     end
 
+    it 'announces the fragments each object found, checked against its own data' do
+      first = LH::User.first
+      LH::Post.where(user: first).find_each { |post| post.comments.delete_all && post.delete }
+      LH::Post.create!(title: 'p1b', user: LH::User.second)
+      all = payloads('{ users { id ... @defer { posts { id ... @defer { title } } } } }')
+      delivered = all.flat_map { |payload| payload['incremental'].to_a }.filter_map { |entry| entry.dig('data', 'title') }
+
+      expect(delivered).to eq(%w[p1 p1b p2])
+      expect(pending(*all).pluck('id')).to match_array(all.flat_map { |payload| payload['completed'].to_a }.pluck('id'))
+      expect(pending(*all).pluck('path').last(3)).to eq([['users', 1, 'posts', 0], ['users', 1, 'posts', 1], ['users', 2, 'posts', 0]])
+    end
+
     it 'costs the queries of the same fragments inline' do
       inline = query.gsub(/ @defer\(label: "\w"\)/, '')
       whole = queries_in { schema.execute(inline) }
