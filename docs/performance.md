@@ -318,8 +318,9 @@ query { posts(first: 50) { data @stream(initialCount: 5, label: "rest") { title 
 ```
 
 The field's resolver runs once and returns the whole list; `@stream` cuts it where `initialCount`
-says, and the selections of the items that follow run in the next round, all together so the
-Dataloader batches across them. A list of scalars streams too, and so does a paginated field's
+says, and the items that follow run in the next round, all together so the Dataloader batches
+across them: as graphql-ruby completes the list, on the field's object (under a type condition on
+an interface or a union too), the field answered with those items and its resolver not run. A list of scalars streams too, and so does a paginated field's
 `data`. A list that resolves to `null` is `null`, and so is a `null` item where the list's items
 may be; where they may not, a `null` item (or one a non-null field's error nulls) fails the
 stream, which completes with the error, the items already sent staying. An item may carry `@defer`: its fragment is

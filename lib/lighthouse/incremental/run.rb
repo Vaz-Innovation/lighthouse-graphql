@@ -195,7 +195,7 @@ class Lighthouse::GraphQL::Incremental::Run
     units = plan.units(@running)
     all = [[], [], []]
     until units.empty?
-      partials = units.map { |unit| partial(unit) }
+      partials = units.map { |unit| unit.partial(@result.query, @state) }
       responses = run(partials)
       [units, partials, responses].each_with_index { |list, index| all[index].concat(list) }
       units = plan.follow(units, responses)
@@ -226,23 +226,6 @@ class Lighthouse::GraphQL::Incremental::Run
   end
 
   def clock = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-
-  # The Partial that runs a unit: its selections on its object, or a stream's items (a list of
-  # scalars from its path, which has no selections).
-  def partial(unit)
-    query = @result.query
-    return ::GraphQL::Query::Partial.new(object: unit.object, path: unit.path, query: query).tap { |items| place(items, unit) } if leaf_items?(unit)
-
-    fragment = ::GraphQL::Language::Nodes::InlineFragment.new(selections: unit.stream? ? unit.owner.selections : unit.selections)
-    ::GraphQL::Query::Partial.new(object: unit.object, path: unit.path, query: query, fragment_node: fragment, type: unit.type).tap { |run| place(run, unit) }
-  end
-
-  def leaf_items?(unit) = unit.stream? && unit.type.unwrap.kind.leaf?
-
-  # A stream's Partial counts the items it runs from 0: State puts them where they are in the list.
-  def place(partial, unit)
-    @state.offset(partial, unit.path, unit.positions.map { |position| position + unit.owner.offset }) if unit.stream?
-  end
 
   # The responses of the partials, run in one multiplex so the Dataloader batches across them.
   # The first pass analyzed the whole document: no max_complexity again, which analysis

@@ -2,7 +2,10 @@
 
 # A shelf of values of two types of one interface, for a deferred fragment on one of them.
 module DeferSpec
-  Book = Struct.new(:title, :pages)
+  Book = Struct.new(:title, :pages) do
+    def tags = %W[#{title}-a #{title}-b #{title}-c]
+    def sequels = [Movie.new("#{title} II", 90), Movie.new("#{title} III", 95)]
+  end
   Movie = Struct.new(:title, :minutes)
 end
 
@@ -73,7 +76,7 @@ RSpec.describe 'Deferring fields' do
       type Comment { id: ID! comment: String }
       type Task { id: ID! name: String }
       interface Titled { title: String }
-      type Book implements Titled { title: String pages: Int }
+      type Book implements Titled { title: String pages: Int tags: [String!]! sequels: [Titled!]! }
       type Movie implements Titled { title: String minutes: Int }
     GRAPHQL
   end
@@ -587,6 +590,13 @@ RSpec.describe 'Deferring fields' do
   end
 
   describe '@stream' do
+    it 'streams a list under a type condition on an interface, of scalars and of objects' do
+      all = payloads('{ shelf { title ... on Book { tags @stream(initialCount: 1) sequels @stream { title } } } }')
+
+      expect(all.last['completed'].all? { |entry| entry['errors'].nil? }).to be(true)
+      expect(assembled(all)).to eq(schema.execute('{ shelf { title ... on Book { tags sequels { title } } } }').to_h['data'])
+    end
+
     it 'streams the null items of a list of objects as null' do
       all = payloads('{ gaps @stream(initialCount: 0) { name } }')
 
@@ -597,15 +607,18 @@ RSpec.describe 'Deferring fields' do
       all = payloads('{ strictGaps @stream(initialCount: 1) { name } }')
 
       expect(all.last['incremental']).to be_nil
-      message = "Cannot return null for non-nullable element of type 'User!' for Query.strictGaps"
-      expect(all.last['completed']).to eq([{ 'id' => '0', 'errors' => [{ 'message' => message, 'path' => ['strictGaps', 1] }] }])
+      # graphql-ruby's own error, as the list without @stream gets it.
+      plain = schema.execute('{ strictGaps { name } }').to_h['errors'].map { |error| error.except('locations') }
+      expect(all.last['completed'].map { |entry| entry['errors'].map { |error| error.except('locations') } }).to eq([plain])
+      expect(plain.pluck('path')).to eq([['strictGaps', 1]])
     end
 
-    it 'fails a stream whose non-null item an error nulls' do
+    it 'fails a stream whose non-null item an error nulls, with the errors the list without @stream has' do
       all = payloads('{ users @stream(initialCount: 0) { required } }')
 
       expect(all.last['incremental']).to be_nil
-      expect(all.last['completed'].first['errors'].pluck('path')).to eq((0..2).map { |index| ['users', index, 'required'] })
+      plain = schema.execute('{ users { required } }').to_h['errors'].map { |error| error.except('locations') }
+      expect(all.last['completed'].first['errors'].map { |error| error.except('locations') }).to eq(plain)
     end
 
     it 'leaves out of the later items what a fragment selects when the streamed field is spread both inside it and outside' do
@@ -1206,7 +1219,8 @@ RSpec.describe 'Deferring fields' do
     end
 
     it 'delivers those of streamed items on their entry' do
-      expect(payloads('{ names @stream(initialCount: 1) }').last['incremental'].first['extensions']).to eq('ran' => 'items')
+      # The stream's Partial runs its field again, on the list's object, answered with the items left.
+      expect(payloads('{ names @stream(initialCount: 1) }').last['incremental'].first['extensions']).to eq('ran' => ['names'])
     end
 
     it 'delivers those of a fragment that leaves no data on the payload' do

@@ -79,41 +79,16 @@ class Lighthouse::GraphQL::Incremental::Delivery
   end
 
   # A stream's response as the list's: its errors' paths, which count the items its Partial ran
-  # from 0, as the response's, and the null items Plan left out put back.
+  # from 0, as the response's, and its items, the field's list. A list an error nulled (a null
+  # item where its items are non-null) fails the stream.
   def restore(unit, partial, response)
     return response unless unit.stream?
 
     response['errors'].to_a.each { |error| absolute(partial, error) }
-    return response if response['data'].nil?
-
-    data = items(unit, response['data'])
-    item = unit.type.of_type
-    item.non_null? && data.include?(nil) ? null_items(unit, item, response) : response.merge('data' => data)
+    response.merge('data' => response['data']&.fetch(unit.path.last, nil))
   end
 
   def absolute(partial, error)
     error['path'] = @state.absolute(partial, error['path']) if error['path']
-  end
-
-  # A stream with a null item (or one an error nulled: graphql-ruby's Partial does not null the
-  # list for it) where the list's items are non-null fails.
-  def null_items(unit, item, response)
-    null = unit.owner.object.to_a.index(nil)
-    response.merge('data' => nil, 'errors' => (null ? [null_item(unit, item, null)] : []) + response['errors'].to_a)
-  end
-
-  # A stream's items, each where it is in what the list left to stream; null where Plan left one out.
-  def items(unit, data)
-    items = Array.new(unit.owner.object.to_a.size)
-    unit.positions.each_with_index { |position, index| items[position] = data[index] }
-    items
-  end
-
-  # graphql-ruby's error for a null item of a list of non-null items.
-  def null_item(unit, item, index)
-    owner = unit.owner
-    field = "#{owner.type.graphql_name}.#{owner.field.graphql_name}"
-    { 'message' => "Cannot return null for non-nullable element of type '#{item.to_type_signature}' for #{field}",
-      'path' => unit.path + [owner.offset + index] }
   end
 end

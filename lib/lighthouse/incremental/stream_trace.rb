@@ -16,7 +16,8 @@
 # - While a streamed response runs (Run puts its State in the fiber-local RUNNING),
 #   it hands the State the objects its deferred fragments will need: those of the
 #   object fields a fragment adds selections to, which the rest of the query
-#   resolved (Plan, State#keep).
+#   resolved (Plan, State#keep); and it answers the field a stream's Partial runs
+#   again with the items left to stream, its resolver not run (State#answer).
 #
 # A field of any other request costs two fiber-local reads.
 module Lighthouse::GraphQL::Incremental::StreamTrace
@@ -29,9 +30,10 @@ module Lighthouse::GraphQL::Incremental::StreamTrace
 
   def execute_field(field:, query:, object:, ast_node:, **options)
     stream = Lighthouse::GraphQL::Incremental::StreamTrace.take(field)
-    return super unless stream || Thread.current[RUNNING]
+    state = Thread.current[RUNNING]
+    return super unless stream || state
 
-    result = super
+    result = Lighthouse::GraphQL::Incremental::StreamTrace.answer(state, query, ast_node) { super }
     site = Site.new(field, query, object, ast_node)
     return Lighthouse::GraphQL::Incremental::StreamTrace.done(result, stream, site) unless query.schema.lazy?(result)
 
@@ -45,6 +47,13 @@ module Lighthouse::GraphQL::Incremental::StreamTrace
     return result unless stream || Thread.current[RUNNING]
 
     Lighthouse::GraphQL::Incremental::StreamTrace.done(result, stream, Site.new(field, query, object, ast_node))
+  end
+
+  # The items that stand in for the field of `ast_node` in a stream's Partial (State#answer), or
+  # what the block (the resolver) answers.
+  def self.answer(state, query, ast_node)
+    items = state ? state.answer(query, ast_node) : Lighthouse::GraphQL::Incremental::State::MISSING
+    items.equal?(Lighthouse::GraphQL::Incremental::State::MISSING) ? yield : items
   end
 
   # The arguments of the @stream StreamDirective marked `field` with, taken.

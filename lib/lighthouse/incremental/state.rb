@@ -19,11 +19,12 @@ class Lighthouse::GraphQL::Incremental::State
 
   # A deferred fragment waiting to run on `object` (the application value, not graphql-ruby's
   # wrapper) of the object type `type`, at `path` of the response, found by a round's Plan in the
-  # fragments `parents`; or, for the list `field` of `type`, the items of a streamed list that
-  # the response left out (`object`), which start at index `offset` and run `selections`.
-  # `node`: the fragment, or the @stream directive. `id` is its string id in `pending` entries,
-  # set once announced.
-  Pending = Struct.new(:node, :object, :type, :path, :label, :id, :offset, :selections, :field, :parents, keyword_init: true) do
+  # fragments `parents`; or, for the list `field` of `holder` (of the object type `type`), the
+  # items of a streamed list that the response left out (`object`), which start at index
+  # `offset` and run `selections`. `node`: the fragment, or the @stream directive. `id` is its
+  # string id in `pending` entries, set once announced.
+  Pending = Struct.new(:node, :object, :type, :path, :label, :id, :offset, :selections, :field, :parents, :holder,
+                       keyword_init: true) do
     def stream? = !field.nil?
 
     # A stream's list type, nullable.
@@ -43,6 +44,7 @@ class Lighthouse::GraphQL::Incremental::State
   def initialize
     @deferring = true
     @recorded = {}.compare_by_identity
+    @answers = {}.compare_by_identity
     @needed = Set.new
     @keys = Set.new
     @objects = {}
@@ -98,7 +100,18 @@ class Lighthouse::GraphQL::Incremental::State
     selections = document.merged(directive, path, parent.class, query, @deferring) or return false
 
     record(query, Pending.new(node: directive, object: items, type: parent.class, path: path, label: arguments[:label],
-                              offset: arguments[:initial_count], selections: selections, field: field))
+                              offset: arguments[:initial_count], selections: selections, field: field, holder: parent.object))
+  end
+
+  # A stream's Partial (`query`) runs the field of `node` again, on the list's object, without its
+  # resolver: StreamTrace answers it with the `items` left to stream (`answer`).
+  def stand_in(query, node, items)
+    (@answers[query] ||= {}.compare_by_identity)[node] = items
+  end
+
+  # The items that answer the field of `ast_node` in `query`, if it stands in for a stream's.
+  def answer(query, ast_node)
+    @answers[query]&.fetch(ast_node, MISSING) || MISSING
   end
 
   # A deferred fragment `query` found (or a round's Plan, as `defer` would have). Run announces a
@@ -113,6 +126,7 @@ class Lighthouse::GraphQL::Incremental::State
   # what State knew of `query`.
   def drain(query)
     @offsets.delete(query)
+    @answers.delete(query)
     @recorded.delete(query) || []
   end
 

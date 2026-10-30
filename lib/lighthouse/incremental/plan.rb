@@ -35,11 +35,37 @@ class Lighthouse::GraphQL::Incremental::Plan
 
   # A Partial's work: `selections` on `object` (of `type`) at `path`, delivered for the pending
   # fragments that select them (`pendings`, `owner` the first), which complete with it, and the
-  # fields it resolves on their own (`follow`). A stream's: its items `object`, at `positions`
-  # of what the list left to stream (those that are null objects are left out: Delivery puts
-  # them back).
-  Unit = Struct.new(:owner, :pendings, :path, :object, :type, :selections, :positions, :follow, keyword_init: true) do
+  # fields it resolves on their own (`follow`). A stream's: its items, on the list's object.
+  Unit = Struct.new(:owner, :pendings, :path, :object, :type, :selections, :follow, keyword_init: true) do
     def stream? = owner.stream?
+
+    # The GraphQL::Query::Partial that runs the unit, part of `query`.
+    def partial(query, state)
+      return stream(query, state) if stream?
+
+      fragment = Nodes::InlineFragment.new(selections: selections)
+      ::GraphQL::Query::Partial.new(object: object, path: path, query: query, fragment_node: fragment, type: type)
+    end
+
+    private
+
+    # A stream's items run as graphql-ruby runs a list: its field again, with the selections of its
+    # declarations and no directive, on the list's object (of its object type, whatever the type
+    # conditions above it), answered with the items left (StreamTrace, State#answer), its
+    # resolver not run. The Partial counts the items from 0: State puts them where they are.
+    def stream(query, state)
+      node = state.document.owner(owner.node).merge(selections: owner.selections, directives: [])
+      fragment = Nodes::InlineFragment.new(selections: [node])
+      partial = ::GraphQL::Query::Partial.new(object: owner.holder, path: path[0...-1], query: query, fragment_node: fragment, type: owner.type)
+      stand_in(state, partial, node)
+      partial
+    end
+
+    def stand_in(state, partial, node)
+      items = owner.object.to_a
+      state.stand_in(partial, node, items)
+      state.offset(partial, path, items.each_index.map { |index| index + owner.offset })
+    end
   end
 
   # Where a unit runs: on `object`, of the object type `type`, at `path`.
@@ -67,7 +93,7 @@ class Lighthouse::GraphQL::Incremental::Plan
         plan(group.map { |pending| [pending, @document.selections(pending.node)] }, Spot.new(first.path, first.object, first.type))
       end
     end
-    streams.map { |pending| stream(pending) } + units
+    streams.map { |pending| Unit.new(owner: pending, pendings: [pending], path: pending.path, object: pending.object, type: pending.type) } + units
   end
 
   # The units of the next pass: below the fields the units of the pass that ran (`units`, which
@@ -88,16 +114,6 @@ class Lighthouse::GraphQL::Incremental::Plan
   end
 
   private
-
-  # A stream's unit: the items left to stream; graphql-ruby would run an object's fields on a
-  # null item, so those that are null are not run.
-  def stream(pending)
-    items = pending.object.to_a
-    positions = items.each_index.to_a
-    positions.reject! { |index| items[index].nil? } unless pending.list_type.unwrap.kind.leaf?
-    Unit.new(owner: pending, pendings: [pending], path: pending.path, object: items.values_at(*positions), type: pending.list_type,
-             positions: positions)
-  end
 
   # The units of what the block plans: by path, the fields each fragment selects there.
   def gathered
