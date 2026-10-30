@@ -30,6 +30,7 @@ RSpec.describe 'Deferring fields' do
         shelf: [Titled!]! @field(resolver: "DeferSpecShelf")
         names: [String!]! @field(resolver: "DeferSpecNames")
         maybe: [String!] @field(resolver: "DeferSpecNothing")
+        someNames: [String!] @field(resolver: "DeferSpecNames")
       }
       type Mutation {
         createUser(name: String!): User @create(model: "LH::User")
@@ -303,6 +304,17 @@ RSpec.describe 'Deferring fields' do
 
       expect(all.first['data']).to eq('names' => %w[ann bob])
       expect(all.last['incremental']).to eq([{ 'id' => '0', 'items' => %w[cat dan] }])
+    end
+
+    it 'answers a negative initialCount with a field error, streamed or not, as the draft does' do
+      query = 'query($count: Int!) { someNames @stream(initialCount: $count) names }'
+      error = { 'message' => 'The initialCount of @stream must not be negative.', 'locations' => [{ 'line' => 1, 'column' => 23 }],
+                'path' => ['someNames'] }
+
+      answer = { 'data' => { 'someNames' => nil, 'names' => %w[ann bob cat dan] }, 'errors' => [error] }
+
+      expect(payloads(query, variables: { 'count' => -1 }).first).to include(answer)
+      expect(schema.execute(query, variables: { 'count' => -1 }).to_h).to eq(answer)
     end
 
     it 'answers null for a nullable list that resolves to null, as without @stream' do
