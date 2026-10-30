@@ -29,7 +29,7 @@ RSpec.describe 'File uploads' do
   before do
     stub_const('UploadSpecName', ->(_obj, args, _ctx) { args[:file].original_filename })
     stub_const('UploadSpecEcho', ->(_obj, args, _ctx) { args.values.first.inspect })
-    stub_const('UploadSpecProfile', ->(_obj, args, _ctx) { args[:input].to_h.inspect })
+    stub_const('UploadSpecProfile', ->(_obj, args, _ctx) { args[:input].to_h.to_json })
     calls = stored
     allow(Lighthouse::GraphQL::UploadStore).to receive(:call) { |file, **options| (calls << [file, options]) && "stored:#{file.original_filename}" }
   end
@@ -49,8 +49,8 @@ RSpec.describe 'File uploads' do
   it 'takes an explicit null for an optional Upload, and stores nothing for it' do
     result = run('mutation($p: ProfileInput!) { profile(input: $p) }', { 'p' => { 'name' => 'ada', 'avatar' => nil } })
 
-    expect(result).to eq('data' => { 'profile' => '{name: "ada", avatar: nil}' })
-    expect(run('mutation { profile(input: { avatar: null }) }', {}).dig('data', 'profile')).to eq('{avatar: nil}')
+    expect(result).to eq('data' => { 'profile' => '{"name":"ada","avatar":null}' })
+    expect(run('mutation { profile(input: { avatar: null }) }', {}).dig('data', 'profile')).to eq('{"avatar":null}')
     expect(stored).to be_empty
   end
 
