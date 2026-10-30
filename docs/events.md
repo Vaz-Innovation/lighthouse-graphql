@@ -73,13 +73,14 @@ def search
 end
 ```
 
-For a response streamed with [`@defer`](performance.md#deferring-fields-experimental),
+For a response streamed with [`@defer`](defer.md),
 the events end in this order: the last part and the closing boundary are written,
-`EndOperationOrOperations` fires, the stream is closed, and `EndRequest` fires, however the stream
-ended (an error, or a client that left, even at the first part). `EndRequest`'s `response` is the
-response, but for its `body`: the parts written, as the client was sent them (the stream's own body
-is the client's, which the server reads as it goes, and reading it would take parts from the
-client). The parts are kept for it only while something listens to `EndRequest`.
+`EndOperationOrOperations` fires, then `EndRequest`, once the response is out (after the action
+returned: the server writes the response's body as it goes), however the stream ended (an error,
+or a client that left, even at the first part). `EndRequest`'s `response` is the response, but for
+its `body`: the parts written, as the client was sent them (the response's own body is the
+client's, which the server reads as it goes, and reading it would take parts from the client). The
+parts are kept for it only while something listens to `EndRequest`.
 
 Without the concern, dispatch them yourself:
 `Lighthouse::Events.dispatch(Lighthouse::Events::StartRequest.new(request))`, and
@@ -103,7 +104,7 @@ it builds, so they fire however the query was started: the controller,
 With no listener, and no `ActiveSupport::Notifications` subscriber, they cost
 one lookup per request.
 
-For a response streamed with [`@defer`](performance.md#deferring-fields-experimental),
+For a response streamed with [`@defer`](defer.md),
 `EndOperationOrOperations` comes after the closing boundary, and `result_or_results` is the whole
 response as the client puts it together: a Hash of the data of every part, and the errors of every
 part (the first one's first). When the client goes away before the last part, it comes then, with
@@ -113,7 +114,7 @@ that does not encode), nothing was sent and the error is the server's: `{ "error
 "message" => "Internal server error" }] }`. A query that
 defers nothing gets its result at once, as without `@defer`.
 
-The fragments deferred with [`@defer`](performance.md#deferring-fields-experimental) run after the
+The fragments deferred with [`@defer`](defer.md) run after the
 first response, in rounds, a payload each. A round runs its units (the fields the same fragments
 select at one path, on its object, or a stream's items) in one multiplex, and, when two fragments
 select different fields of an object field that resolves in it, the fields below that field in

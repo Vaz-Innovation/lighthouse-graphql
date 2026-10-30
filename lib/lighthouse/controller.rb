@@ -24,6 +24,11 @@ require 'json'
 # Cache-Control header the selected fields' @cacheControl hints allow, renders
 # the JSON and dispatches EndRequest. In development an error renders as JSON.
 #
+# When the schema uses Lighthouse::GraphQL::Defer, an operation that defers is
+# streamed instead, as `multipart/mixed` parts (lighthouse_stream), unless the
+# client's Accept header leaves them out: nothing else to set up, as PHP
+# Lighthouse's DeferServiceProvider.
+#
 # A field's @throttle that renders past its limit (its `with:` method, or
 # `head :too_many_requests`, rate_limit's default on Rails 7.2) ends the request
 # with that response, as a before_action that renders does: the operation stops
@@ -59,9 +64,6 @@ module Lighthouse::GraphQL::Controller
     raise e unless lighthouse_render_development_error?(e)
 
     lighthouse_development_error(e)
-  ensure
-    # A streamed response ends when its stream is closed: before EndRequest, or here when it failed.
-    @lighthouse_multipart&.close(response)
   end
 
   private
@@ -95,91 +97,67 @@ module Lighthouse::GraphQL::Controller
       operation_name: operation[:operationName], context: lighthouse_context }
   end
 
-  # One operation: answered whole, or streamed (Defer) when it asks for it.
-  # The schema is resolved once, for both.
+  # One operation: answered whole, or streamed (Defer) when it defers. The schema is resolved
+  # once, for both.
   def lighthouse_respond(operation)
     schema = graphql_schema
-    return lighthouse_incremental(operation, schema) if lighthouse_incremental?(schema)
+    stream_type = lighthouse_stream_type(schema)
+    return lighthouse_incremental(operation, schema, stream_type) if stream_type
 
     result = lighthouse_operation(operation, schema)
     Lighthouse::GraphQL::CacheControl.apply(response, result)
     render json: result
   end
 
-  # Does this request take a streamed response (Defer): the schema uses the
-  # plugin, the controller includes ActionController::Live, and the client
-  # accepts `multipart/mixed`?
-  def lighthouse_incremental?(schema)
-    defined?(::ActionController::Live) && is_a?(::ActionController::Live) &&
-      !Lighthouse::GraphQL::Defer.stream_type_of(request).nil? && Lighthouse::GraphQL::Defer.enabled?(schema)
+  # The Content-Type of the response if it streams (Defer.stream_type), or nil when it comes
+  # whole: the schema does not use the plugin, the client leaves `multipart/mixed` out, or the
+  # request is a HEAD, whose response has no body.
+  def lighthouse_stream_type(schema)
+    return nil if request.head? || !Lighthouse::GraphQL::Defer.enabled?(schema)
+
+    Lighthouse::GraphQL::Defer.stream_type(request.headers['Accept'])
   end
 
-  # Runs the operation as Incremental::Run does, and renders it whole when no
-  # fragment is deferred, else streams the payloads as `multipart/mixed` parts
-  # (not cacheable, whatever @cacheControl says).
-  def lighthouse_incremental(operation, schema)
-    error = Lighthouse::GraphQL::PersistedQueries.incremental(schema, **lighthouse_arguments(operation)) do |run|
-      lighthouse_answer(run)
-      nil
-    end
-    render json: error if error
-  end
-
-  # A run that defers streams; one that does not is rendered, as the JSON path renders a result.
-  def lighthouse_answer(run)
-    return lighthouse_stream(run) if run.deferred?
+  # Runs the operation's first pass (Incremental::Run), and renders it whole when no fragment
+  # is deferred (its operation ended), else streams it, in the format `stream_type` names.
+  def lighthouse_incremental(operation, schema, stream_type)
+    format = Lighthouse::GraphQL::Defer.legacy?(stream_type) ? :legacy : :draft
+    run = Lighthouse::GraphQL::PersistedQueries.incremental(schema, format: format, **lighthouse_arguments(operation))
+    return render json: run if run.is_a?(Hash)
+    return lighthouse_stream(run, stream_type) if run.deferred?
 
     Lighthouse::GraphQL::CacheControl.apply(response, run.result)
     render json: run.result
   end
 
-  # The payloads of `run`, one part each, written as they are ready, then the closing boundary
-  # (before the operation ends: PersistedQueries.incremental). A part encodes before it is
-  # written, so an error of the app's values is not taken for the stream's. Until the first part
-  # is written (or tried), the response is not committed: an error then surfaces as it would on
-  # the JSON path. Once it is, the stream ends here, whatever fails: Run has written the last
-  # part an error ends it with, and the error is reported and logged, and goes no further (the
-  # app's rescue_from would render on a response on its way). The parts are kept for EndRequest
-  # only when something listens to it.
-  def lighthouse_stream(run)
-    keep = Lighthouse::Events.listening?(Lighthouse::Events::EndRequest)
-    multipart = @lighthouse_multipart = Lighthouse::GraphQL::Incremental::Multipart.new(response.stream, keep: keep)
-    run.each_payload { |payload| lighthouse_write(multipart, multipart.part(payload)) }
-    lighthouse_write(multipart, nil)
-  rescue Lighthouse::GraphQL::Incremental::Gone
-    nil
-  rescue StandardError => e
-    raise unless multipart&.opened?
-
-    lighthouse_report(e)
-    lighthouse_close(multipart)
+  # The response of a run that defers: its payloads as `multipart/mixed` parts (not cacheable,
+  # whatever @cacheControl says), which Incremental::Body writes as the server sends the
+  # response, after the action. The first part is encoded here, so that an error of the app's
+  # values in it is answered as on the JSON path, nothing being sent: the operation then ends as
+  # one that failed. The body ends the operation, then the request (EndRequest, with the parts
+  # written as its response's body, kept only when something listens to it).
+  def lighthouse_stream(run, stream_type)
+    multipart = Lighthouse::GraphQL::Incremental::Multipart.new(keep: Lighthouse::Events.listening?(Lighthouse::Events::EndRequest))
+    first = lighthouse_first_part(run, multipart)
+    Lighthouse::GraphQL::Incremental::Multipart.headers(stream_type).each { |name, value| response.headers[name] = value }
+    ended = -> { Lighthouse::Events.dispatch(Lighthouse::Events::EndRequest.new(multipart.ended(response))) }
+    @lighthouse_body = Lighthouse::GraphQL::Incremental::Body.new(run, multipart, first, on_error: method(:lighthouse_report), on_end: ended)
+    request.env['rack.response_finished']&.push(->(*) { @lighthouse_body.finish })
+    self.response_body = @lighthouse_body
   end
 
-  # Writes a part (or, without one, the closing boundary) to the response's stream, with the
-  # headers of a streamed response before the first (an error before it is answered as JSON). A
-  # client that went away (ActionController::Live's ClientDisconnected, or the IOError of a closed
-  # stream) raises Incremental::Gone: the response ends quietly.
-  def lighthouse_write(multipart, part)
-    headers = Lighthouse::GraphQL::Incremental::Multipart.headers(Lighthouse::GraphQL::Defer.stream_type_of(request)) unless multipart.started?
-    headers&.each { |name, value| response.headers[name] = value }
-    part ? multipart.emit(part) : multipart.finish
-  rescue ::ActionController::Live::ClientDisconnected, ::IOError
-    raise Lighthouse::GraphQL::Incremental::Gone
+  def lighthouse_first_part(run, multipart)
+    multipart.part(run.first_payload)
+  rescue StandardError
+    run.refuse!
+    run.finish
+    raise
   end
 
-  # The closing boundary of a stream an error ended, after the error was reported: a client gone
-  # by then ends it quietly, and an error writing it is reported in turn.
-  def lighthouse_close(multipart)
-    lighthouse_write(multipart, nil)
-  rescue StandardError => e
-    lighthouse_report(e) unless e.is_a?(Lighthouse::GraphQL::Incremental::Gone)
-  end
+  # A streamed body ends the request itself, once it is done (Incremental::Body).
+  def lighthouse_streaming? = !@lighthouse_body.nil?
 
-  # The response EndRequest carries: a streamed one, whatever ended it, closed, its body the parts
-  # written (Multipart#ended).
-  def lighthouse_response = @lighthouse_multipart&.opened? ? @lighthouse_multipart.ended(response) : response
-
-  # An error that ended a streamed response on its way, which `lighthouse_stream` handled: to
+  # An error that ended a streamed response on its way, which Incremental::Body handled: to
   # Rails.error (where the JSON path's would go, through the executor or rescue_from), and the log.
   def lighthouse_report(error)
     lighthouse_log(error)

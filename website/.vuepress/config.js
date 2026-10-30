@@ -27,13 +27,14 @@ const sidebar = [
     ],
   },
   { text: 'Security', children: ['/docs/authorization.md', '/docs/security.md'] },
-  { text: 'Performance', children: ['/docs/performance.md', '/docs/caching.md'] },
+  { text: 'Performance', children: ['/docs/performance.md', '/docs/defer.md', '/docs/caching.md'] },
   {
     text: 'Digging Deeper',
     children: [
       '/docs/schema-organisation.md',
       '/docs/custom-directives.md',
       '/docs/events.md',
+      '/docs/testing.md',
       '/docs/federation.md',
       '/docs/best-practices.md',
     ],

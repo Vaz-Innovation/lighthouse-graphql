@@ -68,14 +68,17 @@ module Lighthouse::GraphQL::PersistedQueries
   # that defers nothing, EndOperationOrOperations with its result at once; for one
   # that defers, with the whole response (Incremental::Run#response, the data and
   # errors of every round) once its last round has run, or, if the block streams
-  # none, once the block is done.
+  # none, once the block is done. Without a block, it answers the Run, which the caller ends
+  # (Run#finish) once its response is out (Lighthouse::GraphQL::Controller, whose streamed body
+  # outlives the action). `format`: the payloads' (Run).
   #
   # A protocol error raised as the first pass runs is answered as on the JSON path, nothing being
   # sent yet; one raised in a later round fails the stream, as any error of a round does.
-  def incremental(schema, query:, extensions: nil, **options)
+  def incremental(schema, query:, extensions: nil, format: :draft, **options)
     operation(query, extensions, options) do |text, ended|
-      run = protocol { Lighthouse::GraphQL::Incremental::Run.new(schema, text, **options).start(&ended) }
+      run = protocol { Lighthouse::GraphQL::Incremental::Run.new(schema, text, format: format, **options).start(&ended) }
       next run.tap { |error| ended.call(error) } if run.is_a?(Hash)
+      next run unless block_given?
 
       begin
         yield run

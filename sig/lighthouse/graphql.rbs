@@ -99,8 +99,13 @@ module Lighthouse
       # `execute` for a response that may be streamed (Defer): yields the started
       # Incremental::Run and answers what the block does, or a protocol error as a
       # ready-to-render Hash. The operation ends once the run is done, or the block.
-      def self?.incremental: [T] (schema schema, query: String?, ?extensions: extensions?, ?variables: Hash[String, untyped]?,
-                                  ?operation_name: String?, ?context: Hash[Symbol, untyped], **untyped options) { (Incremental::Run run) -> T } -> (T | Hash[String, json])
+      # Without a block, it answers the Run, which the caller ends (Run#finish).
+      def self?.incremental: [T] (schema schema, query: String?, ?extensions: extensions?, ?format: Incremental::format,
+                                  ?variables: Hash[String, untyped]?, ?operation_name: String?, ?context: Hash[Symbol, untyped],
+                                  **untyped options) { (Incremental::Run run) -> T } -> (T | Hash[String, json])
+                           | (schema schema, query: String?, ?extensions: extensions?, ?format: Incremental::format,
+                              ?variables: Hash[String, untyped]?, ?operation_name: String?, ?context: Hash[Symbol, untyped],
+                              **untyped options) -> (Incremental::Run | Hash[String, json])
       # A batch: `schema.multiplex` with the query each operation (a Hash of
       # query, extensions, variables, operation_name, context) names. One result
       # per operation, in order; a protocol error is a ready-to-render Hash.
@@ -185,14 +190,14 @@ module Lighthouse
     end
 
     # @defer (experimental; the specification it follows is a draft): a graphql-ruby
-    # plugin, `use Lighthouse::GraphQL::Defer` in the schema class. The controller
-    # streams the response when the controller includes ActionController::Live and
-    # the client accepts `multipart/mixed`.
+    # plugin, `use Lighthouse::GraphQL::Defer` in the schema class. Lighthouse::GraphQL::Controller
+    # then streams the response of an operation that defers, unless the client's Accept header
+    # leaves `multipart/mixed` out.
     module Defer
       MULTIPART: String
-      OLD_FORMAT: String
+      LEGACY: String
+      LEGACY_TYPE: String
       FORMAT: String
-      JSON_TYPES: Array[String]
       GRAPHQL: String
 
       # graphql-ruby's plugin hook.
@@ -201,22 +206,13 @@ module Lighthouse
       def self?.enabled?: (schema schema) -> bool
       module Used
       end
-      # The Content-Type of the streamed response to `accept`, or nil when the client does not
-      # prefer one to JSON.
+      # The Content-Type of a streamed response to a client that sends `accept`, or nil when it
+      # does not take one; it names Apollo's older format (`deferSpec=20220824`) when the client did.
       def self?.stream_type: (String? accept) -> String?
-      # The request's stream_type, its Accept header read once (kept under ENV_KEY).
-      def self?.stream_type_of: (_Request request) -> String?
-      ENV_KEY: String
-
-      # A route constraint: does the request prefer a streamed response?
-      module Streaming
-        def self.matches?: (_RoutedRequest request) -> bool
-      end
-      # Each media range of the header, and the multipart/mixed one the client prefers to JSON.
+      # Is the Content-Type (stream_type's) Apollo's older format?
+      def self?.legacy?: (String? content_type) -> bool
+      # Each media range of the header.
       def self?.ranges: (String? accept) -> Array[MediaRange]
-      def self?.preferred: (String? accept) -> MediaRange?
-      def self?.best: (Array[MediaRange] ranges) { (MediaRange) -> bool } -> MediaRange?
-      def self?.json: (Array[MediaRange] ranges) -> MediaRange?
 
       # A media range of an Accept header.
       class MediaRange
@@ -225,19 +221,21 @@ module Lighthouse
         attr_reader q: Float
         attr_reader index: Integer
         def rank: () -> [Float, Integer]
-        def streams?: () -> bool
-        def before?: (MediaRange? other) -> bool
         def covers?: (String name) -> bool
         def specificity: () -> Integer
+        def legacy?: () -> bool
       end
     end
 
     module Incremental
+      # The payloads' format: the specification draft's, or Apollo's older one (Legacy).
+      type format = :draft | :legacy
+
       # One operation, run in as many passes as @defer asks for.
       class Run
         # `options` are `schema.execute`'s: variables:, operation_name:, context:.
         # A nil query string (a request without one) is answered as graphql-ruby answers it.
-        def initialize: (schema schema, String? query_string, **untyped options) -> void
+        def initialize: (schema schema, String? query_string, ?format: format, **untyped options) -> void
         # Runs the first pass; returns self. The block gets what ends the operation (see finish).
         def start: () ?{ (_Result result) -> void } -> Run
         # Calls start's block, once: with the first pass's result when nothing was deferred, else the response so far.
@@ -248,37 +246,53 @@ module Lighthouse
         def deferred?: () -> bool
         # The initial payload, then one per round of deferred fragments, until `hasNext` is false.
         def each_payload: () { (Hash[String, json]) -> void } -> void
+        # The first payload, as the client is sent it (each_payload yields it first).
+        def first_payload: () -> Hash[String, json]
+        # The first payload could not be sent: the operation ends as one that failed.
+        def refuse!: () -> void
         # The whole response: the data and the errors of every round the client was sent ({} if none).
         def response: () -> Hash[String, json]
+      end
+
+      # Converts the draft's payloads to Apollo's older format (`deferSpec=20220824`).
+      class Legacy
+        def initialize: (Hash[String, untyped] pendings) -> void
+        def convert: (Hash[String, json] payload) -> Hash[String, json]
       end
 
       # The parts of a `multipart/mixed` response (graphql-over-http's IncrementalDelivery).
       class Multipart
         CONTENT_TYPE: String
         PART_HEADERS: String
+        CLOSING: String
 
         def self.headers: (?String content_type) -> Hash[String, String]
+        # The JSON of each part of a multipart/mixed body.
+        def self.parse: (String? body) -> Array[Hash[String, json]]
         # The part of a payload, encoded as render json: does (the payload holds the app's values:
         # a Time, an object's as_json; their errors are raised here).
         def part: (Hash[String, untyped] payload) -> String
-        # Writes an encoded part (the stream's errors are raised here).
-        def emit: (String part) -> void
+        # A part (or the closing boundary) was written.
+        def written: (String part) -> void
         def started?: () -> bool
-        def finish: () -> void
-        # The response, its stream closed, as EndRequest carries it: its body the parts written.
-        def ended: (_StreamedResponse response) -> Response
-        def close: (_StreamedResponse response) -> void
-        def opened?: () -> bool
-        def initialize: (_Stream stream, ?keep: bool) -> void
+        # The closing boundary, once a part was written.
+        def closing: () -> String?
+        # The response as EndRequest carries it: its body the parts written.
+        def ended: (untyped response) -> Response
+        def initialize: (?keep: bool) -> void
 
         class Response
-          def initialize: (_StreamedResponse response, Array[String] parts) -> void
+          def initialize: (untyped response, Array[String] parts) -> void
           def body: () -> String
         end
       end
 
-      interface _Stream
-        def write: (String data) -> untyped
+      # The Rack body of a streamed response: writes each part as its round runs, then ends the
+      # operation and the request (`finish`, once).
+      class Body
+        def initialize: (Run run, Multipart multipart, String first, on_error: ^(StandardError) -> void, on_end: ^() -> void) -> void
+        def each: () { (String part) -> void } -> void
+        def finish: () -> void
       end
     end
 

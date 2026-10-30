@@ -29,19 +29,25 @@
 #
 # A client that does not stream is answered by `schema.execute`, the whole
 # response at once, as the specification allows.
+#
+# The payloads are the draft's (Serializer); with `format: :legacy`, the client is sent each in
+# Apollo's older format instead (Legacy).
 class Lighthouse::GraphQL::Incremental::Run
   State = Lighthouse::GraphQL::Incremental::State
   Serializer = Lighthouse::GraphQL::Incremental::Serializer
 
   attr_reader :result
 
-  # `options`: `schema.execute`'s (variables:, operation_name:, context:, ...).
-  def initialize(schema, query_string, **options)
+  # `options`: `schema.execute`'s (variables:, operation_name:, context:, ...). `format`: the
+  # payloads' (:draft, or :legacy for Apollo's older one).
+  def initialize(schema, query_string, format: :draft, **options)
     @schema = schema
     @query_string = query_string
     @options = options
     @queue = []
     @announced = []
+    @pendings = {}
+    @legacy = Lighthouse::GraphQL::Incremental::Legacy.new(@pendings) if format == :legacy
     @next_id = 0
     @running = []
     @round = 0
@@ -103,6 +109,14 @@ class Lighthouse::GraphQL::Incremental::Run
     { 'data' => @sent || first['data'], 'errors' => (first['errors'].to_a + @errors).presence, 'extensions' => first['extensions'] }.compact
   end
 
+  # The first payload, as the client is sent it (each_payload yields this one first): one that
+  # does not encode can be refused before anything is sent.
+  def first_payload = @first_payload ||= formatted(initial_payload)
+
+  # The first payload could not be sent (it did not encode, so nothing was): the operation
+  # ends as one that failed (`response`).
+  def refuse! = (@streaming = @refused = true)
+
   # Calls the block `start` was given, once: with the first pass's result when nothing was
   # deferred, else with the response so far.
   def finish
@@ -115,7 +129,7 @@ class Lighthouse::GraphQL::Incremental::Run
 
   # The initial payload: one that fails, but for a client gone, is refused (`response`).
   def first(&block)
-    emit(Serializer.initial(@result, @announced, has_next: deferred?), &block)
+    emit(initial_payload, formatted: first_payload, &block)
   rescue StandardError => e
     @refused = !e.is_a?(Lighthouse::GraphQL::Incremental::Gone)
     raise
@@ -242,6 +256,7 @@ class Lighthouse::GraphQL::Incremental::Run
       next unless present?(pending.path) && @found.add?([pending.node.object_id, pending.path])
 
       pending.id = @next_id.to_s
+      @pendings[pending.id] = pending
       @next_id += 1
       @queue << pending
       @announced << pending
@@ -251,11 +266,11 @@ class Lighthouse::GraphQL::Incremental::Run
   # Does `path` lead to a value in the response's data so far?
   def present?(path) = @tree.present?(path)
 
-  # Yields a payload, and keeps what the client was sent: the ids it has not seen completed, the
-  # data and the errors.
+  # Yields a payload, as the client is sent it (`formatted`), and keeps what the client was sent:
+  # the ids it has not seen completed, the data and the errors.
   # A failure's payload sends no data (`data: false`).
-  def emit(payload, data: true)
-    yield payload
+  def emit(payload, data: true, formatted: formatted(payload))
+    yield formatted
     @delivered = true
     payload['pending'].to_a.each { |entry| @open[entry['id']] = true }
     payload['completed'].to_a.each { |entry| @open.delete(entry['id']) }
@@ -263,6 +278,12 @@ class Lighthouse::GraphQL::Incremental::Run
     @errors.concat(@unsent.to_a)
     @unsent = nil
   end
+
+  # The first payload, in the draft's format.
+  def initial_payload = @initial_payload ||= Serializer.initial(@result, @announced, has_next: deferred?)
+
+  # The draft's payload as the client reads it.
+  def formatted(payload) = @legacy ? @legacy.convert(payload) : payload
 
   # A stream that failed ends with a last payload, in which every id still open completes, with an
   # error; then `error` is raised again, whether or not the client could be sent that payload.

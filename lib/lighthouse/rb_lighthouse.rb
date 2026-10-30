@@ -77,11 +77,14 @@ require_relative 'namespaces'
   incremental/delivery
   incremental/plan
   incremental/serializer
+  incremental/legacy
   incremental/multipart
+  incremental/body
   incremental/run
   defer
   operations
   controller
+  testing
   schema_factory
   schema_implementation
   resolver_dispatch

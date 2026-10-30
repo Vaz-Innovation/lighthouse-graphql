@@ -72,10 +72,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **`@defer` (experimental)**, PHP Lighthouse's extension, on the specification draft's terms.
   `use Lighthouse::GraphQL::Defer` in the schema class adds the directive as the draft has it
   (graphql-spec PR #1110: on fragments, with `if` and `label`, answered as `pending` /
-  `incremental` / `completed` / `hasNext`), and a controller that includes
-  `ActionController::Live` streams it as `multipart/mixed` to a client that prefers it (q-values
-  honoured), which the route constraint `Lighthouse::GraphQL::Defer::Streaming` sends there, so
-  only streamed requests run in Live's thread; other clients get one ordinary response. As PHP Lighthouse's, a response goes in
+  `incremental` / `completed` / `hasNext`), and `Lighthouse::GraphQL::Controller` streams the
+  response of an operation that defers as `multipart/mixed`, as PHP Lighthouse does once its
+  provider is registered: nothing else to set up, from the same action and routes (`GET` too), as a
+  body Rails streams in the request's thread (no `ActionController::Live`). It streams to any
+  client but one whose `Accept` header leaves `multipart/mixed` out (`application/json` alone),
+  which gets one ordinary response; GraphiQL's `application/json, multipart/mixed` streams. A
+  client that names Apollo's older format (`multipart/mixed;deferSpec=20220824`: Apollo Client 3,
+  Apollo Client 4's `Defer20220824Handler`) gets its payloads in that format (`path` and `label`,
+  no `pending` / `completed`). As PHP Lighthouse's, a response goes in
   rounds, one payload each, and stops deferring past its limits, with their names and meaning:
   `defer_max_nested_fields` and `defer_max_execution_ms` (0, the default, for none). PHP
   Lighthouse's rules hold: no `@defer` on a root mutation field ("The @defer directive cannot be
@@ -92,8 +97,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   grouped field set, as the draft's, so a fragment that fails fails only those it shares fields
   with, and sends nothing (not even what it adds to a shared field); and a Non-Null field can be deferred. Needs
   graphql-ruby 2.5.23. The first pass is the schema's `execute` (an app's own override too), as on
-  the JSON path. See [performance.md](docs/performance.md#deferring-fields-experimental),
-  which lists the differences.
+  the JSON path. See [defer.md](docs/defer.md), which lists the differences.
+- **`Lighthouse::GraphQL::Testing`**, PHP Lighthouse's `MakesGraphQLRequests`, for request specs and
+  integration tests: `graphql(query, variables)`, `post_graphql` (a batch too), `multipart_graphql`
+  (uploads), `introspect`, `introspect_type(name)`, `introspect_directive(name)`, and
+  `stream_graphql`, PHP Lighthouse's `streamGraphQL`, which answers the payloads of a streamed
+  response (`NotStreamed` for one that came whole). See [testing.md](docs/testing.md).
 - **`@stream` (experimental)**, with `@defer` (PHP Lighthouse has none): `users @stream(initialCount: 2)
   { name }` answers the first items at once and the rest in a later part (`items`, the draft's
   format). A graphql-ruby trace module on the schema that uses the plugin cuts the list after its

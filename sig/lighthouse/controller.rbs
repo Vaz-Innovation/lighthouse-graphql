@@ -35,8 +35,41 @@ module Lighthouse
       include Operations
 
       # The action: dispatches StartRequest, runs the operation (or a batch),
-      # sets Cache-Control, renders JSON, dispatches EndRequest.
+      # sets Cache-Control, renders JSON (or streams an operation that defers, when the
+      # schema uses Defer), dispatches EndRequest.
       def execute: () -> void
+    end
+
+    # Requests to the app's endpoint from its tests (PHP Lighthouse's MakesGraphQLRequests),
+    # in Rails' integration session. Each answers the response's parsed body.
+    module Testing : _IntegrationSession
+      class NotStreamed < StandardError
+      end
+
+      def graphql: (String query, ?Hash[String | Symbol, untyped] variables, ?extra_params: Hash[String | Symbol, untyped],
+                    ?headers: Hash[String, String]) -> untyped
+      def post_graphql: (Hash[String | Symbol, untyped] | Array[Hash[String | Symbol, untyped]] data, ?headers: Hash[String, String]) -> untyped
+      def multipart_graphql: (Hash[String | Symbol, untyped] operations, Hash[String, Array[String]] map, Hash[String | Symbol, untyped] files,
+                              ?headers: Hash[String, String]) -> untyped
+      def introspect: () -> untyped
+      def introspect_type: (String name) -> Hash[String, untyped]?
+      def introspect_directive: (String name) -> Hash[String, untyped]?
+      # The payloads of a streamed response; NotStreamed when it came whole.
+      def stream_graphql: (String query, ?Hash[String | Symbol, untyped] variables, ?extra_params: Hash[String | Symbol, untyped],
+                           ?headers: Hash[String, String]) -> Array[Hash[String, json]]
+      def graphql_endpoint: () -> String
+    end
+
+    # Rails' integration session (ActionDispatch::Integration::Runner), as Testing uses it.
+    interface _IntegrationSession
+      def post: (String path, ?params: untyped, ?headers: Hash[String, String]) -> untyped
+      def response: () -> _TestResponse
+    end
+
+    interface _TestResponse
+      def parsed_body: () -> untyped
+      def body: () -> String
+      def content_type: () -> String?
     end
   end
 end

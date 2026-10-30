@@ -59,7 +59,8 @@ module Lighthouse::GraphQL::Operations
 
   # Dispatch StartRequest, run the block, dispatch EndRequest with the
   # response. Only the outermost call dispatches, and stops the block where a
-  # @throttle `with:` method performed the response.
+  # @throttle `with:` method performed the response. A streamed response
+  # dispatches EndRequest itself, once it is out (`lighthouse_streaming?`).
   def lighthouse_request
     return yield if @lighthouse_request_started
 
@@ -70,12 +71,12 @@ module Lighthouse::GraphQL::Operations
     rescue Lighthouse::GraphQL::Controller::Performed
       nil
     end
-    Lighthouse::Events.dispatch(Lighthouse::Events::EndRequest.new(lighthouse_response))
+    Lighthouse::Events.dispatch(Lighthouse::Events::EndRequest.new(response)) unless lighthouse_streaming?
     result
   end
 
-  # The response EndRequest carries (the controller's streamed one is closed first).
-  def lighthouse_response = response
+  # Does the response go on after the action, ending the request itself (the controller's streamed one)?
+  def lighthouse_streaming? = false
 
   # The context of the operation: what @guard and the @can* directives read.
   def graphql_context

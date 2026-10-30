@@ -1,50 +1,41 @@
 # frozen_string_literal: true
 
 # @defer and @stream: the fields of a fragment, and the items of a list, arrive after the rest of the response
-# (experimental: the specification it follows is still a draft, see
-# docs/performance.md). A graphql-ruby plugin, opted into in the schema class:
+# (experimental: the specification it follows is still a draft, see docs/defer.md). A graphql-ruby
+# plugin, opted into in the schema class, as PHP Lighthouse's DeferServiceProvider is registered:
 #
 #   class AppSchema < Lighthouse::GraphQL::RbLightHouse.get_schema(...)
 #     use GraphQL::Dataloader
 #     use Lighthouse::GraphQL::Defer
 #   end
 #
-#   class GraphqlStreamingController < GraphqlController
-#     include ActionController::Live        # only the streamed requests run in it
-#   end
-#
-#   # config/routes.rb: the client that prefers multipart/mixed goes to the streaming one
-#   post '/graphql', to: 'graphql_streaming#execute', constraints: Lighthouse::GraphQL::Defer::Streaming
-#   post '/graphql', to: 'graphql#execute'
-#
-# The plugin adds the directives to the schema (without it the schema has none,
-# as the specification asks of a server that does not implement it). A
-# controller streams a response when the schema uses the plugin, the controller
-# includes ActionController::Live, and the client prefers `multipart/mixed`
-# (`Defer.stream_type_of(request)`); every other request is answered whole. The plugin also
-# installs Rules, the analyzer that checks the directives in every query.
-# Run does the work; Document, State, Serializer and Multipart are its parts.
+# The plugin adds the directives to the schema (without it the schema has none, as the
+# specification asks of a server that does not implement it), and installs Rules, the analyzer
+# that checks them in every query. Lighthouse::GraphQL::Controller then streams the response of
+# an operation that defers, as PHP Lighthouse does, unless the client's Accept header leaves out
+# `multipart/mixed` (`Defer.stream_type`), in the format the client reads: the specification
+# draft's, or Apollo's older one (`deferSpec=20220824`). Every other response comes whole.
+# Run does the work; Document, State, Serializer, Legacy, Multipart and Body are its parts.
 module Lighthouse::GraphQL::Defer
   MULTIPART = 'multipart/mixed'
-  # The Accept parameter of Apollo Client's older format, which this is not.
-  OLD_FORMAT = 'deferspec'
+  # The Accept parameter of Apollo's older format (Incremental::Legacy), and the Content-Type's.
+  LEGACY = 'deferspec'
+  LEGACY_TYPE = 'deferSpec=20220824'
   # What a client names when it reads the specification draft's format.
   FORMAT = 'incrementalspec=v0.2'
-  JSON_TYPES = %w[application/json application/graphql-response+json].freeze
 
   # A media range of an Accept header; `rank` orders them as preferred first.
   MediaRange = Struct.new(:type, :params, :q, :index) do
     def rank = [-q, index]
-
-    # multipart/mixed, but in the older format.
-    def streams? = type == MULTIPART && params.none? { |param| param.start_with?(OLD_FORMAT) }
-    def before?(other) = other.nil? || (rank <=> other.rank).negative?
 
     # Does the range cover the media type `name` (itself, its `type/*`, or `*/*`)?
     def covers?(name) = type == name || type == '*/*' || (type.end_with?('/*') && name.start_with?(type.delete_suffix('*')))
 
     # How specific the range is: a type, then `type/*`, then `*/*`.
     def specificity = (type == '*/*' ? 0 : 1) + (type.end_with?('/*') ? 0 : 1)
+
+    # Does it name Apollo's older format?
+    def legacy? = params.any? { |param| param.start_with?(LEGACY) }
   end
 
   module_function
@@ -70,59 +61,41 @@ module Lighthouse::GraphQL::Defer
   # What a schema class that uses the plugin is extended with, which its subclasses inherit.
   module Used; end
 
-  # Where a request's stream_type is kept, so the header is read once.
-  ENV_KEY = 'lighthouse.defer.stream_type'
-
-  # A route constraint: can the request stream, and does it prefer to? One operation (not a
-  # batch, a JSON array body; not a multipart upload, `multipart/form-data`), from a client whose
-  # Accept header prefers a streamed response. It keeps that answer in the request for the
-  # controller. A JSON body is read as Rails reads it for the parameters (Request#raw_post, once).
-  module Streaming
-    def self.matches?(request)
-      return false if Lighthouse::GraphQL::Defer.stream_type_of(request).nil? || request.media_type == 'multipart/form-data'
-
-      !(request.media_type.to_s.end_with?('json') && request.raw_post.to_s.lstrip.start_with?('['))
-    end
-  end
-
-  # The request's stream_type, its `Accept` header read once.
-  def stream_type_of(request)
-    request.env.fetch(ENV_KEY) { request.env[ENV_KEY] = stream_type(request.headers['Accept']) }
-  end
-
   # Does `schema` use the plugin? Decided once a schema class (Schema.directives builds a Hash on
   # every call), as `use` marks it.
   def enabled?(schema) = schema.is_a?(Used)
 
-  # The Content-Type of the streamed response to `accept`, or nil when the client does not prefer
-  # one in this gem's format to JSON. It names the format when the client did.
+  # The Content-Type of a streamed response to a client that sends `accept`, or nil when the
+  # client does not take one. As PHP Lighthouse, which streams whatever the client accepts, it is
+  # streamed to any client but one whose header leaves `multipart/mixed` out: no range covers
+  # it, or the most specific that does is at q=0 (`application/json` alone). The format is the
+  # specification draft's, or Apollo's older one when the client's preferred `multipart/mixed`
+  # range names it (`deferSpec=20220824`); the Content-Type names the format the client named.
   def stream_type(accept)
-    range = preferred(accept) or return nil
     type = Lighthouse::GraphQL::Incremental::Multipart::CONTENT_TYPE
-    range.params.include?(FORMAT) ? "#{type}; incrementalSpec=v0.2" : type
-  end
+    return type if accept.to_s.strip.empty?
 
-  # The `multipart/mixed` range of the header the client prefers to a JSON response, if one:
-  # not at q=0, not in the older format, and ranked (q, then order, as Rails ranks them) before
-  # application/json and application/graphql-response+json, each at the q of the most specific
-  # range that covers it (itself, `application/*` or `*/*`). Rails' Mime::Type.parse ranks the
-  # types, but drops their parameters (the format is one), so this reads them.
-  def preferred(accept)
     ranges = ranges(accept)
-    multipart = best(ranges.select { |range| range.q.positive? }, &:streams?)
-    multipart if multipart&.before?(json(ranges))
+    named = ranges.select { |range| range.type == MULTIPART }
+    return wildcard(type, ranges) if named.empty?
+
+    preferred = named.select { |range| range.q.positive? }.min_by(&:rank)
+    content_type(type, preferred) if preferred
   end
 
-  # The range a JSON response is accepted at, the preferred of the JSON types': for each, the most
-  # specific range that covers it, unless that one refuses it (q=0).
-  def json(ranges)
-    covering = JSON_TYPES.filter_map { |name| ranges.select { |range| range.covers?(name) }.max_by(&:specificity) }
-    best(covering) { |range| range.q.positive? }
+  # A header that names no multipart/mixed range: the most specific range that covers it decides.
+  def wildcard(type, ranges)
+    covering = ranges.select { |range| range.covers?(MULTIPART) }.max_by { |range| [range.specificity, range.q] }
+    type if covering&.q&.positive?
   end
 
-  # The preferred of the ranges the block selects.
-  def best(ranges, &block)
-    ranges.select(&block).min_by(&:rank)
+  # Is `content_type` (stream_type's) Apollo's older format?
+  def legacy?(content_type) = content_type.to_s.include?(LEGACY_TYPE)
+
+  def content_type(type, range)
+    return "#{type}; #{LEGACY_TYPE}" if range.legacy?
+
+    range.params.include?(FORMAT) ? "#{type}; incrementalSpec=v0.2" : type
   end
 
   # Each media range of the header: its type, its parameters (lowercase, but q) and its q.
@@ -136,4 +109,6 @@ module Lighthouse::GraphQL::Defer
       MediaRange.new(type, params - [q], q ? q.delete_prefix('q=').to_f : 1.0, index)
     end
   end
+
+  private_class_method :content_type, :wildcard
 end

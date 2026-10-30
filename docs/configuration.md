@@ -154,7 +154,7 @@ config.persisted_queries_only = Rails.env.production?  # run nothing else
 
 ### `defer_max_nested_fields` and `defer_max_execution_ms`
 
-The limits of [`@defer`](performance.md#deferring-fields-experimental) (experimental), PHP
+The limits of [`@defer`](defer.md) (experimental), PHP
 Lighthouse's `defer.max_nested_fields` and `defer.max_execution_ms`. `0`, the default, is no limit.
 
 - `defer_max_nested_fields`: how many rounds of nested deferred fragments a response may take. The

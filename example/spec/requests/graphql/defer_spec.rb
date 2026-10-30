@@ -1,7 +1,7 @@
 require 'rails_helper'
 
-# The streaming endpoint of an app whose controllers rescue every error and render a 500.
-class DeferSpecRescuingController < GraphqlStreamingController
+# The endpoint of an app whose controllers rescue every error and render a 500.
+class DeferSpecRescuingController < GraphqlController
   cattr_accessor :rescued, default: []
 
   rescue_from StandardError, with: :render_internal_error
@@ -14,9 +14,12 @@ class DeferSpecRescuingController < GraphqlStreamingController
   end
 end
 
-# @defer over HTTP: the endpoint streams the deferred fragments as multipart/mixed parts to a
-# client that accepts them (Lighthouse::GraphQL::Defer, GraphqlController's ActionController::Live).
+# @defer over HTTP: GraphqlController streams the deferred fragments as multipart/mixed parts
+# (AppSchema uses Lighthouse::GraphQL::Defer), as PHP Lighthouse does, to any client but one that
+# leaves multipart/mixed out of its Accept header.
 RSpec.describe 'Deferring fields', type: :request do
+  include Lighthouse::GraphQL::Testing
+
   let(:accept) { { 'Accept' => 'multipart/mixed;incrementalSpec=v0.2,application/json' } }
   let(:query) do
     <<~GRAPHQL
@@ -24,18 +27,16 @@ RSpec.describe 'Deferring fields', type: :request do
     GRAPHQL
   end
 
-  # The JSON of each part of a multipart/mixed body.
-  def parts(body)
-    body.split(/\r\n-{3,5}(?:\r\n|\z)/).filter_map do |part|
-      json = part.split("\r\n\r\n", 2)[1]
-      JSON.parse(json) if json.present?
-    end
-  end
+  def parts(body) = Lighthouse::GraphQL::Incremental::Multipart.parse(body)
 
+  # The payloads of a streamed response, or none for one that came whole.
   def stream(query, headers: accept)
     post '/graphql', params: { query: query }, headers: headers, as: :json
     parts(response.body)
   end
+
+  # The example's own JSON helper (GraphqlHelpers), which Testing's graphql would replace here.
+  def graphql(query) = post_graphql({ query: query }, headers: { 'Accept' => 'application/json' })
 
   before do
     create_list(:post, 3).each { |post| create(:comment, post: post) }
@@ -56,32 +57,53 @@ RSpec.describe 'Deferring fields', type: :request do
     expect(Lighthouse::GraphQL::Incremental::Multipart).to have_received(:headers).once
   end
 
-  it 'runs a batch and a multipart upload in the plain controller, whatever the client accepts' do
-    post '/graphql', params: [{ query: '{ posts(first: 1) { data { title } } }' }].to_json,
+  it "streams from the app's own GraphqlController, in the request's thread, as PHP Lighthouse streams from its controller" do
+    thread = nil
+    Lighthouse::Events.listen(Lighthouse::Events::EndRequest) { (thread = Thread.current) && nil }
+
+    expect(stream_graphql(query).size).to eq(2)
+    expect(controller).to be_a(GraphqlController)
+    expect(GraphqlController.ancestors).not_to include(ActionController::Live)
+    expect(thread).to equal(Thread.current)
+  ensure
+    Lighthouse::Events.reset!
+  end
+
+  it 'streams to a client that sends no Accept header, or */*, or puts JSON first, as GraphiQL does' do
+    [{}, { 'Accept' => '*/*' }, { 'Accept' => 'application/json, multipart/mixed' }].each do |headers|
+      post '/graphql', params: { query: query }.to_json, headers: headers.merge('Content-Type' => 'application/json')
+
+      expect(response.content_type).to start_with('multipart/mixed;')
+      expect(parts(response.body).size).to eq(2)
+    end
+  end
+
+  it 'streams a GET, as a persisted query by hash is sent' do
+    get '/graphql', params: { query: query }, headers: accept
+
+    expect(response.content_type).to start_with('multipart/mixed;')
+    expect(parts(response.body).last['hasNext']).to be(false)
+  end
+
+  it "answers a batch whole, whatever the client accepts, and streams a multipart upload's operation that defers" do
+    post '/graphql', params: [{ query: '{ posts(first: 1) { data { title ... @defer { id } } } }' }].to_json,
                      headers: accept.merge('Content-Type' => 'application/json')
 
-    expect(controller.class).to eq(GraphqlController)
-    expect(response.parsed_body.first.dig('data', 'posts', 'data').size).to eq(1)
+    expect(response.parsed_body.first.dig('data', 'posts', 'data', 0).keys).to eq(%w[title id])
 
     file = Rack::Test::UploadedFile.new(StringIO.new('png bytes'), 'image/png', original_filename: 'me.png')
-    operations = { query: 'query($file: Upload) { posts(first: 1) { data { title ... @defer { id } } } }', variables: { file: nil } }
+    operations = { query: '{ posts(first: 1) { data { title ... @defer { id } } } }', variables: { file: nil } }
     post '/graphql', params: { 'operations' => operations.to_json, 'map' => { '0' => ['variables.file'] }.to_json, '0' => file }, headers: accept
 
-    expect(controller.class).to eq(GraphqlController)
-    expect(response.media_type).to eq('application/json')
+    expect(response.content_type).to start_with('multipart/mixed;')
+    expect(parts(response.body).size).to eq(2)
   end
 
-  it 'runs a single operation that prefers multipart/mixed in the streaming controller' do
-    stream(query)
-
-    expect(controller.class).to eq(GraphqlStreamingController)
-  end
-
-  it 'answers with multipart/mixed parts that a proxy does not buffer' do
+  it 'answers with multipart/mixed parts that no cache keeps and a proxy does not buffer' do
     stream(query)
 
     expect(response.headers['Content-Type']).to start_with('multipart/mixed; boundary="-"; incrementalSpec=v0.2')
-    expect(response.headers['Cache-Control']).to include('no-cache')
+    expect(response.headers['Cache-Control']).to eq('no-store')
     expect(response.headers['X-Accel-Buffering']).to eq('no')
   end
 
@@ -121,11 +143,21 @@ RSpec.describe 'Deferring fields', type: :request do
     expect(body).not_to have_key('pending')
   end
 
-  it 'delivers the response whole to a client that reads the older format' do
-    payloads = stream(query, headers: { 'Accept' => 'multipart/mixed;deferSpec=20220824,application/json' })
+  it "streams Apollo's older format to a client that names it, as Apollo Client 3 does" do
+    payloads = stream_graphql(query, headers: { 'Accept' => 'multipart/mixed;deferSpec=20220824,application/json' })
 
-    expect(response.headers['Content-Type']).to start_with('application/json')
-    expect(payloads).to eq([])
+    expect(response.headers['Content-Type']).to eq('multipart/mixed; boundary="-"; deferSpec=20220824')
+    expect(payloads.first).to eq(payloads.first.slice('data', 'hasNext'))
+    expect(payloads.last['incremental'].pluck('path', 'label')).to eq([0, 1, 2].map { |index| [['posts', 'data', index], 'details'] })
+    expect(payloads.last['incremental'].first['data']).to match('author' => { 'name' => be_a(String) },
+                                                                'comments' => { 'data' => [{ 'body' => 'Nice post!' }] })
+  end
+
+  it 'answers whole a client whose Accept header leaves multipart/mixed out' do
+    post '/graphql', params: { query: query }, headers: { 'Accept' => 'application/graphql-response+json, application/json;q=0.9' }, as: :json
+
+    expect(response.media_type).to eq('application/json')
+    expect(response.parsed_body['data']['posts']['data'].first.keys).to eq(%w[title author comments])
   end
 
   it 'answers a request without a query as the JSON path does' do
@@ -252,7 +284,7 @@ RSpec.describe 'Deferring fields', type: :request do
     end
 
     it "reports the error that failed the stream when its closing boundary cannot be written, and that one's error after it" do
-      allow_any_instance_of(Lighthouse::GraphQL::Incremental::Multipart).to receive(:finish).and_raise('cannot close') # rubocop:disable RSpec/AnyInstance
+      allow_any_instance_of(Lighthouse::GraphQL::Incremental::Multipart).to receive(:closing).and_raise('cannot close') # rubocop:disable RSpec/AnyInstance
 
       reported = reports { post '/rescuing', params: { query: query }, headers: accept, as: :json }
 
@@ -301,37 +333,6 @@ RSpec.describe 'Deferring fields', type: :request do
     expect(response.headers['X-Accel-Buffering']).to be_nil
   end
 
-  it "reports an app's error of a later round even when the client has gone by the time it is answered" do
-    allow_any_instance_of(Comment).to receive(:body).and_raise(EOFError, 'the app read past the end') # rubocop:disable RSpec/AnyInstance
-    writes = 0
-    allow_any_instance_of(Lighthouse::GraphQL::Incremental::Multipart).to receive(:emit).and_wrap_original do |original, part| # rubocop:disable RSpec/AnyInstance
-      raise ActionController::Live::ClientDisconnected, 'client disconnected' if (writes += 1) > 1
-
-      original.call(part)
-    end
-
-    reported = reported_errors { stream(query) }
-
-    expect(reported.map(&:message)).to eq(['the app read past the end'])
-  end
-
-  it 'ends the response quietly when the client goes away' do
-    reported = []
-    subscriber = Class.new { define_method(:report) { |error, **| reported << error } }.new
-    Rails.error.subscribe(subscriber)
-    writes = 0
-    allow_any_instance_of(Lighthouse::GraphQL::Incremental::Multipart).to receive(:emit).and_wrap_original do |original, part| # rubocop:disable RSpec/AnyInstance
-      raise ActionController::Live::ClientDisconnected, 'client disconnected' if (writes += 1) > 1
-
-      original.call(part)
-    end
-
-    expect(stream(query).size).to eq(1)
-    expect(reported).to eq([])
-  ensure
-    Rails.error.unsubscribe(subscriber)
-  end
-
   it 'streams the items of a paginated list after the first ones' do
     initial, later = stream('{ posts(first: 10) { data @stream(initialCount: 1, label: "rest") { title } } }')
 
@@ -341,51 +342,30 @@ RSpec.describe 'Deferring fields', type: :request do
     expect(later['completed']).to eq([{ 'id' => '0' }])
   end
 
-  it 'closes the stream when the request is done, which is what ends the response for a real client' do
-    stream(query)
-
-    expect(controller.response.stream).to be_closed
-  end
-
-  it 'ends the request after the stream is closed, with a response whose body is the parts the client was sent' do
+  it 'ends the request once the response is out, with a response whose body is the parts the client was sent' do
     seen = []
-    Lighthouse::Events.listen(Lighthouse::Events::EndRequest) do |event|
-      (seen << [event.response.stream.closed?, event.response.body, event.response.status]) && nil
-    end
+    Lighthouse::Events.listen(Lighthouse::Events::EndRequest) { |event| (seen << [event.response.body, event.response.status]) && nil }
 
     Timeout.timeout(10) { stream(query) }
 
-    expect(seen).to eq([[true, response.body, 200]])
+    expect(seen).to eq([[response.body, 200]])
     expect(response.body).to end_with("\r\n-----\r\n")
     expect(parts(response.body).size).to eq(2)
   ensure
     Lighthouse::Events.reset!
   end
 
-  it 'closes the stream of a client that left at the first part, and ends the request with it, closed' do
-    gone = Object.new.tap { |stream| stream.define_singleton_method(:write) { |_| raise ActionController::Live::ClientDisconnected } }
-    allow(Lighthouse::GraphQL::Incremental::Multipart).to(receive(:new).and_wrap_original { |original, _, **options| original.call(gone, **options) })
-    seen = []
-    Lighthouse::Events.listen(Lighthouse::Events::EndRequest) { |event| (seen << [event.response.stream.closed?, event.response.body]) && nil }
-
-    Timeout.timeout(10) { stream(query) }
-
-    expect(seen).to eq([[true, '']])
-  ensure
-    Lighthouse::Events.reset!
-  end
-
-  it 'writes the closing boundary before the operation ends, and closes the stream before the request ends' do
+  it 'writes the closing boundary before the operation ends, and ends the request last' do
     order = []
-    allow_any_instance_of(Lighthouse::GraphQL::Incremental::Multipart).to receive(:finish).and_wrap_original do |original| # rubocop:disable RSpec/AnyInstance
+    allow_any_instance_of(Lighthouse::GraphQL::Incremental::Multipart).to receive(:closing).and_wrap_original do |original| # rubocop:disable RSpec/AnyInstance
       (order << :boundary) && original.call
     end
     Lighthouse::Events.listen(Lighthouse::Events::EndOperationOrOperations) { (order << :operation) && nil }
-    Lighthouse::Events.listen(Lighthouse::Events::EndRequest) { |event| (order << [:request, event.response.stream.closed?]) && nil }
+    Lighthouse::Events.listen(Lighthouse::Events::EndRequest) { (order << :request) && nil }
 
     stream(query)
 
-    expect(order).to eq([:boundary, :operation, [:request, true]])
+    expect(order).to eq(%i[boundary operation request])
   ensure
     Lighthouse::Events.reset!
   end
@@ -410,15 +390,15 @@ RSpec.describe 'Deferring fields', type: :request do
     Lighthouse::Events.listen(Lighthouse::Events::EndRequest) { nil }
     stream(query)
 
-    expect(Lighthouse::GraphQL::Incremental::Multipart).to have_received(:new).with(anything, keep: false).ordered
-    expect(Lighthouse::GraphQL::Incremental::Multipart).to have_received(:new).with(anything, keep: true).ordered
+    expect(Lighthouse::GraphQL::Incremental::Multipart).to have_received(:new).with(keep: false).ordered
+    expect(Lighthouse::GraphQL::Incremental::Multipart).to have_received(:new).with(keep: true).ordered
   ensure
     Lighthouse::Events.reset!
   end
 
   it 'resolves the schema once a request' do
     resolved = 0
-    allow_any_instance_of(GraphqlStreamingController).to receive(:graphql_schema).and_wrap_original do |original| # rubocop:disable RSpec/AnyInstance
+    allow_any_instance_of(GraphqlController).to receive(:graphql_schema).and_wrap_original do |original| # rubocop:disable RSpec/AnyInstance
       (resolved += 1) && original.call
     end
 

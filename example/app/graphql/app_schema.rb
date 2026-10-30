@@ -25,9 +25,8 @@ class AppSchema < Lighthouse::GraphQL::RbLightHouse.get_schema(
   # For batch-loading (see https://graphql-ruby.org/dataloader/overview.html)
   use GraphQL::Dataloader
 
-  # @defer: a client that sends `Accept: multipart/mixed` gets the deferred fragments
-  # streamed after the rest (by GraphqlStreamingController, see config/routes.rb).
-  # Guide: ../docs/performance.md#deferring-fields-experimental
+  # @defer and @stream: GraphqlController streams the deferred fragments after the rest,
+  # as multipart/mixed parts. Guide: ../docs/defer.md
   use Lighthouse::GraphQL::Defer
 
   # ActionCable delivers the Subscription type's fields (app/channels/graphql_channel.rb);

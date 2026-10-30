@@ -1386,44 +1386,41 @@ RSpec.describe 'Deferring fields' do
   end
 
   describe Lighthouse::GraphQL::Defer do
-    it 'streams to a client that accepts multipart/mixed, in this gem\'s format' do
-      expect(described_class.stream_type('multipart/mixed;incrementalSpec=v0.2,application/json')).not_to be_nil
-      expect(described_class.stream_type('multipart/mixed')).not_to be_nil
-      expect(described_class.stream_type('multipart/mixed;deferSpec=20220824,application/json')).to be_nil
-      expect(described_class.stream_type('application/json')).to be_nil
-      expect(described_class.stream_type(nil)).to be_nil
+    let(:draft) { 'multipart/mixed; boundary="-"' }
+    let(:legacy) { 'multipart/mixed; boundary="-"; deferSpec=20220824' }
+
+    it 'streams to any client, as PHP Lighthouse does, but one whose Accept header leaves multipart/mixed out' do
+      expect([nil, '', '*/*', 'multipart/*', 'application/json, multipart/mixed', 'multipart/mixed;q=0.1, application/json']
+        .map { |accept| described_class.stream_type(accept) }).to all(eq(draft))
+      expect(['application/json', 'application/graphql-response+json, application/json;q=0.9', 'text/html, application/*']
+        .map { |accept| described_class.stream_type(accept) }).to all(be_nil)
     end
 
-    it 'honours q-values: never multipart/mixed at q=0, nor below a JSON type the client prefers' do
-      expect(described_class.stream_type('application/json, multipart/mixed;q=0')).to be_nil
-      expect(described_class.stream_type('multipart/mixed;q=0.5, application/json')).to be_nil
-      expect(described_class.stream_type('multipart/mixed;q=0.5, application/graphql-response+json;q=0.8')).to be_nil
-      expect(described_class.stream_type('application/json;q=0.9, multipart/mixed;q=0.95')).not_to be_nil
-      apollo = 'multipart/mixed;incrementalSpec=v0.2, application/graphql-response+json, application/json;q=0.9'
-      expect(described_class.stream_type(apollo)).not_to be_nil
-      expect(described_class.stream_type('application/json, multipart/mixed')).to be_nil
-      expect(described_class.stream_type('multipart/mixed;q=0')).to be_nil
+    it 'never streams to a client that refuses multipart/mixed: at q=0, the most specific range that covers it deciding' do
+      expect(['application/json, multipart/mixed;q=0', 'multipart/mixed;q=0, */*', '*/*, multipart/*;q=0', 'multipart/mixed;q=0']
+        .map { |accept| described_class.stream_type(accept) }).to all(be_nil)
+      expect(described_class.stream_type('multipart/*;q=0.5, */*;q=0')).to eq(draft)
     end
 
-    it 'takes a wildcard that covers a JSON type for that type, at its q, the most specific range deciding' do
-      expect(described_class.stream_type('application/*, multipart/mixed;q=0.5')).to be_nil
-      expect(described_class.stream_type('*/*, multipart/mixed;q=0.5')).to be_nil
-      expect(described_class.stream_type('*/*;q=0.5, multipart/mixed')).not_to be_nil
-      expect(described_class.stream_type('multipart/mixed, */*;q=0.8')).not_to be_nil
+    it "answers Apollo's older format to a client whose preferred multipart/mixed range names it" do
+      expect(described_class.stream_type('multipart/mixed;deferSpec=20220824,application/json')).to eq(legacy)
+      expect(described_class.stream_type('multipart/mixed; deferSpec=20220824')).to eq(legacy)
+      expect(described_class.stream_type('multipart/mixed;deferSpec=20220824;q=0.5, multipart/mixed;incrementalSpec=v0.2'))
+        .to eq("#{draft}; incrementalSpec=v0.2")
+      expect(described_class.stream_type('multipart/mixed;deferSpec=20220824, multipart/mixed')).to eq(legacy)
+      expect(described_class.legacy?(legacy)).to be(true)
+      expect(described_class.legacy?(draft)).to be(false)
     end
 
-    it 'lets the most specific range that covers a JSON type decide its q' do
-      expect(described_class.stream_type('*/*;q=0.2, application/json;q=0.1, multipart/mixed;q=0.5')).not_to be_nil
-      expect(described_class.stream_type('*/*, application/json;q=0.1, multipart/mixed;q=0.5')).to be_nil # graphql-response+json at 1
-      expect(described_class.stream_type('application/*;q=0, multipart/mixed;q=0.1')).not_to be_nil
-      expect(described_class.stream_type('*/*')).to be_nil
-      expect(described_class.stream_type('text/*, multipart/mixed;q=0.5')).not_to be_nil
+    it 'names the format in the content type when the client did' do
+      expect(described_class.stream_type('multipart/mixed;incrementalSpec=v0.2')).to eq("#{draft}; incrementalSpec=v0.2")
+      expect(described_class.stream_type('multipart/mixed')).to eq(draft)
     end
 
     it 'skips the empty and malformed ranges of a header, and never raises on one' do
-      expect(described_class.stream_type('multipart/mixed,,application/json')).not_to be_nil
+      expect(described_class.stream_type('multipart/mixed,,application/json')).to eq(draft)
       expect(described_class.stream_type(',, ;q=0.5, application/json')).to be_nil
-      expect(described_class.stream_type('garbage, multipart/mixed')).not_to be_nil
+      expect(described_class.stream_type('garbage, multipart/mixed')).to eq(draft)
       random = Random.new(11)
       pieces = ['multipart/mixed', 'application/json', '*/*', 'application/*', ';', ',', ' ', 'q=', 'q=0.5', '=', '/', 'x', '"', 'deferSpec=1', "\t"]
       500.times do
@@ -1431,10 +1428,63 @@ RSpec.describe 'Deferring fields' do
         expect { described_class.stream_type(header) }.not_to raise_error, header.inspect
       end
     end
+  end
 
-    it 'names the format in the content type when the client did' do
-      expect(described_class.stream_type('multipart/mixed;incrementalSpec=v0.2')).to eq('multipart/mixed; boundary="-"; incrementalSpec=v0.2')
-      expect(described_class.stream_type('multipart/mixed')).to eq('multipart/mixed; boundary="-"')
+  describe "Apollo's older format" do
+    def legacy(query) = payloads(query, format: :legacy)
+
+    it 'sends the first payload without pending, then each fragment at the path of its object, with its label' do
+      expect(legacy('{ user(id: 1) { name ... @defer(label: "co") { company { name } } posts { ... @defer { title } } } }')).to eq(
+        [
+          { 'data' => { 'user' => { 'name' => 'u0', 'posts' => [{}] } }, 'hasNext' => true },
+          { 'incremental' => [{ 'data' => { 'company' => { 'name' => 'Acme' } }, 'path' => ['user'], 'label' => 'co' },
+                              { 'data' => { 'title' => 'p0' }, 'path' => ['user', 'posts', 0] }],
+            'hasNext' => false }
+        ]
+      )
+    end
+
+    it 'sends what a fragment adds to a field already sent at the path of that field' do
+      all = legacy('{ user(id: 1) { company { name } ... @defer { company { id } } } }')
+
+      expect(all.last['incremental']).to eq([{ 'data' => { 'id' => LH::Company.first.id.to_s }, 'path' => %w[user company] }])
+    end
+
+    it "sends a stream's items at the path of the list and the index of the first one" do
+      all = legacy('{ users @stream(initialCount: 1, label: "more") { name } }')
+
+      expect(all).to eq(
+        [
+          { 'data' => { 'users' => [{ 'name' => 'u0' }] }, 'hasNext' => true },
+          { 'incremental' => [{ 'items' => [{ 'name' => 'u1' }, { 'name' => 'u2' }], 'path' => ['users', 1], 'label' => 'more' }],
+            'hasNext' => false }
+        ]
+      )
+    end
+
+    it 'sends a fragment that failed as null data with its errors, and a stream that failed as null items' do
+      fragment = legacy('{ user(id: 1) { id ... @defer { required } } }').last['incremental'].first
+      stream = legacy('{ strictGaps @stream(initialCount: 1) { name } }').last['incremental'].first
+
+      expect(fragment).to include('data' => nil, 'path' => ['user'])
+      expect(fragment['errors'].pluck('path')).to eq([%w[user required]])
+      expect(stream).to include('items' => nil, 'path' => ['strictGaps', 1])
+      expect(stream['errors'].pluck('path')).to eq([['strictGaps', 1]])
+    end
+
+    it 'sends a fragment that has nothing of its own as empty data at its path, so the client hears of it' do
+      all = legacy('{ user(id: 1) { name ... @defer(label: "same") { name } } }')
+
+      expect(all.last).to eq('incremental' => [{ 'data' => {}, 'path' => ['user'], 'label' => 'same' }], 'hasNext' => false)
+    end
+
+    it 'puts the same response together as the draft format' do
+      query = '{ users { name ... @defer { posts { title ... @defer { comments { comment } } } } } }'
+      merged = legacy(query).drop(1).flat_map { |payload| payload['incremental'].to_a }.each_with_object(legacy(query).first['data']) do |entry, data|
+        merge_into(entry['path'].reduce(data) { |node, key| node[key] }, entry['data'])
+      end
+
+      expect(merged).to eq(assembled(payloads(query)))
     end
   end
 
@@ -1450,55 +1500,99 @@ RSpec.describe 'Deferring fields' do
   end
 
   describe Lighthouse::GraphQL::Incremental::Multipart do
-    # A Live response's stream, as far as Multipart writes and closes it.
-    let(:stream_class) do
-      Struct.new(:written, :closed) do
-        def write(part) = written << part
-        def close = (self.closed = true)
-        def closed? = closed || false
-      end
-    end
-    let(:response) { Struct.new(:stream).new(stream_class.new([])) }
+    it 'encodes the parts of a multipart/mixed body, each ending with the boundary that opens the next' do
+      multipart = described_class.new
+      first = multipart.part('a' => 1)
+      multipart.written(first)
+      second = multipart.part('b' => 2)
+      multipart.written(second)
 
-    it 'keeps no part without keep:, and joins those it keeps when the body is read' do
-      kept = described_class.new(response.stream)
-      dropped = described_class.new(response.stream, keep: false)
-      [kept, dropped].each { |multipart| multipart.emit(multipart.part('data' => {})) && multipart.finish }
-
-      expect(dropped.ended(response).body).to eq('')
-      expect(kept.ended(response).body).to eq(response.stream.written.first(2).join)
-      expect(response.stream.closed?).to be(true)
-    end
-
-    it 'writes the parts of a multipart/mixed body, each ending with the boundary that opens the next' do
-      stream = StringIO.new
-      multipart = described_class.new(stream)
-
-      multipart.emit(multipart.part('a' => 1))
-      expect(stream.string).to eq("\r\n---\r\nContent-Type: application/json; charset=utf-8\r\n\r\n{\"a\":1}\r\n---")
-      multipart.emit(multipart.part('b' => 2))
-      multipart.finish
-
-      expect(stream.string).to eq(
+      expect(first + second + multipart.closing).to eq(
         "\r\n---\r\nContent-Type: application/json; charset=utf-8\r\n\r\n{\"a\":1}" \
         "\r\n---\r\nContent-Type: application/json; charset=utf-8\r\n\r\n{\"b\":2}\r\n-----\r\n"
       )
+      expect(described_class.parse(first + second + multipart.closing)).to eq([{ 'a' => 1 }, { 'b' => 2 }])
+    end
+
+    it 'has no closing boundary before a part was written' do
+      expect(described_class.new.closing).to be_nil
+    end
+
+    it 'keeps no part without keep:, and joins those it keeps when the body is read' do
+      kept = described_class.new
+      dropped = described_class.new(keep: false)
+      [kept, dropped].each { |multipart| multipart.written(multipart.part('data' => {})) }
+
+      expect(dropped.ended(Object.new).body).to eq('')
+      expect(kept.ended(Object.new).body).to start_with("\r\n---\r\n")
     end
 
     it 'encodes a part as `render json:` encodes a response, so the Accept header does not change a value' do
-      stream = StringIO.new
       payload = { 'data' => { 'at' => Time.utc(2026, 1, 2, 3, 4, 5), 'price' => BigDecimal('1.50') } }
 
-      described_class.new(stream).then { |multipart| multipart.emit(multipart.part(payload)) }
+      part = described_class.new.part(payload)
 
-      expect(stream.string).to include("\r\n\r\n#{ActiveSupport::JSON.encode(payload)}\r\n---")
-      expect(stream.string).to include('"at":"2026-01-02T03:04:05.000Z"', '"price":"1.5"')
+      expect(part).to include("\r\n\r\n#{ActiveSupport::JSON.encode(payload)}\r\n---")
+      expect(part).to include('"at":"2026-01-02T03:04:05.000Z"', '"price":"1.5"')
     end
 
-    it 'sets the headers that keep proxies and Rack from buffering' do
-      expect(described_class.headers).to include('Cache-Control' => 'no-cache', 'X-Accel-Buffering' => 'no',
+    it 'sets the headers that keep caches, proxies and Rack from buffering' do
+      expect(described_class.headers).to include('Cache-Control' => 'no-store', 'X-Accel-Buffering' => 'no',
                                                  'Content-Type' => 'multipart/mixed; boundary="-"')
       expect(described_class.headers).to have_key('Last-Modified')
+    end
+  end
+
+  describe Lighthouse::GraphQL::Incremental::Body do
+    let(:events) { [] }
+
+    def body_of(query)
+      run = run(query)
+      multipart = Lighthouse::GraphQL::Incremental::Multipart.new
+      described_class.new(run, multipart, multipart.part(run.first_payload),
+                          on_error: ->(error) { events << [:reported, error.message] }, on_end: -> { events << :ended })
+    end
+
+    def written(body, &write)
+      [].tap { |parts| body.each { |part| write ? yield(parts, part) : parts << part } }
+    end
+
+    it 'writes the first part, each later one as its round runs, then the closing boundary, and ends the request after' do
+      parts = written(body_of('{ users { id ... @defer { name } } }'))
+
+      expect(Lighthouse::GraphQL::Incremental::Multipart.parse(parts.join).pluck('hasNext')).to eq([true, false])
+      expect(parts.last).to eq("--\r\n")
+      expect(events).to eq([:ended])
+    end
+
+    it 'ends quietly when the server cannot write a part, the client gone' do
+      parts = written(body_of('{ users { id ... @defer { name } } }')) do |all, part|
+        raise Errno::EPIPE if all.size == 1
+
+        all << part
+      end
+
+      expect(parts.size).to eq(1)
+      expect(events).to eq([:ended])
+    end
+
+    it 'reports the error that fails a round, after writing the last payload it ends the stream with, and the closing boundary' do
+      allow(Lighthouse::GraphQL::Incremental::Plan).to receive(:new).and_raise('boom')
+
+      parts = written(body_of('{ users { id ... @defer { name } } }'))
+
+      expect(Lighthouse::GraphQL::Incremental::Multipart.parse(parts.join).last['completed'].first['errors'])
+        .to eq([{ 'message' => 'Internal server error' }])
+      expect(parts.last).to eq("--\r\n")
+      expect(events).to eq([[:reported, 'boom'], :ended])
+    end
+
+    it 'ends the operation and the request once, iterated or not' do
+      body = body_of('{ users { id ... @defer { name } } }')
+      body.finish
+      body.finish
+
+      expect(events).to eq([:ended])
     end
   end
 end

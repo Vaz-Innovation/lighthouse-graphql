@@ -137,13 +137,6 @@ module Lighthouse
     def env: () -> Hash[String, untyped]
   end
 
-  # A request a route constraint reads: its body's media type and text too.
-  interface _RoutedRequest
-    include _Request
-    def media_type: () -> String?
-    def raw_post: () -> String?
-  end
-
   # What has response headers: an ActionDispatch::Response.
   interface _ResponseHeaders
     def headers: () -> Hash[String, untyped]
@@ -153,16 +146,6 @@ module Lighthouse
   interface _Response
     include _ResponseHeaders
     def status: () -> Integer
-  end
-
-  # What has a stream to close: an ActionController::Live response.
-  interface _StreamedResponse
-    def stream: () -> _ClosableStream
-  end
-
-  interface _ClosableStream
-    def close: () -> void
-    def closed?: () -> bool
   end
 
   # ActionController::Parameters, read whole.

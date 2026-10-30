@@ -357,17 +357,18 @@ type Mutation {
 
 ### `@defer`
 
-Experimental. On a fragment: its fields arrive in a later part of the response when it is
-streamed: as `multipart/mixed`, to a client that prefers it to JSON (not in Apollo's older
-`deferSpec` format), from a controller that includes `ActionController::Live` (the streaming
-route). Otherwise they come with the rest of the response. Not in the SDL: the schema's `use
+Experimental. On a fragment: its fields arrive in a later part of the response, which
+`Lighthouse::GraphQL::Controller` streams as `multipart/mixed`, as PHP Lighthouse does, to any
+client but one whose `Accept` header leaves it out (in the specification draft's format, or
+Apollo's older `deferSpec=20220824` one when the client names it). Otherwise they come with the
+rest of the response. Not in the SDL: the schema's `use
 Lighthouse::GraphQL::Defer` adds it, and clients write it in their queries, as the
 [specification draft](https://github.com/graphql/graphql-spec/pull/1110) has it
 (`directive @defer(if: Boolean! = true, label: String) on FRAGMENT_SPREAD | INLINE_FRAGMENT`).
 PHP Lighthouse's `@defer` goes on a field instead: `parent @defer { name }` is written
 `... @defer { parent { name } }` here. Not on a root mutation field; limits:
 [`defer_max_nested_fields` and `defer_max_execution_ms`](configuration.md#defer_max_nested_fields-and-defer_max_execution_ms).
-Guide: [performance.md](performance.md#deferring-fields-experimental).
+Guide: [defer.md](defer.md).
 
 ### `@stream`
 
@@ -376,7 +377,7 @@ the others in a later part, when the response is streamed as for `@defer`; other
 comes whole. Also added by `use
 Lighthouse::GraphQL::Defer`, and written by clients as the specification draft has it
 (`directive @stream(if: Boolean! = true, label: String, initialCount: Int! = 0) on FIELD`).
-Guide: [performance.md](performance.md#streaming-lists-experimental).
+Guide: [defer.md](defer.md#streaming-lists-experimental).
 
 ### `@hide` and `@show`
 
