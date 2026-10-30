@@ -38,8 +38,13 @@ module Lighthouse::GraphQL::Defer
 
     # multipart/mixed, but in the older format.
     def streams? = type == MULTIPART && params.none? { |param| param.start_with?(OLD_FORMAT) }
-    def json? = JSON_TYPES.include?(type)
     def before?(other) = other.nil? || (rank <=> other.rank).negative?
+
+    # Does the range cover the media type `name` (itself, its `type/*`, or `*/*`)?
+    def covers?(name) = type == name || type == '*/*' || (type.end_with?('/*') && name.start_with?(type.delete_suffix('*')))
+
+    # How specific the range is: a type, then `type/*`, then `*/*`.
+    def specificity = (type == '*/*' ? 0 : 1) + (type.end_with?('/*') ? 0 : 1)
   end
 
   module_function
@@ -98,13 +103,21 @@ module Lighthouse::GraphQL::Defer
   end
 
   # The `multipart/mixed` range of the header the client prefers to a JSON response, if one:
-  # not at q=0, not in the older format, and ranked (q, then order, as Rails ranks them) no
-  # lower than application/json or application/graphql-response+json. Rails' Mime::Type.parse
-  # ranks the types, but drops their parameters (the format is one), so this reads them.
+  # not at q=0, not in the older format, and ranked (q, then order, as Rails ranks them) before
+  # application/json and application/graphql-response+json, each at the q of the most specific
+  # range that covers it (itself, `application/*` or `*/*`). Rails' Mime::Type.parse ranks the
+  # types, but drops their parameters (the format is one), so this reads them.
   def preferred(accept)
-    ranges = ranges(accept).select { |range| range.q.positive? }
-    multipart = best(ranges, &:streams?)
-    multipart if multipart&.before?(best(ranges, &:json?))
+    ranges = ranges(accept)
+    multipart = best(ranges.select { |range| range.q.positive? }, &:streams?)
+    multipart if multipart&.before?(json(ranges))
+  end
+
+  # The range a JSON response is accepted at, the preferred of the JSON types': for each, the most
+  # specific range that covers it, unless that one refuses it (q=0).
+  def json(ranges)
+    covering = JSON_TYPES.filter_map { |name| ranges.select { |range| range.covers?(name) }.max_by(&:specificity) }
+    best(covering) { |range| range.q.positive? }
   end
 
   # The preferred of the ranges the block selects.

@@ -216,6 +216,7 @@ module Lighthouse
       def self?.ranges: (String? accept) -> Array[MediaRange]
       def self?.preferred: (String? accept) -> MediaRange?
       def self?.best: (Array[MediaRange] ranges) { (MediaRange) -> bool } -> MediaRange?
+      def self?.json: (Array[MediaRange] ranges) -> MediaRange?
 
       # A media range of an Accept header.
       class MediaRange
@@ -225,8 +226,9 @@ module Lighthouse
         attr_reader index: Integer
         def rank: () -> [Float, Integer]
         def streams?: () -> bool
-        def json?: () -> bool
         def before?: (MediaRange? other) -> bool
+        def covers?: (String name) -> bool
+        def specificity: () -> Integer
       end
     end
 

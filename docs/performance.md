@@ -346,7 +346,8 @@ A controller streams the response, as `multipart/mixed` parts (graphql-over-http
 delivery), when three things hold: the schema uses the plugin, the controller includes
 `ActionController::Live`, and the request's `Accept` header prefers `multipart/mixed` (without the
 older format's `deferSpec` parameter) to a JSON response: not at `q=0`, and ranked, by q and then by
-order as Rails ranks types, before `application/json` and `application/graphql-response+json`
+order as Rails ranks types, before `application/json` and `application/graphql-response+json`, each
+at the q of the most specific range that covers it (itself, `application/*` or `*/*`)
 (`Lighthouse::GraphQL::Defer.stream_type_of(request)`, which the route constraint and the
 controller share: the header is read once a request, and kept in it; `Defer.stream_type(accept)`
 answers the same for a header, uncached, for a constraint of your own). In every other case the whole response comes at once, the deferred fragments

@@ -1391,6 +1391,21 @@ RSpec.describe 'Deferring fields' do
       expect(described_class.stream_type('multipart/mixed;q=0')).to be_nil
     end
 
+    it 'takes a wildcard that covers a JSON type for that type, at its q, the most specific range deciding' do
+      expect(described_class.stream_type('application/*, multipart/mixed;q=0.5')).to be_nil
+      expect(described_class.stream_type('*/*, multipart/mixed;q=0.5')).to be_nil
+      expect(described_class.stream_type('*/*;q=0.5, multipart/mixed')).not_to be_nil
+      expect(described_class.stream_type('multipart/mixed, */*;q=0.8')).not_to be_nil
+    end
+
+    it 'lets the most specific range that covers a JSON type decide its q' do
+      expect(described_class.stream_type('*/*;q=0.2, application/json;q=0.1, multipart/mixed;q=0.5')).not_to be_nil
+      expect(described_class.stream_type('*/*, application/json;q=0.1, multipart/mixed;q=0.5')).to be_nil # graphql-response+json at 1
+      expect(described_class.stream_type('application/*;q=0, multipart/mixed;q=0.1')).not_to be_nil
+      expect(described_class.stream_type('*/*')).to be_nil
+      expect(described_class.stream_type('text/*, multipart/mixed;q=0.5')).not_to be_nil
+    end
+
     it 'names the format in the content type when the client did' do
       expect(described_class.stream_type('multipart/mixed;incrementalSpec=v0.2')).to eq('multipart/mixed; boundary="-"; incrementalSpec=v0.2')
       expect(described_class.stream_type('multipart/mixed')).to eq('multipart/mixed; boundary="-"')
