@@ -103,7 +103,7 @@ module Lighthouse
                                   ?operation_name: String?, ?context: Hash[Symbol, untyped], **untyped options) { (Incremental::Run run) -> T } -> (T | Hash[String, json])
       # What execute and incremental share: the block runs the query text the request names,
       # between the operation events; a protocol error comes back as its Hash.
-      def self?.operation: [T] (String? query, extensions? extensions, Hash[Symbol, untyped] options) { (String? text, ^(untyped) -> void ended) -> T } -> (T | Hash[String, json])
+      def self?.operation: [T] (String? query, extensions? extensions, Hash[Symbol, untyped] options) { (String? text, ^(_Result result) -> void ended) -> T } -> (T | Hash[String, json])
       # A batch: `schema.multiplex` with the query each operation (a Hash of
       # query, extensions, variables, operation_name, context) names. One result
       # per operation, in order; a protocol error is a ready-to-render Hash.
@@ -238,7 +238,7 @@ module Lighthouse
         # A nil query string (a request without one) is answered as graphql-ruby answers it.
         def initialize: (schema schema, String? query_string, **untyped options) -> void
         # Runs the first pass; returns self. The block gets what ends the operation (see finish).
-        def start: () ?{ (untyped result) -> void } -> Run
+        def start: () ?{ (_Result result) -> void } -> Run
         # Calls start's block, once: with the first pass's result when nothing was deferred, else the response so far.
         def finish: () -> void
         # The first pass's result.
@@ -248,7 +248,7 @@ module Lighthouse
         # The initial payload, then one per round of deferred fragments, until `hasNext` is false.
         def each_payload: () { (Hash[String, json]) -> void } -> void
         # The whole response: the data and the errors of every round.
-        def response: () -> Hash[String, untyped]
+        def response: () -> Hash[String, json]
       end
 
       # The parts of a `multipart/mixed` response (graphql-over-http's IncrementalDelivery).
