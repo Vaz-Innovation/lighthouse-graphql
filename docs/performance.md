@@ -199,7 +199,7 @@ controller, as before. A plain controller answers a client that prefers `multipa
 ordinary response, the deferred fields in it.
 
 Without the plugin the schema has no `@defer`, as the specification asks of a server that does
-not implement it.
+not implement it. The plugin needs graphql-ruby 2.5.23 or newer (`use` raises otherwise).
 
 ### Configuration
 

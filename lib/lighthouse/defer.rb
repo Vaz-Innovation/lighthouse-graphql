@@ -44,10 +44,15 @@ module Lighthouse::GraphQL::Defer
 
   module_function
 
+  # The oldest graphql-ruby it runs on: GraphQL::Query::Partial#fragment_node (2.5.21), and a
+  # runtime that gives each list item run in a Dataloader job its own path (2.5.23), which the
+  # paths of the fragments and objects it keeps are read from (context[:current_path]).
+  GRAPHQL = '2.5.23'
+
   # graphql-ruby's plugin hook: `use Lighthouse::GraphQL::Defer`.
   def use(schema, **_options)
-    unless defined?(::GraphQL::Query::Partial) && ::GraphQL::Query::Partial.instance_method(:initialize).parameters.include?(%i[key fragment_node])
-      raise Lighthouse::DefinitionError, 'Lighthouse::GraphQL::Defer needs graphql-ruby 2.5.21 or newer (GraphQL::Query::Partial#fragment_node).'
+    if Gem::Version.new(::GraphQL::VERSION) < Gem::Version.new(GRAPHQL)
+      raise Lighthouse::DefinitionError, "Lighthouse::GraphQL::Defer needs graphql-ruby #{GRAPHQL} or newer."
     end
 
     schema.directive(Lighthouse::GraphQL::Incremental::DeferDirective)

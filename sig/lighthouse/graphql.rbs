@@ -196,6 +196,7 @@ module Lighthouse
       OLD_FORMAT: String
       FORMAT: String
       JSON_TYPES: Array[String]
+      GRAPHQL: String
 
       # graphql-ruby's plugin hook.
       def self?.use: (schema schema, **untyped options) -> void

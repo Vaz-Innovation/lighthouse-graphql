@@ -88,7 +88,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   mutation runs once and the Dataloader batches across a round; a field also asked for outside the
   fragment comes in the first payload, once, and the fragment still completes, as the draft has it
   (PHP Lighthouse and Apollo do not defer it); and a Non-Null field can be deferred. Needs
-  graphql-ruby 2.5.21. See [performance.md](docs/performance.md#deferring-fields-experimental),
+  graphql-ruby 2.5.23. See [performance.md](docs/performance.md#deferring-fields-experimental),
   which lists the differences.
 - **`@stream` (experimental)**, with `@defer` (PHP Lighthouse has none): `users @stream(initialCount: 2)
   { name }` answers the first items at once and the rest in a later part (`items`, the draft's

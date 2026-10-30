@@ -858,6 +858,13 @@ RSpec.describe 'Deferring fields' do
   end
 
   describe 'the schema' do
+    it 'needs graphql-ruby 2.5.23, whose runtime gives each list item its own path' do
+      stub_const('GraphQL::VERSION', '2.5.22')
+
+      expect { build_schema(sdl).use(Lighthouse::GraphQL::Defer) }
+        .to raise_error(Lighthouse::DefinitionError, /needs graphql-ruby 2\.5\.23 or newer/)
+    end
+
     it 'has the directive only when it uses the plugin' do
       expect(build_schema(sdl, dataloader: true).directives).not_to have_key('defer')
       expect(schema.directives['defer']).to eq(Lighthouse::GraphQL::Incremental::DeferDirective)
