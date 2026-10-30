@@ -598,7 +598,9 @@ RSpec.describe 'soft deletes' do
       expect { described_class.trashed('SOME') }
         .to raise_error(GraphQL::ExecutionError, 'Unknown trashed value "SOME", expected ONLY, WITH or WITHOUT.')
       expect { described_class.filter(SoftTask.all, 'SOME') }.to raise_error(GraphQL::ExecutionError, /Unknown trashed value "SOME"/)
-      expect { Lighthouse::GraphQL::Directives::Arguments::Trashed.new(nil, nil).handle_search_builder(Lighthouse::Search::Query.new(SoftTask, 'x'), 'SOME') }
+      argument = GraphQL::Language::Parser.parse('type Query { f(trashed: Trashed @trashed): Int }').definitions.first.fields.first.arguments.first
+      trashed = Lighthouse::GraphQL::Directives::Arguments::Trashed.new(argument, argument.directives.first)
+      expect { trashed.handle_search_builder(Lighthouse::Search::Query.new(SoftTask, 'x'), 'SOME') }
         .to raise_error(GraphQL::ExecutionError, /Unknown trashed value "SOME"/)
     end
   end
