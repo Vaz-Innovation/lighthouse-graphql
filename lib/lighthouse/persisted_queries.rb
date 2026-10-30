@@ -55,16 +55,7 @@ module Lighthouse::GraphQL::PersistedQueries
   # comes back as a ready-to-render { "errors" => [...] } Hash. Dispatches
   # StartOperationOrOperations before and EndOperationOrOperations after.
   def execute(schema, query:, extensions: nil, **options)
-    operation = { query: query, variables: options[:variables], operation_name: options[:operation_name], extensions: extensions }
-    Lighthouse::Events.dispatch(Lighthouse::Events::StartOperationOrOperations.new(operation))
-    result =
-      begin
-        schema.execute(resolve(query, extensions), **options)
-      rescue Error => e
-        e.to_h
-      end
-    Lighthouse::Events.dispatch(Lighthouse::Events::EndOperationOrOperations.new(result))
-    result
+    operation(query, extensions, options) { |text| schema.execute(text, **options) }
   end
 
   # `execute` for a response that may be streamed (Defer): the Incremental::Run
@@ -72,15 +63,23 @@ module Lighthouse::GraphQL::PersistedQueries
   # of a protocol error. Dispatches the same events as `execute`, the end one
   # with the first pass's result.
   def incremental(schema, query:, extensions: nil, **options)
+    operation(query, extensions, options) { |text| Lighthouse::GraphQL::Incremental::Run.new(schema, text, **options).start }
+  end
+
+  # What `execute` and `incremental` share: the block runs the query the request names
+  # (`text`), between StartOperationOrOperations and EndOperationOrOperations; a protocol
+  # error comes back as its Hash.
+  def operation(query, extensions, options)
     operation = { query: query, variables: options[:variables], operation_name: options[:operation_name], extensions: extensions }
     Lighthouse::Events.dispatch(Lighthouse::Events::StartOperationOrOperations.new(operation))
     result =
       begin
-        Lighthouse::GraphQL::Incremental::Run.new(schema, resolve(query, extensions), **options).start
+        yield resolve(query, extensions)
       rescue Error => e
         e.to_h
       end
-    Lighthouse::Events.dispatch(Lighthouse::Events::EndOperationOrOperations.new(result.is_a?(Hash) ? result : result.result))
+    ended = result.is_a?(Lighthouse::GraphQL::Incremental::Run) ? result.result : result
+    Lighthouse::Events.dispatch(Lighthouse::Events::EndOperationOrOperations.new(ended))
     result
   end
 

@@ -78,22 +78,21 @@ module Lighthouse::GraphQL::Controller
 
   # `operation`: the request's parameters, or a multipart request's operation.
   def lighthouse_operation(operation = params)
-    operation = operation.with_indifferent_access if operation.is_a?(Hash)
-    Lighthouse::GraphQL::PersistedQueries.execute(
-      graphql_schema,
-      query: operation[:query], extensions: operation[:extensions],
-      variables: graphql_variables(operation[:variables]), operation_name: operation[:operationName], context: lighthouse_context
-    )
+    Lighthouse::GraphQL::PersistedQueries.execute(graphql_schema, **lighthouse_arguments(operation))
   end
 
   # Each operation gets its own context: `schema.multiplex`'s `context:` is the
   # multiplex's, which the queries' resolvers never see.
   def lighthouse_batch(operations)
-    operations = operations.map do |operation|
-      { query: operation[:query], extensions: operation[:extensions], variables: graphql_variables(operation[:variables]),
-        operation_name: operation[:operationName], context: lighthouse_context }
-    end
-    Lighthouse::GraphQL::PersistedQueries.multiplex(graphql_schema, operations)
+    Lighthouse::GraphQL::PersistedQueries.multiplex(graphql_schema, operations.map { |operation| lighthouse_arguments(operation) })
+  end
+
+  # What PersistedQueries runs an operation with: its query, extensions, variables and
+  # name, in the request's context.
+  def lighthouse_arguments(operation)
+    operation = operation.with_indifferent_access if operation.is_a?(Hash)
+    { query: operation[:query], extensions: operation[:extensions], variables: graphql_variables(operation[:variables]),
+      operation_name: operation[:operationName], context: lighthouse_context }
   end
 
   # One operation: answered whole, or streamed (Defer) when it asks for it.
@@ -117,12 +116,7 @@ module Lighthouse::GraphQL::Controller
   # fragment is deferred, else streams the payloads as `multipart/mixed` parts
   # (not cacheable, whatever @cacheControl says).
   def lighthouse_incremental(operation)
-    operation = operation.with_indifferent_access if operation.is_a?(Hash)
-    run = Lighthouse::GraphQL::PersistedQueries.incremental(
-      graphql_schema,
-      query: operation[:query], extensions: operation[:extensions],
-      variables: graphql_variables(operation[:variables]), operation_name: operation[:operationName], context: lighthouse_context
-    )
+    run = Lighthouse::GraphQL::PersistedQueries.incremental(graphql_schema, **lighthouse_arguments(operation))
     return render json: run if run.is_a?(Hash)
 
     return lighthouse_stream(run) if run.deferred?

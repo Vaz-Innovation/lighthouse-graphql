@@ -543,6 +543,10 @@ RSpec.describe 'Deferring fields' do
         .to eq([[message], nil])
     end
 
+    it 'answers a request without a query as graphql-ruby does' do
+      expect(run(nil).result.to_h).to eq(schema.execute(nil).to_h)
+    end
+
     it 'leaves a query that does not parse to graphql-ruby' do
       parse_errors = schema.execute('{ users { ')['errors'].pluck('message')
 

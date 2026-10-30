@@ -78,6 +78,15 @@ RSpec.describe 'Deferring fields', type: :request do
     expect(payloads).to eq([])
   end
 
+  it 'answers a request without a query as the JSON path does' do
+    post '/graphql', params: { variables: {} }, headers: accept, as: :json
+    streamed = [response.status, response.parsed_body]
+    post '/graphql', params: { variables: {} }, as: :json
+
+    expect(streamed).to eq([response.status, response.parsed_body])
+    expect(streamed.last['errors']).to be_present
+  end
+
   it 'answers an ordinary response when the query defers nothing' do
     stream('{ posts(first: 1) { data { title } } }')
 
