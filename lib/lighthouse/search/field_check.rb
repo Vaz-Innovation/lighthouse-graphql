@@ -103,7 +103,7 @@ class Lighthouse::Search::FieldCheck
     walk.implicit(@field_def.arguments).flat_map do |path, argument|
       walk.directives(argument).filter_map do |directive|
         builder = registry.arg_builder_class(directive.name)
-        next if builder.nil? || directive.name == 'search' || Lighthouse::Search::Enhancer.compatible?(builder)
+        next if builder.nil? || directive.name == 'search' || Lighthouse::Search::Enhancer.compatible?(builder, directive)
 
         "@#{directive.name} on #{path}"
       end

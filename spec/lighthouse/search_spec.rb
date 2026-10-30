@@ -632,6 +632,20 @@ RSpec.describe '@search' do
         expect(run(schema, '{ posts(search: "great") { id } }')['errors']).to be_nil
       end
 
+      it 'takes @limit, which cuts what the field resolved, but not @limit(builder: true), a LIMIT on the query' do
+        schema = build_schema(<<~GRAPHQL)
+          type SearchPost { id: ID! }
+          type Query {
+            posts(search: String @search, max: Int @limit): [SearchPost!]! @all
+            built(search: String @search, max: Int @limit(builder: true)): [SearchPost!]! @all
+          }
+        GRAPHQL
+
+        expect(run(schema, '{ posts(search: "great", max: 1) { id } }').dig('data', 'posts').size).to eq(1)
+        expect(run(schema, '{ built(search: "great", max: 1) { id } }')['errors'].first['message'])
+          .to eq('Found arg builder arguments that do not work with @search: @limit on max.')
+      end
+
       it 'sends an @orderBy or @whereConditions, which are database ones' do
         schema = build_schema(<<~GRAPHQL)
           type SearchPost { id: ID! title: String }

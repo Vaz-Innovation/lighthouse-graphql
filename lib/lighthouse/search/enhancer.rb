@@ -15,10 +15,13 @@ class Lighthouse::Search::Enhancer
   # An argument directive of the field: its AST nodes, the builder class (or :builder), the client's value.
   Argument = Struct.new(:node, :directive, :builder, :value, :present)
 
-  # Can a search engine apply the argument directive (its builder class, or :builder)?
-  # Search::FieldCheck asks too, of the arguments with a default value.
-  def self.compatible?(builder)
-    builder == :builder || builder.include?(Lighthouse::Contracts::SearchBuilder)
+  # Can a search engine take the argument directive (its builder class, or :builder,
+  # and its node)? It applies one that writes to the search (Contracts::SearchBuilder,
+  # @builder), and leaves alone one that does not change the query (`changes_query?`:
+  # @limit without `builder: true`). Search::FieldCheck asks too, of the defaults.
+  def self.compatible?(builder, directive)
+    builder == :builder || builder.include?(Lighthouse::Contracts::SearchBuilder) ||
+      (builder.respond_to?(:changes_query?) && !builder.changes_query?(directive))
   end
 
   # `search`: what the caller takes from an engine (BaseDirectiveResolver::SEARCHES):
@@ -107,7 +110,7 @@ class Lighthouse::Search::Enhancer
   # The directives of an argument the client sent that a search engine cannot apply.
   def reject_incompatible
     incompatible = @arguments.find do |argument|
-      !search?(argument) && !argument.value.nil? && !compatible?(argument.builder)
+      !search?(argument) && !argument.value.nil? && !self.class.compatible?(argument.builder, argument.directive)
     end
     return unless incompatible
 
@@ -115,17 +118,15 @@ class Lighthouse::Search::Enhancer
           "Found arg builder arguments that do not work with @search: @#{incompatible.directive.name} on #{incompatible.node.name}."
   end
 
-  def compatible?(builder) = self.class.compatible?(builder)
-
   def narrow(query, argument)
     if argument.builder == :builder
       return query unless argument.present
 
       Lighthouse::GraphQL::DirectiveResolvers::BuilderApplier.apply_argument(query, argument.directive, argument.value, @context, strict: true)
-    elsif argument.value.nil?
-      query
-    else
+    elsif !argument.value.nil? && argument.builder.include?(Lighthouse::Contracts::SearchBuilder)
       argument.builder.new(argument.node, argument.directive).handle_search_builder(query, argument.value)
+    else
+      query # nothing sent, or a directive that leaves the query alone
     end
   end
 end

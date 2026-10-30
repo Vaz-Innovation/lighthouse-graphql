@@ -158,6 +158,9 @@ module Lighthouse::GraphQL::Directives::Arguments
   class Limit < Base
     def self.directive_name = 'limit'
 
+    # Only with `builder: true`: otherwise LimitResolver cuts the results after.
+    def self.changes_query?(directive_node) = Lighthouse::Support::DirectiveArgs.literal(directive_node, 'builder') == true
+
     def self.definition
       <<~GRAPHQL.chomp
         """

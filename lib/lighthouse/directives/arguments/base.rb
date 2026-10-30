@@ -25,6 +25,11 @@ class Lighthouse::GraphQL::Directives::Arguments::Base
     GRAPHQL
   end
 
+  # Does the directive, as the SDL writes it (`directive_node`), change the field's
+  # query? Most do; one that does not (@limit without `builder: true`, which cuts
+  # what the field resolved) leaves a search outside the database alone.
+  def self.changes_query?(_directive_node) = true
+
   def initialize(arg_node, directive_node)
     @arg_node = arg_node
     @directive_node = directive_node
