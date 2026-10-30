@@ -68,6 +68,12 @@ module Lighthouse::Events
         ::ActiveSupport::Notifications.notifier.listening?(notification_name(event_class))
     end
 
+    # The query of the operation `query` runs: a GraphQL::Query::Partial (a deferred fragment's
+    # run, see Defer) runs part of one; a GraphQL::Query is its own.
+    def operation_query(query)
+      query.is_a?(::GraphQL::Query::Partial) ? query.query : query
+    end
+
     # The ActiveSupport::Notifications name an event class is instrumented as.
     def notification_name(event_class)
       "#{(event_class.name || 'event').demodulize.underscore}.lighthouse"

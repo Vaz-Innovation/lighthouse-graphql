@@ -41,6 +41,10 @@ module Lighthouse
     # ActiveSupport::Notifications subscriber.
     def self.listening?: (Class event_class) -> bool
 
+    # The query of the operation `query` runs: a GraphQL::Query::Partial's is the
+    # query it runs part of.
+    def self.operation_query: (_Query query) -> _Query
+
     # The ActiveSupport::Notifications name an event class is instrumented as.
     def self.notification_name: (Class event_class) -> String
 

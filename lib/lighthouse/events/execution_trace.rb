@@ -26,7 +26,7 @@ module Lighthouse::Events::ExecutionTrace
 
   class << self
     def start(schema, query)
-      source = query.is_a?(::GraphQL::Query::Partial) ? query.query : query
+      source = Lighthouse::Events.operation_query(query)
       Lighthouse::Events.dispatch(
         Lighthouse::Events::StartExecution.new(schema, source.document, source.provided_variables, source.operation_name, query.context, query)
       )
