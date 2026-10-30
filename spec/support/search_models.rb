@@ -2,6 +2,7 @@
 
 require 'paranoia'
 require 'discard'
+require_relative 'pg_search/model'
 
 # The models and engines of the @search specs. The engines are fakes, as PHP
 # Lighthouse's own suite fakes Laravel Scout's (tests/TestsScoutEngine): the
@@ -81,9 +82,6 @@ module FakeSearch
   Response = Struct.new(:records, :total_count) do
     def to_a = records
   end
-
-  # What `include PgSearch::Model` stands for when the gem is not in the bundle.
-  module PgSearchModel; end
 end
 
 # A model that calls `searchkick`: it answers what Searchkick's model methods do, and keeps the searches.
@@ -114,15 +112,15 @@ class PgSearchPost < ApplicationRecord
   self.table_name = 'search_posts'
   include FakeSearch::PgSearchModel
 
-  def self.search(term) = where('title LIKE ?', "%#{term}%")
-  def self.by_title(term) = where(title: term)
+  pg_search_scope :search, ->(term) { where('title LIKE ?', "%#{term}%") }
+  pg_search_scope :by_title, ->(term) { where(title: term) }
 
   # The order pg_search 2.4 adds: the rank, then the primary key, two nodes.
-  def self.ranked24(term) = search(term).order(Arel::Table.new('pg_search_1')[:rank].desc).order(arel_table[:id].asc)
+  pg_search_scope :ranked24, ->(term) { search(term).order(Arel::Table.new('pg_search_1')[:rank].desc).order(arel_table[:id].asc) }
 
   # pg_search 2.3's: one SQL literal, with `order_within_rank:` or the primary key after the rank.
-  def self.ranked23(term) = search(term).order(Arel.sql(%(pg_search_1.rank DESC, "search_posts"."id" ASC)))
-  def self.ranked23_within(term) = search(term).order(Arel.sql(%(pg_search_1.rank DESC, search_posts.title DESC)))
+  pg_search_scope :ranked23, ->(term) { search(term).order(Arel.sql(%(pg_search_1.rank DESC, "search_posts"."id" ASC))) }
+  pg_search_scope :ranked23_within, ->(term) { search(term).order(Arel.sql(%(pg_search_1.rank DESC, search_posts.title DESC))) }
 end
 
 # A model's searchkick_search that loads its hits as Searchkick does
@@ -256,4 +254,11 @@ class SearchkickLimitedPost < ApplicationRecord
   extend FakeSearch::Searchkicked
 
   default_scope { limit(1) }
+end
+
+# A model with both gems whose `search` is Searchkick's, not a pg_search scope.
+class SearchkickSearchPost < PgSearchPost
+  extend FakeSearch::Searchkicked
+
+  def self.search(term, **) = searchkick_search(term)
 end

@@ -251,6 +251,12 @@ RSpec.describe 'search adapters' do
         .to eq('ORDER BY "pg_search_1"."rank" DESC, "search_posts"."title" DESC, "search_posts"."author_id" DESC')
     end
 
+    it "takes only pg_search's own scopes, not another gem's method of the name (Searchkick's `search`)" do
+      expect(adapter.searchable?(SearchkickSearchPost)).to be(false)
+      expect(adapter.named?(SearchkickSearchPost, 'search')).to be(false)
+      expect(adapter.searchable?(SearchkickSearchPost, 'by_title')).to be(true)
+    end
+
     it "keeps what the model's search_results scope keeps" do
       PgSearchGuardedPost.create!(title: 'milk')
       PgSearchGuardedPost.create!(title: 'stale milk')

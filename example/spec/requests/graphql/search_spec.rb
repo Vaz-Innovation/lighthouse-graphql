@@ -610,6 +610,13 @@ RSpec.describe 'GraphQL @search', type: :request do
       expect(titles(run(schema, '{ ordered { title } }'), 'ordered')).to eq(['Plain', 'Great title', 'Great great title', 'Bad title'])
     end
 
+    it "tells pg_search's scopes from Searchkick's `search`, on a model that uses both gems" do
+      adapter = Lighthouse::Search::PgSearch.new
+
+      expect([adapter.searchable?(SearchedPost), adapter.named?(SearchedPost, 'search_title'), adapter.searchable?(PgSearchedPost)])
+        .to eq([false, true, true])
+    end
+
     it 'searches within the pg_search scope that is named' do
       expect(titles(run(schema, '{ byTitle(search: "plain") { title } }'), 'byTitle')).to eq(['Plain'])
     end

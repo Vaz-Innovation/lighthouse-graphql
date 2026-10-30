@@ -19,7 +19,7 @@ class Lighthouse::Search::PgSearch
   DEFAULT_SCOPE = :search
 
   def searchable?(model, index = nil)
-    !!(defined?(::PgSearch::Model) && model.include?(::PgSearch::Model) && model.respond_to?(scope_name(index)))
+    !!(defined?(::PgSearch::Model) && model.include?(::PgSearch::Model) && pg_search_scope?(model, scope_name(index)))
   end
 
   def relational? = true
@@ -45,6 +45,16 @@ class Lighthouse::Search::PgSearch
   private
 
   def scope_name(index) = (index || DEFAULT_SCOPE).to_sym
+
+  # Is the model's class method `name` a pg_search scope? pg_search keeps no list
+  # of them: `pg_search_scope` defines each from pg_search/model.rb (2.3 and 2.4
+  # alike), which the method's source tells, so another gem's method of the name
+  # (Searchkick's `search`, on a model that uses both) is not taken for one.
+  def pg_search_scope?(model, name)
+    return false unless model.respond_to?(name)
+
+    !!model.method(name).source_location&.first&.end_with?(File.join('pg_search', 'model.rb'))
+  end
 
   # pg_search's orders without its primary-key tie-break, which is a node of its
   # own after the rank's in pg_search 2.4, and the end of one SQL literal in 2.3
