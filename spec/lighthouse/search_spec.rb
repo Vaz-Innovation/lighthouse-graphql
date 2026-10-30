@@ -47,6 +47,25 @@ class Types::SearchPostType < GraphQL::Schema::Object
   end
 end
 
+# A directive of the app's own, with only the field-resolver contract: it says nothing of a search.
+class SearchSpecOwnDirective
+  include Lighthouse::Contracts::FieldResolver
+
+  def self.directive_name = 'searchSpecOwn'
+  def self.definition = 'directive @searchSpecOwn on FIELD_DEFINITION'
+
+  def initialize(*); end
+  def define_resolver(_type); end
+end
+
+# One that opts in: it reads the search through resolve_info.enhance_builder.
+class SearchSpecSearchingDirective < SearchSpecOwnDirective
+  def self.directive_name = 'searchSpecSearching'
+  def self.definition = 'directive @searchSpecSearching on FIELD_DEFINITION'
+  def self.applies_search? = true
+  def self.takes_search_results?(*) = true
+end
+
 class Builders::SearchSpecOptions
   def self.call(query, value, _context)
     query.options[:fields] = [value]
@@ -614,6 +633,28 @@ RSpec.describe '@search' do
   end
 
   describe 'at build time' do
+    describe 'with a directive of your own' do
+      before do
+        search_with(FakeSearch::Engine.new([SearchPost]))
+        [SearchSpecOwnDirective, SearchSpecSearchingDirective].each { |directive| Lighthouse::DirectiveRegistry.default.register(directive) }
+      end
+
+      after { Lighthouse::DirectiveRegistry.instance_variable_set(:@default, nil) }
+
+      def build_own(name)
+        build_schema("type SearchPost { id: ID! } type Query { posts(search: String @search): [SearchPost!]! @#{name} }")
+      end
+
+      it 'refuses a @search on a field it resolves unless it says it applies one' do
+        expect { build_own('searchSpecOwn') }
+          .to raise_error(Lighthouse::DefinitionError, /nothing applies the search: @searchSpecOwn runs no argument filters.*self.applies_search\?/)
+      end
+
+      it 'accepts it once the class opts in' do
+        expect { build_own('searchSpecSearching') }.not_to raise_error
+      end
+    end
+
     it 'wants a string for within' do
       expect do
         build_schema('type SearchPost { id: ID! } type Query { posts(search: String @search(within: 123)): [SearchPost!]! @all }')

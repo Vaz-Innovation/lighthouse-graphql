@@ -17,9 +17,20 @@ module Lighthouse
     end
 
     # Its instances, built with (field_def, type_def, directive_node, opts),
-    # install the field's resolver in `define_resolver(target_type)`.
+    # install the field's resolver in `define_resolver(target_type)`. Its class
+    # says whether it applies a @search on its field (by default, it does not).
     module FieldResolver
       include Directive
+
+      # The class methods a resolver gets with the contract, and overrides to opt in.
+      module SearchDefaults
+        def applies_search?: () -> bool
+        def takes_search_results?: (_NamedType type, _FieldDefinition field_def, _DirectiveNode? directive, Symbol? root_kind) -> bool
+      end
+
+      # What Search::FieldCheck asks of a resolver class, with or without the contract.
+      def self.applies_search?: (Class klass) -> bool
+      def self.takes_search_results?: (Class klass, _NamedType type, _FieldDefinition field_def, _DirectiveNode? directive, Symbol? root_kind) -> bool
     end
 
     # Its instances, built with (arg_node, directive_node), answer

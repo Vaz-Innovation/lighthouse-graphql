@@ -57,10 +57,11 @@ class Lighthouse::Search::FieldCheck
   end
 
   def applied!(path)
-    return if own_code? || resolver_class&.applies_search?
+    return if own_code? || (resolver_class && Lighthouse::Contracts::FieldResolver.applies_search?(resolver_class))
 
     fail!(path, "nothing applies the search: #{resolver_name} runs no argument filters. Resolve the field with a directive " \
-                'that does (@all, @paginate, @find, a relationship, ...), or a class of your own that calls resolve_info.enhance_builder')
+                'that does (@all, @paginate, @find, a relationship, ...), or a class of your own that calls resolve_info.enhance_builder; ' \
+                'a directive of your own that applies it says so with `def self.applies_search? = true` (Contracts::FieldResolver)')
   end
 
   def resolver_name
@@ -78,7 +79,7 @@ class Lighthouse::Search::FieldCheck
 
   def outside_database!(path, adapter)
     name = adapter.class.name.demodulize
-    unless own_code? || resolver_class.takes_search_results?(@type, @field_def, resolving_directive, @root_kind)
+    unless own_code? || Lighthouse::Contracts::FieldResolver.takes_search_results?(resolver_class, @type, @field_def, resolving_directive, @root_kind)
       fail!(path, "#{name} answers outside the database, so it needs @all, @paginate of the model's whole table (on a root field, " \
                   'with its own `model:`, or where the parent has no association of its name), or a resolver of your own ' \
                   '(which reads the search through resolve_info.enhance_builder)')
