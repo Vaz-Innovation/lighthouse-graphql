@@ -349,6 +349,17 @@ RSpec.describe '@search' do
       end.not_to raise_error
     end
 
+    it "reads the model of the directive that resolves the field, not another directive's, as the resolver does" do
+      search_with(FakeSearch::Engine.new([SearchPost]))
+
+      expect do
+        build_schema(<<~GRAPHQL)
+          type Hit { id: ID! }
+          type Query { hits(search: String @search): [Hit!]! @canModel(ability: "view", model: "Widget") @paginate(model: "SearchPost") }
+        GRAPHQL
+      end.not_to raise_error
+    end
+
     it 'leaves a field whose model it cannot tell to the resolver' do
       expect do
         build_schema('type Hit { id: ID! } type Query { hits(search: String @search): [Hit!]! }')
@@ -398,6 +409,15 @@ RSpec.describe '@search' do
             type Query { posts: [SearchPost!]! @all }
           GRAPHQL
         end.to raise_error(Lighthouse::DefinitionError, /SearchPost.related\(search\): .*needs @all or @paginate on a root field/)
+      end
+
+      it "refuses a nested @paginate when the model: is another directive's: it still pages the parent's association" do
+        expect do
+          build_schema(<<~GRAPHQL)
+            type SearchPost { id: ID! related(search: String @search): [SearchPost!]! @paginate @canModel(ability: "view", model: "SearchPost") }
+            type Query { posts: [SearchPost!]! @all }
+          GRAPHQL
+        end.to raise_error(Lighthouse::DefinitionError, /needs @all or @paginate on a root field/)
       end
 
       it 'accepts a nested @paginate that names its model' do

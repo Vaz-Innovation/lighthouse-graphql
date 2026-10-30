@@ -49,13 +49,21 @@ module Lighthouse::Support::SoftDeletes
     adapter.without_trashed(relation)
   end
 
+  TRASHED = { 'ONLY' => :only, 'WITH' => :with, 'WITHOUT' => :without }.freeze
+
+  # :only, :with or :without, for a `Trashed` enum value (ONLY, WITH or WITHOUT).
+  def trashed(value)
+    TRASHED.fetch(value.to_s.upcase) do
+      raise ::GraphQL::ExecutionError, "Unknown trashed value #{value.inspect}, expected ONLY, WITH or WITHOUT."
+    end
+  end
+
   # The relation for a `Trashed` enum value: ONLY, WITH or WITHOUT.
-  def filter(relation, trashed)
-    case trashed.to_s.upcase
-    when 'ONLY' then only_trashed(relation)
-    when 'WITH' then with_trashed(relation)
-    when 'WITHOUT' then without_trashed(relation)
-    else raise ::GraphQL::ExecutionError, "Unknown trashed value #{trashed.inspect}, expected ONLY, WITH or WITHOUT."
+  def filter(relation, value)
+    case trashed(value)
+    when :only then only_trashed(relation)
+    when :with then with_trashed(relation)
+    else without_trashed(relation)
     end
   end
 

@@ -592,5 +592,14 @@ RSpec.describe 'soft deletes' do
     it 'prefers the gem over the column of the same name' do
       expect(described_class::Auto.new.send(:strategy, ParanoidItem)).to be_a(described_class::Paranoia)
     end
+
+    it 'reads a Trashed value once for @trashed, on a relation and in a search' do
+      expect(%w[ONLY with Without].map { |value| described_class.trashed(value) }).to eq(%i[only with without])
+      expect { described_class.trashed('SOME') }
+        .to raise_error(GraphQL::ExecutionError, 'Unknown trashed value "SOME", expected ONLY, WITH or WITHOUT.')
+      expect { described_class.filter(SoftTask.all, 'SOME') }.to raise_error(GraphQL::ExecutionError, /Unknown trashed value "SOME"/)
+      expect { Lighthouse::GraphQL::Directives::Arguments::Trashed.new(nil, nil).handle_search_builder(Lighthouse::Search::Query.new(SoftTask, 'x'), 'SOME') }
+        .to raise_error(GraphQL::ExecutionError, /Unknown trashed value "SOME"/)
+    end
   end
 end

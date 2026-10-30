@@ -13,6 +13,19 @@ module Lighthouse::Support::ModelResolver
 
   DEFAULT_NAMESPACES = ['App::Graphql'].freeze
 
+  # The suffix of a type Lighthouse generates for @paginate: PostPaginator, PostSimplePaginator, PostConnection.
+  PAGINATION_SUFFIX = /(SimplePaginator|Paginator|Connection)\z/
+
+  # The name of the model a directive on a field acts on: the directive's own
+  # `model:`, else the `model:` of another directive on the field
+  # (`@count(model: "Post") @canQuery`), else the field's return type without a
+  # generated Paginator/Connection suffix. `directive_node` nil: the field's.
+  def field_model_name(field_def, directive_node = nil)
+    Lighthouse::Support::DirectiveArgs.literal(directive_node, 'model') ||
+      (field_def.ast_node&.directives || []).filter_map { |d| Lighthouse::Support::DirectiveArgs.literal(d, 'model') }.first ||
+      field_def.type.unwrap.graphql_name.sub(PAGINATION_SUFFIX, '')
+  end
+
   def namespaces
     if defined?(Lighthouse::Config) &&
        Lighthouse::Config.respond_to?(:resolver_namespaces) &&

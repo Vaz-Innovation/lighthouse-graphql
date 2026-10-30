@@ -13,8 +13,6 @@ module Lighthouse::GraphQL::Directives::Arguments
   class Trashed < Base
     include Lighthouse::Contracts::SearchBuilder
 
-    TRASHED = { 'ONLY' => :only, 'WITH' => :with, 'WITHOUT' => :without }.freeze
-
     def self.directive_name = 'trashed'
 
     def self.definition
@@ -37,9 +35,7 @@ module Lighthouse::GraphQL::Directives::Arguments
       return query if value.nil?
 
       Lighthouse::Support::SoftDeletes.require_support!(query.model)
-      query.trashed = TRASHED.fetch(value.to_s.upcase) do
-        raise ::GraphQL::ExecutionError, "Unknown trashed value #{value.inspect}, expected ONLY, WITH or WITHOUT."
-      end
+      query.trashed = Lighthouse::Support::SoftDeletes.trashed(value)
       query
     end
   end

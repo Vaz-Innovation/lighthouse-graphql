@@ -29,11 +29,10 @@ class Lighthouse::Search::FieldCheck
     return if searches.empty?
 
     searches.each { |path, directive| within_string!(path, directive) }
-    model = model_class || return
+    model = model_class
     searches.each do |path, directive|
       index = Lighthouse::Support::DirectiveArgs.literal(directive, 'within')
-      adapter = Lighthouse::Search.adapter_for(model, index) || not_searchable!(path, model)
-      outside_database!(path, adapter) unless adapter.relational?
+      field_searched!(path, model, index) if model
     end
   end
 
@@ -46,8 +45,13 @@ class Lighthouse::Search::FieldCheck
     fail!(path, "expected the value of the `within` argument of @search to be a string, got: #{within.to_json}")
   end
 
-  def not_searchable!(path, model)
-    fail!(path, "#{model.name} is not searchable (#{HINT})")
+  def field_searched!(path, model, index)
+    adapter = adapter!(path, model, index)
+    outside_database!(path, adapter) unless adapter.relational?
+  end
+
+  def adapter!(path, model, index)
+    Lighthouse::Search.adapter_for(model, index) || fail!(path, "#{model.name} is not searchable (#{HINT})")
   end
 
   def outside_database!(path, adapter)
@@ -60,12 +64,12 @@ class Lighthouse::Search::FieldCheck
                 'remove them, or search with a relational adapter (pg_search)')
   end
 
-  # @all, or @paginate of the model's whole table (not the parent's association).
+  # @all, or @paginate of the model's whole table (its own `model:`, not the parent's association).
   def whole_table?
     name = resolving_directive&.name
     return false unless DATA_DIRECTIVES.include?(name)
 
-    name == 'all' || !@root_kind.nil? || !model_argument.nil?
+    name == 'all' || !@root_kind.nil? || !Lighthouse::Support::DirectiveArgs.literal(resolving_directive, 'model').nil?
   end
 
   # The field's own query constraints a search engine drops.
@@ -77,18 +81,16 @@ class Lighthouse::Search::FieldCheck
   end
 
   def resolving_directive
+    return @resolving_directive if defined?(@resolving_directive)
+
     registry = Lighthouse::DirectiveRegistry.default
-    @directives.find { |directive| registry.resolution_class(directive.name) && !registry.wrapper?(directive.name) }
+    @resolving_directive = @directives.find { |directive| registry.resolution_class(directive.name) && !registry.wrapper?(directive.name) }
   end
 
-  def model_argument
-    @directives.filter_map { |directive| Lighthouse::Support::DirectiveArgs.literal(directive, 'model') }.first
-  end
-
-  # The field's model, as the data directives tell it; nil when it cannot be told (a custom resolver).
+  # The field's model, as its resolving directive tells it (BaseDirectiveResolver#model_class);
+  # nil when it cannot be told (a custom resolver).
   def model_class
-    name = model_argument || @field_def.type.unwrap.graphql_name.sub(/(SimplePaginator|Paginator|Connection)\z/, '')
-    model = Lighthouse::Support::ModelResolver.constantize(name)
+    model = Lighthouse::Support::ModelResolver.constantize(Lighthouse::Support::ModelResolver.field_model_name(@field_def, resolving_directive))
     model if defined?(::ActiveRecord::Base) && model.is_a?(Class) && model < ::ActiveRecord::Base
   end
 

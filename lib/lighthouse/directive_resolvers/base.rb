@@ -96,7 +96,7 @@ class Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
   # another directive on the field (`@count(model: "Post") @canQuery`), or
   # the field's return type without a generated Paginator/Connection suffix.
   def model_class
-    name = directive_arg('model') || sibling_model_name || return_type_model_name
+    name = Lighthouse::Support::ModelResolver.field_model_name(@field_def, @directive_node)
     constantize_model(name) || raise(Lighthouse::DefinitionError,
                                      "@#{@directive_node&.name} on #{@type_def.graphql_name}.#{@field_def.name}: no model #{name}")
   end
@@ -131,16 +131,6 @@ class Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
     return @searching if defined?(@searching)
 
     @searching = Lighthouse::Search.directives(@field_def).any?
-  end
-
-  def sibling_model_name
-    (@field_def.ast_node&.directives || []).filter_map do |d|
-      Lighthouse::Support::DirectiveArgs.literal(d, 'model')
-    end.first
-  end
-
-  def return_type_model_name
-    @field_def.type.unwrap.graphql_name.sub(/(SimplePaginator|Paginator|Connection)\z/, '')
   end
 
   # The field's own query directives (@builder, @whereAuth, @orderBy(column:)),
