@@ -35,6 +35,23 @@ class SearchkickUntoldPost < ApplicationRecord
   def self.searchkick_options = {}
 end
 
+# STI, through pg_search's multisearch: a subclass's documents hold its base class's name.
+class TogetherItem < ApplicationRecord
+  self.table_name = 'search_items'
+
+  def self.pg_search_multisearchable_options = { against: [:title] }
+end
+
+class TogetherSpecialItem < TogetherItem; end
+
+# A tenant's widgets: its default scope narrows what a search of it may answer.
+class TogetherTenantWidget < ApplicationRecord
+  self.table_name = 'widgets'
+  default_scope { where(rank: 1) }
+
+  def self.pg_search_multisearchable_options = { against: [:name] }
+end
+
 class SearchkickTogetherWidget < ApplicationRecord
   self.table_name = 'widgets'
 
@@ -107,6 +124,32 @@ RSpec.describe '@search over several models' do
 
     expect(names(result, 'paged')).to eq([['SearchPost', 'great too']])
     expect(result.dig('data', 'paged', 'paginatorInfo', 'total')).to eq(3)
+  end
+
+  it 'pages a connection and a simple paginator of the models, by the positions of the hits' do
+    schema = build_schema(union_sdl.sub('paged(search: String! @search): [Found!]! @paginate', <<~GRAPHQL))
+      feed(search: String! @search): [Found!]! @paginate(type: CONNECTION)
+      simple(search: String! @search): [Found!]! @paginate(type: SIMPLE)
+    GRAPHQL
+
+    feed = run(schema,
+               %({ feed(first: 2, search: "great") { edges { cursor node { #{selection} } } pageInfo { hasNextPage endCursor } } }))['data']['feed']
+    rest = run(schema, %({ feed(first: 2, after: "#{feed['pageInfo']['endCursor']}", search: "great") { edges { node { #{selection} } } } }))
+    simple = run(schema, %({ simple(first: 2, page: 2, search: "great") { data { #{selection} } paginatorInfo { hasMorePages } } }))['data']['simple']
+
+    expect(feed['edges'].map { |edge| edge.dig('node', '__typename') }).to eq(%w[SearchPost Widget])
+    expect(feed['pageInfo']['hasNextPage']).to be(true)
+    expect(rest.dig('data', 'feed', 'edges').map { |edge| edge.dig('node', 'title') }).to eq(['great too'])
+    expect(simple).to eq('data' => [{ '__typename' => 'SearchPost', 'title' => 'great too' }], 'paginatorInfo' => { 'hasMorePages' => false })
+  end
+
+  it 'reads as many records as @all asks for, from its offset' do
+    schema = build_schema(union_sdl.sub('everything(search: String! @search', 'everything(first: Int, offset: Int, search: String! @search'))
+
+    result = run(schema, %({ everything(first: 1, offset: 1, search: "great") { #{selection} } }))
+
+    expect(names(result)).to eq([['Widget', 'great widget']])
+    expect(engine.requests.last.slice(:offset, :limit)).to eq(offset: 1, limit: 1)
   end
 
   it "takes a model's type @model names, and narrows the search with what the engine applies (@eq)" do
@@ -289,6 +332,68 @@ RSpec.describe '@search over several models' do
       records, total = adapter.page(Lighthouse::Search::Query.new(nil, 'great', models: [post_model, Widget]), offset: 0, limit: 10)
 
       expect([records, total]).to eq([[kept], 1])
+    end
+
+    it 'searches an STI subclass and its base class, whose documents hold the base class name, each record once' do
+      plain = TogetherItem.create!(title: 'great plain')
+      special = TogetherSpecialItem.create!(title: 'great special')
+      [plain, special].each { |item| TogetherSpecDocument.create!(searchable_type: 'TogetherItem', searchable_id: item.id, content: item.title) }
+
+      specials = adapter.page(Lighthouse::Search::Query.new(nil, 'great', models: [TogetherSpecialItem, Widget]), offset: 0, limit: 10)
+      both = adapter.page(Lighthouse::Search::Query.new(nil, 'great', models: [TogetherItem, TogetherSpecialItem]), offset: 0, limit: 10)
+
+      expect(specials).to eq([[special], 1])
+      expect([both.first.map(&:id), both.last]).to eq([[plain.id, special.id], 2])
+      expect(both.first.last).to be_a(TogetherSpecialItem)
+    end
+
+    # Generated cases: records of two models, one of a tenant's (a default scope), their documents,
+    # some stale (a record gone, or one the tenant's scope leaves out), and an @eq. Whatever the
+    # page, the search answers only records its models' relations select, never one twice, in rank
+    # order, and its total counts what loads, every page together being all of it.
+    it 'answers only what each model selects, its total what loads, its pages all of it once' do
+      random = Random.new(Integer(ENV.fetch('SEARCH_TOGETHER_SEED', '20261030')))
+      Integer(ENV.fetch('SEARCH_TOGETHER_CASES', '60')).times do |kase|
+        TogetherSpecDocument.delete_all
+        SearchPost.delete_all
+        Widget.delete_all
+        records = Array.new(random.rand(0..12)) do
+          if random.rand < 0.5
+            SearchPost.create!(title: "great #{random.rand(3)}", author_id: random.rand(1..3))
+          else
+            TogetherTenantWidget.unscoped.create!(name: "great #{random.rand(3)}", rank: random.rand(1..2))
+          end
+        end
+        records.shuffle(random: random).each do |record|
+          TogetherSpecDocument.create!(searchable_type: record.class.polymorphic_name, searchable_id: record.id,
+                                       content: random.rand < 0.85 ? 'great' : 'other')
+        end
+        records.sample(random.rand(0..2), random: random).each(&:delete)
+        author = random.rand < 0.4 ? random.rand(1..3) : nil
+        query = lambda {
+          Lighthouse::Search::Query.new(nil, 'great', models: [post_model, TogetherTenantWidget]).tap do |q|
+            q.where(:author_id, author) if author
+          end
+        }
+
+        loadable = TogetherSpecDocument.where('content LIKE ?', '%great%').order(:id).filter_map do |document|
+          model = document.searchable_type == 'SearchPost' ? SearchPost : TogetherTenantWidget
+          record = model.find_by(id: document.searchable_id)
+          next unless record
+          next if author && !(record.is_a?(SearchPost) && record.author_id == author)
+
+          [document.searchable_type, record.id]
+        end
+        size = random.rand(1..4)
+        pages = (0..(loadable.size / size)).map { |page| adapter.page(query.call, offset: page * size, limit: size) }
+
+        context = "case #{kase}: author #{author.inspect}, #{records.size} records"
+        expect(pages.map(&:last).uniq).to eq([loadable.size]), context
+        answered = pages.flat_map(&:first)
+        expect(answered).to all(be_present), context
+        expect(answered.map { |record| [record.class.polymorphic_name, record.id] }).to eq(loadable), context
+        expect(answered.grep(TogetherTenantWidget).map(&:rank).uniq - [1]).to eq([]), context
+      end
     end
 
     it 'needs multisearchable models, and refuses the Searchkick options an @builder set' do

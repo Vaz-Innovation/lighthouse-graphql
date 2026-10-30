@@ -265,9 +265,16 @@ RSpec.describe 'GraphQL @search', type: :request do
         let(:together) do
           schema_from(<<~GRAPHQL)
             union Found = SearchedPost | Comment
-            type SearchedPost { title: String! }
-            type Comment { body: String! }
-            type Query { found(search: String! @search, authorId: Int @eq(key: "author_id")): [Found!]! @paginate }
+            interface Writing { id: ID! }
+            type SearchedPost implements Writing { id: ID! title: String! }
+            type Comment implements Writing { id: ID! body: String! }
+            type Query {
+              found(search: String! @search, authorId: Int @eq(key: "author_id")): [Found!]! @paginate
+              writings(search: String! @search): [Writing!]! @paginate(type: CONNECTION)
+              simple(search: String! @search): [Found!]! @paginate(type: SIMPLE)
+              listed(search: String! @search, first: Int, offset: Int): [Found!]! @all
+              editable(search: String! @search, authorId: Int @eq(key: "author_id")): [Found!]! @paginate @canQuery(ability: "update")
+            }
           GRAPHQL
         end
         let(:selection) { 'data { __typename ... on SearchedPost { title } ... on Comment { body } } paginatorInfo { total }' }
@@ -310,6 +317,62 @@ RSpec.describe 'GraphQL @search', type: :request do
 
         it 'narrows every index with @eq, an index without the column matching nothing' do
           expect(kinds(found(%(search: "great", authorId: #{other.id})))).to eq([['SearchedPost', 'Another great one']])
+        end
+
+        it "searches an interface's models, a connection's cursors walking every hit once" do
+          seen = []
+          after = nil
+          loop do
+            page = run(together, %({ writings(first: 2#{after && %(, after: "#{after}")}, search: "great") {
+              edges { node { __typename ... on SearchedPost { title } ... on Comment { body } } } pageInfo { hasNextPage endCursor } } }))
+            connection = page.dig('data', 'writings')
+            seen.concat(connection['edges'].map { |edge| edge['node'].values_at('__typename', 'title', 'body').compact })
+            break unless connection.dig('pageInfo', 'hasNextPage')
+
+            after = connection.dig('pageInfo', 'endCursor')
+          end
+
+          expect(seen.size).to eq(5)
+          expect(seen.uniq.size).to eq(5)
+          expect(seen.map(&:first).tally).to eq('SearchedPost' => 4, 'Comment' => 1)
+        end
+
+        it 'answers a simple paginator, and @all as many as it asks for from its offset' do
+          simple = run(together, %({ simple(first: 4, page: 2, search: "great") { data { __typename } paginatorInfo { hasMorePages } } }))
+          listed = run(together, '{ listed(first: 2, offset: 3, search: "great") { __typename } }')
+          whole = run(together, '{ listed(search: "great") { __typename } }')
+
+          expect(simple.dig('data', 'simple')).to eq('data' => [{ '__typename' => simple.dig('data', 'simple', 'data', 0, '__typename') }],
+                                                     'paginatorInfo' => { 'hasMorePages' => false })
+          expect(listed.dig('data', 'listed').size).to eq(2)
+          expect(whole.dig('data', 'listed').size).to eq(5)
+        end
+
+        it 'checks each record the search finds with @canQuery, by its own policy' do
+          query = '{ editable(first: 10, search: "great"%s) { data { __typename } } }'
+
+          # A comment is ApplicationPolicy's, which lets no one update it; a post is its author's.
+          expect(run(together, format(query, ''), { current_user: author })['errors'].pluck('message')).to eq(['This action is unauthorized.'])
+          mine = run(together, format(query, ", authorId: #{author.id}"), { current_user: author })
+          expect(mine.dig('data', 'editable', 'data').size).to eq(3)
+          expect(run(together, format(query, ", authorId: #{author.id}"), { current_user: other })['errors'].pluck('message'))
+            .to eq(['This action is unauthorized.'])
+        end
+
+        it 'answers over HTTP, through the endpoint of the app, as JSON and streamed' do
+          SearchTogetherSpecController.schema = together.tap { |schema| schema.use(Lighthouse::GraphQL::Defer) }
+          Rails.application.routes.draw { post '/together', to: 'search_together_spec#execute' }
+          query = { query: '{ found(first: 10, search: "great") { data { __typename } paginatorInfo { total } } }' }
+
+          post '/together', params: query, as: :json
+          expect(response.parsed_body.dig('data', 'found', 'paginatorInfo', 'total')).to eq(5)
+          deferred = { query: '{ found(first: 10, search: "great") { paginatorInfo { total } ... @defer { data { __typename } } } }' }
+          post '/together', params: deferred.to_json, headers: { 'Content-Type' => 'application/json', 'Accept' => 'multipart/mixed' }
+          parts = Lighthouse::GraphQL::Incremental::Multipart.parse(response.body)
+          expect(parts.first.dig('data', 'found', 'paginatorInfo', 'total')).to eq(5)
+          expect(parts.last['incremental'].first['data']['data'].size).to eq(5)
+        ensure
+          Rails.application.reload_routes!
         end
 
         it 'pages the hits of both indices as one list' do
@@ -697,6 +760,61 @@ RSpec.describe 'GraphQL @search', type: :request do
     it 'needs a search: there is no table to list without one' do
       expect(error_messages(graphql('{ everything { data { __typename } } }')))
         .to eq(["Field 'everything' is missing required arguments: search"])
+    end
+
+    describe 'on fields of every kind' do
+      let(:schema) do
+        schema_from(<<~GRAPHQL)
+          union Found = Post | User
+          interface Named { id: ID! }
+          type Post implements Named { id: ID! title: String! }
+          type User implements Named { id: ID! name: String! }
+          type Query {
+            named(search: String! @search): [Named!]! @paginate(type: CONNECTION)
+            simple(search: String! @search): [Found!]! @paginate(type: SIMPLE)
+            listed(search: String! @search, first: Int, offset: Int): [Found!]! @all
+            editable(search: String! @search, authorId: Int @eq(key: "author_id")): [Found!]! @paginate @canQuery(ability: "update")
+          }
+        GRAPHQL
+      end
+      let(:railsy) { User.find_by!(name: 'Railsy McRailface') }
+
+      before { create(:post, author: create(:user, name: 'Grace Hopper'), title: 'Rails at sea', body: 'Compilers.') }
+
+      def typename(rows) = rows.pluck('__typename')
+
+      it "searches an interface's models, a connection walking every match once" do
+        first = run(schema, '{ named(first: 2, search: "rail") { edges { node { __typename id } } pageInfo { hasNextPage endCursor } } }')
+        cursor = first.dig('data', 'named', 'pageInfo', 'endCursor')
+        rest = run(schema, %({ named(first: 2, after: "#{cursor}", search: "rail") { edges { node { __typename id } } pageInfo { hasNextPage } } }))
+        nodes = (first.dig('data', 'named', 'edges') + rest.dig('data', 'named', 'edges')).pluck('node')
+
+        expect(nodes.size).to eq(3)
+        expect(nodes.uniq.size).to eq(3)
+        expect(typename(nodes).tally).to eq('Post' => 2, 'User' => 1)
+        expect(first.dig('data', 'named', 'pageInfo', 'hasNextPage')).to be(true)
+        expect(rest.dig('data', 'named', 'pageInfo', 'hasNextPage')).to be(false)
+      end
+
+      it 'answers a simple paginator, and @all as many as it asks for from its offset' do
+        simple = run(schema, '{ simple(first: 2, page: 2, search: "rail") { data { __typename } paginatorInfo { hasMorePages } } }')
+
+        expect(simple.dig('data', 'simple', 'data').size).to eq(1)
+        expect(simple.dig('data', 'simple', 'paginatorInfo', 'hasMorePages')).to be(false)
+        expect(run(schema, '{ listed(first: 2, offset: 1, search: "rail") { __typename } }').dig('data', 'listed').size).to eq(2)
+        expect(run(schema, '{ listed(search: "rail") { __typename } }').dig('data', 'listed').size).to eq(3)
+      end
+
+      it 'checks each record the search finds with @canQuery, by its own policy' do
+        query = '{ editable(first: 10, search: "%s"%s) { data { __typename } } }'
+
+        # A user is ApplicationPolicy's, which lets no one update it; a post is its author's.
+        expect(run(schema, format(query, 'rail', ''), { current_user: railsy })['errors'].pluck('message')).to eq(['This action is unauthorized.'])
+        mine = run(schema, format(query, 'engines', ", authorId: #{railsy.id}"), { current_user: railsy })
+        expect(typename(mine.dig('data', 'editable', 'data'))).to eq(['Post'])
+        expect(run(schema, format(query, 'engines', ''), { current_user: User.find_by!(name: 'Grace') })['errors'].pluck('message'))
+          .to eq(['This action is unauthorized.'])
+      end
     end
   end
 
