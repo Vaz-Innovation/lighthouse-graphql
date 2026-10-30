@@ -949,8 +949,9 @@ RSpec.describe 'Deferring fields' do
       expect(LH::User.where(name: 'z')).to be_empty
     end
 
+    # (A BOM is ignored there too by graphql-ruby 2.6's lexer, not by 2.5's.)
     it 'checks a directive the lexer reads through comments and other ignored tokens between @ and its name' do
-      query = "{ users { ... @ # a comment\n , defer(label: \"x\") { name } ... @\uFEFF,#\ndefer(label: \"x\") { id } } }"
+      query = "{ users { ... @ # a comment\n , defer(label: \"x\") { name } ... @\t,#\ndefer(label: \"x\") { id } } }"
       message = 'The label "x" is used by more than one @defer or @stream in the document.'
 
       expect(errors(query)).to eq([message])
