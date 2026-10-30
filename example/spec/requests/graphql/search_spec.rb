@@ -421,6 +421,63 @@ RSpec.describe 'GraphQL @search', type: :request do
           expect(bodies('search: "brilliant"')).to contain_exactly('Brilliant work on the engine.', 'Thank you, brilliant reader.')
         end
 
+        describe 'when hits drop out as they load, mid-page' do
+          let(:pages) do
+            schema_from(<<~GRAPHQL)
+              type Comment { body: String! }
+              type Query {
+                paginator(search: String @search): [Comment!]! @paginate
+                simple(search: String @search): [Comment!]! @paginate(type: SIMPLE)
+                connection(search: String @search): [Comment!]! @paginate(type: CONNECTION)
+              }
+            GRAPHQL
+          end
+          let(:published) { ['Brilliant work on the engine.', 'Thank you, brilliant reader.', 'A brilliant compiler.'] }
+
+          # Two comments that rank first, on a post unpublished since: the job that drops them from the index has not run.
+          before do
+            hidden = create(:post, author: ada, title: 'Hidden')
+            2.times { create(:comment, post: hidden, author: grace, body: 'Brilliant brilliant brilliant.') }
+            reindex_comments
+            hidden.update_column(:published, false) # rubocop:disable Rails/SkipsModelValidations -- no callback: the index keeps them.
+          end
+
+          def page_of(field, arguments, selection)
+            run(pages, %({ #{field}(search: "brilliant", first: 2#{arguments}) { #{selection} } })).dig('data', field)
+          end
+
+          it 'walks PAGINATOR pages by position, every comment once' do
+            bodies = (1..3).flat_map { |page| page_of('paginator', ", page: #{page}", 'data { body }')['data'].pluck('body') }
+
+            expect(bodies).to match_array(published)
+          end
+
+          it 'walks SIMPLE pages while hasMorePages says the engine has more, every comment once' do
+            bodies = []
+            (1..5).each do |page|
+              found = page_of('simple', ", page: #{page}", 'data { body } paginatorInfo { hasMorePages }')
+              bodies.concat(found['data'].pluck('body'))
+              break unless found.dig('paginatorInfo', 'hasMorePages')
+            end
+
+            expect(bodies).to match_array(published)
+          end
+
+          it 'walks CONNECTION cursors by engine position, every comment once' do
+            bodies = []
+            after = ''
+            5.times do
+              found = page_of('connection', after, 'edges { node { body } } pageInfo { hasNextPage endCursor }')
+              bodies.concat(found['edges'].map { |edge| edge.dig('node', 'body') })
+              break unless found.dig('pageInfo', 'hasNextPage')
+
+              after = %(, after: "#{found.dig('pageInfo', 'endCursor')}")
+            end
+
+            expect(bodies).to match_array(published)
+          end
+        end
+
         it "reads every comment's post in one query when it reindexes" do
           sql = sql_in { Comment.reindex }
 

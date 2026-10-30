@@ -39,10 +39,11 @@ class Lighthouse::Search::Searchkick
 
   def relational? = false
 
-  # [the records at `offset`, `limit` of them in relevance order, the total that match].
+  # [one entry per hit at `offset`, `limit` of them, in relevance order: the
+  # record, or nil for a hit that did not load; the total that match].
   def page(query, offset:, limit:)
     response = query.model.searchkick_search(query.term, **search_options(query), offset: offset, limit: limit)
-    [response.to_a, response.total_count]
+    [entries(response), response.total_count]
   rescue StandardError => e
     raise unless past_window?(e)
 
@@ -66,6 +67,14 @@ class Lighthouse::Search::Searchkick
   end
 
   private
+
+  # The response's records in their hits' places, nil where one did not load.
+  def entries(response)
+    return response.to_a unless response.respond_to?(:with_hit) && response.respond_to?(:hits)
+
+    loaded = response.with_hit.to_h { |record, hit| [hit['_id'].to_s, record] }
+    response.hits.map { |hit| loaded[hit['_id'].to_s] }
+  end
 
   # Does the search read the model's own index, whose settings the model tells?
   def own_index?(query) = query.index.nil? || query.index == query.model.searchkick_index&.name

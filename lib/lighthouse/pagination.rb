@@ -37,6 +37,28 @@ module Lighthouse::GraphQL::Pagination
   # Where a page's rows and total come from.
   module List; end
 
+  # A window of records that may hold fewer records than positions: a search
+  # whose hits did not all load (Search::Result). Each record keeps its position
+  # in the whole list, and `covered` tells how many positions the window spans,
+  # so pages and cursors follow positions: the next page starts after a dropped
+  # hit, never before it, and no record shows twice. A plain array's records
+  # hold the positions from the window's offset on.
+  class Window < Array
+    attr_reader :positions, :covered
+
+    def initialize(records, positions, covered)
+      super(records)
+      @positions = positions
+      @covered = covered
+    end
+  end
+
+  # The positions of a window's records, from `offset`.
+  def positions(rows, offset) = rows.is_a?(Window) ? rows.positions : (offset...(offset + rows.size)).to_a
+
+  # How many positions a window spans.
+  def covered(rows) = rows.is_a?(Window) ? rows.covered : rows.size
+
   class RelationList
     include List
 
@@ -86,12 +108,14 @@ module Lighthouse::GraphQL::Pagination
     Paginator.new(list, per_page, page)
   end
 
-  # Fetches one extra row to tell whether there is a next page, instead of counting.
+  # Fetches one extra position to tell whether there is a next page, instead of counting.
   def simple(list, per_page, page)
-    rows = list.window((page - 1) * per_page, per_page + 1)
-    items = rows.first(per_page)
+    offset = (page - 1) * per_page
+    rows = list.window(offset, per_page + 1)
+    on_page = positions(rows, offset).map { |position| position < offset + per_page }
+    items = rows.select.with_index { |_row, index| on_page[index] }
     {
-      'paginatorInfo' => item_range(items, page, per_page).merge('hasMorePages' => rows.size > per_page),
+      'paginatorInfo' => item_range(items, page, per_page).merge('hasMorePages' => covered(rows) > per_page),
       'data' => items
     }
   end
@@ -156,18 +180,23 @@ module Lighthouse::GraphQL::Pagination
       @offset = offset
     end
 
+    # A cursor is a record's position in the whole list, 1-based.
     def edges
-      @items.each_with_index.map { |node, i| { 'cursor' => Lighthouse::GraphQL::Pagination.encode_cursor(@offset + i + 1), 'node' => node } }
+      positions = Lighthouse::GraphQL::Pagination.positions(@items, @offset)
+      @items.each_with_index.map { |node, i| { 'cursor' => Lighthouse::GraphQL::Pagination.encode_cursor(positions[i] + 1), 'node' => node } }
     end
 
     def pageInfo = info # rubocop:disable Naming/MethodName -- the GraphQL field's name, which the default resolver reads
 
+    # The page spans `covered` positions, its records' and those that did not load:
+    # the end cursor is past them all, so the next page starts after them.
     def info
+      covered = Lighthouse::GraphQL::Pagination.covered(@items)
       @info ||= {
-        'hasNextPage' => @offset + @items.size < total,
+        'hasNextPage' => @offset + covered < total,
         'hasPreviousPage' => @offset.positive?,
-        'startCursor' => @items.empty? ? nil : Lighthouse::GraphQL::Pagination.encode_cursor(@offset + 1),
-        'endCursor' => @items.empty? ? nil : Lighthouse::GraphQL::Pagination.encode_cursor(@offset + @items.size),
+        'startCursor' => covered.zero? ? nil : Lighthouse::GraphQL::Pagination.encode_cursor(@offset + 1),
+        'endCursor' => covered.zero? ? nil : Lighthouse::GraphQL::Pagination.encode_cursor(@offset + covered),
         'total' => total,
         'count' => @items.size,
         'currentPage' => @first.zero? ? 1 : (@offset / @first) + 1,

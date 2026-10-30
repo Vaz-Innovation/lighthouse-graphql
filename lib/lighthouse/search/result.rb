@@ -29,12 +29,17 @@ class Lighthouse::Search::Result
 
   attr_reader :query
 
-  # The records at `offset`, `limit` of them, those within the result window.
+  # The records at `offset`, `limit` positions of them, within the result window:
+  # a Pagination::Window, whose records keep their engine positions. The adapter
+  # answers one entry per hit, nil for a hit that did not load (the model's
+  # scopes, a record gone from the database), so pages and cursors follow the
+  # engine's positions, and none shows a record twice.
   def window(offset, limit)
     return [] if limit.zero?
 
-    records, @count = @adapter.page(@query, offset: offset, limit: within_window(offset, limit))
-    records
+    entries, @count = @adapter.page(@query, offset: offset, limit: within_window(offset, limit))
+    loaded = entries.each_index.reject { |index| entries[index].nil? }
+    Lighthouse::GraphQL::Pagination::Window.new(entries.compact, loaded.map { |index| offset + index }, entries.size)
   end
 
   # How many records match: the total the last page came with, else a request for no records.

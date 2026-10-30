@@ -1179,6 +1179,13 @@ RSpec.describe '@search' do
       expect(engine.requests).to contain_exactly(include(offset: 0, limit: 0))
     end
 
+    it 'keeps the engine positions of the records that loaded, and how many positions the window spans' do
+      dropped = FakeSearch::Engine.new([SearchPost], [SearchPost.new(title: 'a'), nil, SearchPost.new(title: 'c'), nil])
+      window = described_class.new(dropped, Lighthouse::Search::Query.new(SearchPost, 'x')).window(1, 3)
+
+      expect([window.map(&:title), window.positions, window.covered]).to eq([['c'], [2], 3])
+    end
+
     it 'asks for nothing for a window of none' do
       expect(result.window(0, 0)).to eq([])
       expect(engine.requests).to be_empty
