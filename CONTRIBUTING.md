@@ -87,6 +87,14 @@ only an end-to-end query crosses all three.
 
 When you fix a bug, the regression spec should be the SDL that broke it.
 
+`spec/lighthouse/search_safety_spec.rb` generates fields with `@search` from the
+directives a field combines, and checks that a search never answers a record the
+same field would not answer without it, nor counts more than it can load. Its
+cases are deterministic: run more of them, or others, with
+`SEARCH_SAFETY_CASES=5000 SEARCH_SAFETY_SEED=7 bundle exec rspec spec/lighthouse/search_safety_spec.rb`.
+When you change how a field's directives meet the search, run it with more cases,
+and add what it finds to the generator's directives if it cannot reach it.
+
 [`example/`](./example) is a Rails app using the gem from this checkout, and its specs
 are the end-to-end suite: they go through the app's real `/graphql` endpoint, with its
 controller, policies, cache store and generated classes. Add one there when a feature
