@@ -37,7 +37,8 @@ class Lighthouse::Search::Result
   def window(offset, limit)
     return [] if limit.zero?
 
-    entries, @count = @adapter.page(@query, offset: offset, limit: within_window(offset, limit))
+    limit = within_window(offset, limit)
+    entries = fetched(offset, limit) || fetch(offset, limit)
     loaded = entries.each_index.reject { |index| entries[index].nil? }
     Lighthouse::GraphQL::Pagination::Window.new(entries.compact, loaded.map { |index| offset + index }, entries.size)
   end
@@ -82,6 +83,23 @@ class Lighthouse::Search::Result
   end
 
   private
+
+  # The engine's entries at `offset`, `limit` of them, kept for a later window.
+  def fetch(offset, limit)
+    entries, @count = @adapter.page(@query, offset: offset, limit: limit)
+    @fetched = [offset, entries, entries.size < limit]
+    entries
+  end
+
+  # The entries at `offset`, `limit` of them, from an earlier request that holds
+  # them (or held every hit from its offset on), as @canQuery's read of every hit
+  # holds the page the field then answers; nil when none does.
+  def fetched(offset, limit)
+    start, entries, every = @fetched
+    return nil unless start && offset >= start && (offset + limit <= start + entries.size || every)
+
+    entries[(offset - start), limit] || []
+  end
 
   def within_window(offset, limit)
     return limit if result_window.nil?

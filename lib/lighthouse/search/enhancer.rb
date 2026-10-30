@@ -74,7 +74,17 @@ class Lighthouse::Search::Enhancer
     whole_index!(adapter) if @search == :given
     reject_incompatible
     query = @arguments.reject { |argument| search?(argument) }.reduce(query) { |narrowed, argument| narrow(narrowed, argument) }
-    Lighthouse::Search::Result.new(adapter, query)
+    shared_result(adapter, query)
+  end
+
+  # One Result for the field, its place in the response and its model, in the
+  # request: the hits @canQuery reads to check them serve the page the field
+  # then answers, without asking the engine again.
+  def shared_result(adapter, query)
+    return Lighthouse::Search::Result.new(adapter, query) unless @context.respond_to?(:[]=) && @context.respond_to?(:[])
+
+    results = (@context[:lighthouse_search_results] ||= {})
+    results[[@field, @context[:current_path], query.model]] ||= Lighthouse::Search::Result.new(adapter, query)
   end
 
   # The engine searches the model's whole index: the conditions of a relation

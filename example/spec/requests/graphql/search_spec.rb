@@ -338,12 +338,14 @@ RSpec.describe 'GraphQL @search', type: :request do
         expect(result['errors'].pluck('message')).to eq(['Found arg builder arguments that do not work with @search: @neq on title.'])
       end
 
-      it 'checks @canQuery against every post the search finds, not only the page' do
+      it 'checks @canQuery against every post the search finds, not only the page, then pages them from the same request' do
         query = '{ editable(first: 1, search: "great"%s) { data { title } } }'
+        result = nil
 
         expect(run(schema, format(query, ''), { current_user: author })['errors'].pluck('message')).to eq(['This action is unauthorized.'])
-        expect(run(schema, format(query, ", authorId: #{author.id}"), { current_user: author }).dig('data', 'editable', 'data'))
-          .to eq([{ 'title' => 'Really great great title' }])
+        requests = requests_in { result = run(schema, format(query, ", authorId: #{author.id}"), { current_user: author }) }
+        expect(result.dig('data', 'editable', 'data')).to eq([{ 'title' => 'Really great great title' }])
+        expect(requests).to eq(1)
       end
 
       it 'refuses, when the schema is built, what PHP Lighthouse drops silently' do

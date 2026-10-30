@@ -565,12 +565,17 @@ RSpec.describe '@search' do
       # A post titled "secret" may not be viewed.
       before { Lighthouse::Config.authorizer = ->(_user, record, _ability) { record.title != 'secret' } }
 
-      it 'checks each record the search finds, then pages them, as PHP Lighthouse checks the hits of the Scout builder' do
-        result = run(schema, '{ posts(first: 1, search: "great") { data { title } } }')
+      it 'checks each record the search finds, then pages them from the same request, as PHP Lighthouse checks the hits of the Scout builder' do
+        result = run(schema, '{ posts(first: 1, page: 2, search: "great") { data { title } paginatorInfo { total } } }')
 
-        expect(result).to eq('data' => { 'posts' => { 'data' => [{ 'title' => 'great title' }] } })
-        expect(engine.requests.map { |request| request.slice(:offset, :limit) })
-          .to eq([{ offset: 0, limit: Lighthouse::Search::Result::MAX_WINDOW }, { offset: 0, limit: 1 }])
+        expect(result).to eq('data' => { 'posts' => { 'data' => [{ 'title' => 'Really great title' }], 'paginatorInfo' => { 'total' => 2 } } })
+        expect(engine.requests.map { |request| request.slice(:offset, :limit) }).to eq([{ offset: 0, limit: Lighthouse::Search::Result::READ_LIMIT }])
+      end
+
+      it 'searches again for each field, and for each place of a field in the response' do
+        run(schema, '{ a: posts(first: 1, search: "great") { data { title } } b: posts(first: 1, search: "great") { data { title } } }')
+
+        expect(engine.requests.size).to eq(2)
       end
 
       it 'denies the field when the search finds a record the user may not see, on any page' do
@@ -590,7 +595,7 @@ RSpec.describe '@search' do
 
         run(all, '{ posts(search: "great") { title } }')
 
-        expect(engine.requests.pluck(:limit)).to eq([10_000, 10_000])
+        expect(engine.requests.pluck(:limit)).to eq([10_000]) # the field reads what @canQuery read
       end
 
       it 'refuses a search with more matches than it can check that a page could reach, not those past the result window' do

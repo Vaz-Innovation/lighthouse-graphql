@@ -598,8 +598,9 @@ It is the model's, the same for every client: what depends on the user belongs i
 
 `@canQuery` checks the policy against each record the field's query would return. When the client
 searches, those are the records the search finds: **all of them, not only the page** the field
-returns, as PHP Lighthouse checks the hits of the Scout builder. With Searchkick that is one more engine
-request, of 10,000 records at most, each loaded and checked: a search that finds more, within the result
+returns, as PHP Lighthouse checks the hits of the Scout builder. With Searchkick that is one engine
+request, of 10,000 records at most, each loaded and checked, from which the field then answers its page
+without asking the engine again (each field and place in the response searches once): a search that finds more, within the result
 window (a page cannot reach past it), is an error, `@canQuery checks every record the search finds, at
 most 10000, and this one finds 12345. Narrow the search.`, passed to the client or replaced as
 `action:` says, as any failed check. With pg_search, the scope's records, all of them. Its `model:` must be searchable, and with Searchkick its
