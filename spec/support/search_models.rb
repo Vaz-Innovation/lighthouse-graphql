@@ -15,6 +15,10 @@ ActiveRecord::Schema.define do
     t.datetime :deleted_at
     t.datetime :discarded_at
   end
+  create_table :search_items, force: true do |t|
+    t.string :type
+    t.string :title
+  end
 end
 
 class SearchPost < ApplicationRecord
@@ -142,7 +146,8 @@ module FakeSearch::Searchkicked
     (self.searches ||= []) << options
     hits = filtered(options[:where] || {})
     ids = hits.offset(options[:offset]).limit(options[:limit]).pluck(:id)
-    records = options[:scope_results] ? options[:scope_results].call(self) : self
+    loading = searchkick_options[:unscope] ? unscoped : self # Searchkick's results_query
+    records = options[:scope_results] ? options[:scope_results].call(loading) : loading
     FakeSearch::Response.new(records.where(id: ids).sort_by { |record| ids.index(record.id) }, hits.count)
   end
 
@@ -170,6 +175,16 @@ class SearchkickSentinelPost < ApplicationRecord
   acts_as_paranoid sentinel_value: DateTime.new(0)
   extend FakeSearch::Searchkicked
 
+  def self.search_where = {}
+end
+
+# paranoia, loading what Searchkick finds through `unscoped` (`searchkick unscope: true`).
+class SearchkickUnscopedPost < ApplicationRecord
+  self.table_name = 'search_posts'
+  acts_as_paranoid
+  extend FakeSearch::Searchkicked
+
+  def self.searchkick_options = { unscope: true }
   def self.search_where = {}
 end
 
@@ -264,3 +279,11 @@ class SearchkickSearchPost < PgSearchPost
 
   def self.search(term, **) = searchkick_search(term)
 end
+
+# STI: a subclass searches its parent's index, and its relation holds a type condition.
+class SearchkickItem < ApplicationRecord
+  self.table_name = 'search_items'
+  extend FakeSearch::Searchkicked
+end
+
+class SearchkickSpecialItem < SearchkickItem; end

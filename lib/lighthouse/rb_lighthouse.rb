@@ -27,6 +27,7 @@ require_relative 'namespaces'
   support/argument_walk
   support/relations
   support/failures
+  support/memo
   support/model_resolver
   support/authorization
   support/arguments
@@ -92,6 +93,7 @@ require_relative 'namespaces'
   search/result
   search/searchkick
   search/searchkick_index
+  search/searchkick_options
   search/pg_search
   search/auto
   search/enhancer

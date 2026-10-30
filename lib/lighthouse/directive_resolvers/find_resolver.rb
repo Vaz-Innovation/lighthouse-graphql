@@ -28,6 +28,8 @@ class Lighthouse::GraphQL::DirectiveResolvers::FindDirectiveResolver < Lighthous
   end
 
   def define_resolver(target_type_class)
+    # Only a field with no scopes and no query directive of its own (@builder, @whereAuth) can batch a lookup by `id`.
+    @batchable = !directive_arg('scopes') && Lighthouse::GraphQL::DirectiveResolvers::BuilderApplier.query_directives(@field_def.ast_node).empty?
     me = self
     install(target_type_class, lambda do |_obj, args, ctx|
       me.send(:find, Lighthouse::Support::Arguments.shallow(args), ctx)
@@ -49,9 +51,7 @@ class Lighthouse::GraphQL::DirectiveResolvers::FindDirectiveResolver < Lighthous
 
   # Only a lookup by `id` alone, with no scopes and no query directive of the
   # field's own (@builder, @whereAuth) to apply, can be batched.
-  def batchable?(args)
-    args.keys == [:id] && !directive_arg('scopes') && Lighthouse::GraphQL::DirectiveResolvers::BuilderApplier.query_directives(@field_def.ast_node).empty?
-  end
+  def batchable?(args) = @batchable && args.keys == [:id]
 
   def find_relation(model, args, ctx)
     relation = apply_scopes(model.all)

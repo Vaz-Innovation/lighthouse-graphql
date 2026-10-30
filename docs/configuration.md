@@ -256,8 +256,10 @@ column of the model (so a stale index never answers a record that no longer matc
 default scope hides them), ANDs in the model's `search_where` (which a model whose default scope or
 `search_results` narrows its records must define, leaving the soft-delete column out), and reads the
 result window from the index's settings on the engine, else from the model's `max_result_window:` /
-`deep_paging:`. It reads an index's mapping and settings at most once a minute (a failed read once in
-five seconds): `Lighthouse::Search::Searchkick.new(index: Lighthouse::Search::Searchkick::Index.new)`.
+`deep_paging:`. It reads an index's mapping and settings at most once a minute, one thread at a time (a
+failed read, reported to `on_error`, once in five seconds; reading them needs the `view_index_metadata`
+privilege): `Lighthouse::Search::Searchkick.new(index: Lighthouse::Search::Searchkick::Index.new)`. An
+`@builder` may set only the search options in `Lighthouse::Search::Searchkick::Options::BUILDER_OPTIONS`.
 The adapter protocol is experimental. See [Full-text search](filtering-and-ordering.md#full-text-search).
 
 ### `authenticated_user`, `policy_user`, `authorizer`

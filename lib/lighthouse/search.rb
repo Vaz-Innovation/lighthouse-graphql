@@ -49,16 +49,28 @@ module Lighthouse::Search
 
   # [path, @search directive node] for every argument and input field of the
   # field carrying @search, at any depth (Support::ArgumentWalk). Walked once per
-  # field, the first time it is asked (Search::FieldCheck, when the schema is
-  # built), and kept on the field: a schema built again on reload starts afresh.
+  # field (Support::Memo.on), the first time it is asked (Search::FieldCheck,
+  # when the schema is built).
   def directives(field_def)
-    return field_def.instance_variable_get(:@lighthouse_searches) if field_def.instance_variable_defined?(:@lighthouse_searches)
-
-    walk = Lighthouse::Support::ArgumentWalk
-    searches = walk.field_definitions(field_def).flat_map do |path, argument|
-      walk.directives(argument).select { |d| d.name == 'search' }.map { |dnode| [path, dnode] }
+    Lighthouse::Support::Memo.on(field_def, :searches) do
+      walk = Lighthouse::Support::ArgumentWalk
+      walk.field_definitions(field_def).flat_map do |path, argument|
+        walk.directives(argument).select { |d| d.name == 'search' }.map { |dnode| [path, dnode] }
+      end.freeze
     end
-    field_def.instance_variable_set(:@lighthouse_searches, searches.freeze)
+  end
+
+  # The field's own query constraints an engine outside the database cannot apply
+  # ("`scopes:`" of its resolving directive `directive`, "@builder", "@whereAuth",
+  # "@orderBy"): Search::FieldCheck refuses them when the schema is built, and
+  # BaseDirectiveResolver as a search runs, for a field whose model the build
+  # could not tell. Worked out once per field and directive.
+  def dropped_constraints(field_def, directive)
+    Lighthouse::Support::Memo.on(field_def, :dropped_constraints) { {}.compare_by_identity }[directive] ||= begin
+      scopes = Lighthouse::Support::DirectiveArgs.literal(directive, 'scopes') if directive
+      queries = Lighthouse::GraphQL::DirectiveResolvers::BuilderApplier.query_directives(field_def.ast_node)
+      ((scopes.present? ? ['`scopes:`'] : []) + queries.map { |query| "@#{query.name}" }).freeze
+    end
   end
 
   # Does the field have an argument or input field with @search?

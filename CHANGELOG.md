@@ -23,7 +23,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and `@all` reads what the client asks for (`first`, an argument's `@limit`, else every match),
   10,000 records at most at once, even with `deep_paging`, with an error next to them when that
   answers fewer than asked while more match. An index's mapping and settings are read at most once a
-  minute (a failed read once in five seconds). A search counts only what it can load: a Searchkick model with a default scope
+  minute, one thread at a time (a failed read once in five seconds, reported to `Config.on_error`, its
+  cause named in the error it leads to; they need the `view_index_metadata` privilege). An `@builder`
+  may set only the Searchkick options that rank or shape the hits (`Searchkick::Options::BUILDER_OPTIONS`), never
+  `load:`, `index_name:`, `unscope:` or what pages and counts them; its `scope_results:` runs before
+  Lighthouse's. A search counts only what it can load: a Searchkick model with a default scope
   (any, as declared, since what one selects may depend on the request) or a `search_results` scope
   defines `search_where`, the engine's `where:` for the
   same records (a tenant's, a published flag's), which every search ANDs in; and pages follow the
@@ -48,10 +52,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   error at the first search).
   A model's `search_results` scope, when it has one, is what a search of it may return: Searchkick
   loads the records it finds through it (`scope_results:`), and through each `@eq` on a column of the
-  model, so a record a stale index still holds, or holds as it was, is not returned. Each field's
+  model (a scalar, a list or a Range of them; not an engine operator), and through the model's default
+  scope when it loads `unscope: true`, so a record a stale index still holds, or holds as it was, is not
+  returned. An STI subclass searching its parent's index needs `inheritance: true` or `search_where`. Each field's
   search is its own, nothing kept in the query's context. `@canQuery` on a searched field checks every record the search finds, as PHP
-  Lighthouse does (with Searchkick, in a request of its own, 10,000 at most: a search that finds more
-  a page could reach is an error), and `resolve_info.enhance_builder` answers a `Lighthouse::Search::Result` for a
+  Lighthouse does (with Searchkick, 10,000 at most: a search that finds more a page could reach is an
+  error), and the hits it checked serve the field's page, handed to the field's resolver for that
+  resolution only (never through the query's context), so nothing the index gains in between is
+  answered unchecked; and `resolve_info.enhance_builder` answers a `Lighthouse::Search::Result` for a
   Searchkick search, as PHP Lighthouse answers Scout's builder, so a field your own class resolves
   can search through it; the relation it gets must select what the model's own does (`Post.all`,
   or `Post`), any other is refused. Each resolver class declares whether it applies a search and

@@ -207,14 +207,25 @@ module Lighthouse::GraphQL::DirectiveResolvers
 
     protected
 
+    # The field resolves with the search @canQuery checked serving its page
+    # (Search::Result.serving), in this resolution only: what the index gains
+    # between the check and the page is never answered unchecked.
+    def authorize_and_resolve(inner, obj, args, ctx)
+      checked = check { authorize_before(obj, args, ctx) }
+      Lighthouse::Search::Result.serving(checked) { inner.call(obj, args, ctx) }
+    end
+
     # The records the field's argument filters (@eq, @where, ...) select. When the
     # client searches (@search), the records the search finds: all of them, not
     # only the page the field returns, as PHP Lighthouse checks what its Scout
     # builder gets. An engine outside the database (Searchkick) answers 10,000 at
     # most, and more that a page could reach is an error (Search::Result#every_record).
+    # Answers the Search::Result it checked, else nil.
     def authorize_before(_obj, args, ctx)
       found = apply_where_filters(scoped(model_class.all), args, ctx, search: :model)
-      authorize_each!(ctx, found.is_a?(Lighthouse::Search::Result) ? found.every_record : found.to_a, args)
+      searched = found.is_a?(Lighthouse::Search::Result)
+      authorize_each!(ctx, searched ? found.every_record : found.to_a, args)
+      found if searched
     end
   end
 

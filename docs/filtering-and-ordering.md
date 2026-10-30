@@ -418,12 +418,20 @@ end
 ```
 
 A query holds `model`, `term`, `index`, `wheres` (the `[column, value]` pairs of `@eq`, in order),
-`trashed` and `options`: any option of Searchkick's `search` (`fields:`, `match:`, `boost_by:`,
-`order:`, `misspellings:`, `body_options:`, `scope_results:`, ...). Lighthouse adds `where:`, with
+`trashed` and `options`: the options of Searchkick's `search` that rank, highlight or aggregate the
+hits, `Lighthouse::Search::Searchkick::Options::BUILDER_OPTIONS`: `fields:`, `match:`, `operator:`, `where:`,
+`order:`, `boost_by:`, `boost_where:`, `boost_by_distance:`, `boost_by_recency:`, `indices_boost:`,
+`misspellings:`, `highlight:`, `aggs:`, `smart_aggs:`, `emoji:`, `exclude:`, `conversions:`,
+`conversions_term:`, `explain:`, `debug:`, `includes:`, `model_includes:`, `scope_results:`,
+`body_options:` (`min_score`, `explain`, `profile`, `timeout`) and `timeout:`. Any other, one that
+decides what loads, how it pages or what it counts (`load:`, `index_name:`, `models:`, `unscope:`,
+`select:`, `page:`, `body:`, `body_options: { query: ... }`, `track_total_hits`, ...), is an error the
+client reads, reported to `Config.on_error`: Lighthouse sets those. Lighthouse adds `where:`, with
 yours, the model's `search_where`, every `@eq` and `@trashed` all holding: keys are read alike, symbols
 or strings, and conditions on one column (yours and an `@eq`'s, or two `@eq` of a list of inputs) are
 ANDed (`_and`), never overwritten. It adds `index_name:` (from `within:`), `load: true`, `track_total_hits:
-true` to your `body_options:` (which may not set it: see below) and `scope_results:` (yours runs last).
+true` to your `body_options:` and its own `scope_results:`, which runs after yours, so yours cannot widen
+what loads.
 
 **Which fields.** Whatever the engine, something must apply the search: a directive that runs the
 field's argument filters (`@all`, `@paginate`, `@find`, `@first`, `@count`, `@aggregate`, a
@@ -527,11 +535,16 @@ With pg_search, `@trashed` and `@softDeletes` filter the relation, as without a 
 With Searchkick, `@trashed` filters on the soft-delete column the index holds, so `search_data` must hold
 it (`deleted_at: deleted_at`), or `ONLY` and `WITHOUT` are an error (`WITH` filters nothing): `Comment's
 index does not hold deleted_at, which @trashed filters the search on: add it to search_data.` Lighthouse
-reads the columns from `search_data` on a blank record; when that raises (it reads an association), from
-the index's mapping on the engine, read at most once a minute per model and index (a reindex may add or
-remove a column; a mapping that could not be read is tried again after five seconds), however many
-requests ask; and when neither can be read, it refuses the search rather than filter on a column the
-index may not hold. (A column every document leaves null has no
+reads the columns from `search_data` on a blank record, for the model's own index; for another index
+`within:` names, or when `search_data` raises (it reads an association), from that index's mapping on
+the engine. Reading the mapping needs the `view_index_metadata` privilege on the index (the settings,
+for the result window, too). It is read at most once a minute per model and index, by one thread while
+the others wait for it (a reindex may add or remove a column); a read that fails is reported to
+[`Config.on_error`](configuration.md#on_error) and tried again after five seconds, however many requests
+ask. When neither can be read, `ONLY` and `WITHOUT` are refused, rather than filter on a column the index
+may not hold, with the engine's reason: `@trashed cannot tell whether Comment's index holds deleted_at
+... (Elastic::Transport::Transport::Errors::Forbidden: ...; reading it needs the view_index_metadata
+privilege on the index).` The filter Lighthouse adds on its own (below) goes on: it holds either way. (A column every document leaves null has no
 mapping yet: let `search_data` run on a blank record.) The column is the one the database path filters on
 ([`Config.soft_deletes`](configuration.md#soft-deletes)): paranoia's (`paranoia_column`, and its
 `sentinel_value` in place of null for the records that are not trashed), discard's (`discard_column`),
@@ -563,8 +576,9 @@ model that leaves them out (`should_index?` returning false once trashed) finds 
 engine knows nothing of the database. What narrows the records a search loads must narrow the engine's
 hits the same way, or a total would count what the client cannot see: with `default_scope {
 where(tenant_id: Current.tenant_id) }`, one tenant's search would load its own records but count every
-tenant's matches. So a Searchkick model with a default scope, or a `search_results` scope (below), must
-define **`search_where`**. Any default scope counts, as declared: what one selects may depend on the
+tenant's matches. So a Searchkick model with a default scope, a `search_results` scope (below), or an
+STI subclass that searches its parent's index without `searchkick inheritance: true` (which filters the
+engine by type), must define **`search_where`**. Any default scope counts, as declared: what one selects may depend on the
 request (`where(tenant_id: Current.tenant_id) if Current.tenant_id` narrows nothing when the schema is
 built, outside one), so Lighthouse does not judge it by what it selects. `search_where` is the engine's
 `where:` for the same records, from what `search_data` indexes (`{}` for a default scope that only
@@ -586,11 +600,13 @@ end
 `search_where` returns `{}` when the index holds no record the scopes would leave out (should_index?
 keeps them out). The scopes still apply as the hits load, a guard for an index not yet updated: a
 record the index holds after it should have left is never returned, and until the index is updated,
-the total counts it. So do the filters the engine applied that the database can apply too: `@trashed`'s,
-and each `@eq` (or `query.where`) on a column of the model with a plain value or list; a record the index
-still holds as it was (its author changed since) is not answered for a filter it no longer matches. A
-condition only the index holds (a field `search_data` computes, an engine operator such as `{ gt: 3 }`)
-is the index's alone. That window, the time a reindex job takes, is the only one where a count includes
+the total counts it. That holds for a model that loads `searchkick unscope: true` too, which Searchkick
+loads through `unscoped`: Lighthouse merges the model's default scope back in. So do the filters the
+engine applied that the database can apply too: `@trashed`'s, and each `@eq` (or `query.where`) on a
+column of the model whose value the database compares as the engine does, a scalar, a list or a Range
+of them; a record the index still holds as it was (its author changed since) is not answered for a
+filter it no longer matches. A condition only the index holds (a field `search_data` computes, an
+engine operator such as `{ gt: 3 }`, a Regexp) is the index's alone. That window, the time a reindex job takes, is the only one where a count includes
 a record the client cannot load; filter on an indexed column in `search_where` to keep counts exact
 even then, for what the index itself says.
 
@@ -620,10 +636,12 @@ It is the model's, the same for every client: what depends on the user belongs i
 
 `@canQuery` checks the policy against each record the field's query would return. When the client
 searches, those are the records the search finds: **all of them, not only the page** the field
-returns, as PHP Lighthouse checks the hits of the Scout builder. With Searchkick that is an engine
-request of its own, of 10,000 records at most, each loaded and checked; the field then asks the engine
-for its page, as any search, so nothing is kept between fields, queries or requests (a multiplex, a
-stored subscription context). A search that finds more within the result window (a page cannot reach past it) is an error, `@canQuery
+returns, as PHP Lighthouse checks the hits of the Scout builder. With Searchkick that is one engine
+request, of 10,000 records at most, each loaded and checked, whose hits then serve the field's page:
+what the index gains between the check and the page is never answered unchecked. They serve that one
+resolution of the field only, handed from `@canQuery` to the field's resolver, never kept in the
+query's context: each field, each place of it in the response, each query of a multiplex and each run
+of a stored subscription context searches again. A search that finds more within the result window (a page cannot reach past it) is an error, `@canQuery
 checks every record the search finds, at most 10000, and this one finds 12345. Narrow the search.`,
 passed to the client or replaced as `action:` says, as any failed check. With pg_search, the scope's
 records, all of them. Its `model:` must be searchable, and with Searchkick its `scopes:` are a schema
@@ -699,6 +717,8 @@ is: a schema error). This protocol is experimental.
 | `@all` answers fewer than asked while more match (10,000 at once, the result window) | Scout's `get()` answers its driver's default | those records, with an error next to them |
 | `body_options` setting `track_total_hits`, or a total the engine did not count to the end | an estimate | client error, reported |
 | A `search_where` naming the soft-delete column | (no such hook) | client error, reported |
+| An `@builder` setting a Searchkick option that decides what loads, pages or counts (`load: false`, ...) | applied | client error, reported |
+| An STI subclass searching its parent's index without `inheritance: true` nor `search_where` | counts the other types | schema error |
 
 ## Complex where conditions
 

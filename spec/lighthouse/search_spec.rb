@@ -642,6 +642,24 @@ RSpec.describe '@search' do
         end.to raise_error(Lighthouse::DefinitionError, /SearchkickTenantPost's default scope narrows what a search loads.*search_where/)
       end
 
+      it "refuses an STI subclass that searches its parent's index without `inheritance: true`, whose type the engine would not filter" do
+        expect do
+          build_schema('type SearchkickSpecialItem { title: String! } type Query { items(search: String @search): [SearchkickSpecialItem!]! @all }')
+        end.to raise_error(Lighthouse::DefinitionError, /SearchkickSpecialItem's STI type, in SearchkickItem's index without `inheritance: true`/)
+      end
+
+      it 'loads through the default scope a model loading `unscope: true` skips, so a stale index never answers a trashed record' do
+        kept = SearchkickUnscopedPost.create!(title: 'kept')
+        SearchkickUnscopedPost.create!(title: 'trashed').destroy
+        allow(SearchkickUnscopedPost).to receive(:filtered).and_return(SearchkickUnscopedPost.unscoped.order(:id)) # an index that missed the delete
+        schema = build_schema(<<~GRAPHQL)
+          type SearchkickUnscopedPost { title: String! }
+          type Query { posts(search: String @search): [SearchkickUnscopedPost!]! @all }
+        GRAPHQL
+
+        expect(titles(run(schema, '{ posts(search: "x") { title } }'))).to eq([kept.title])
+      end
+
       it 'answers a client error for such a model, as the query runs, on a field whose model the build could not tell' do
         Lighthouse::Config.on_error = ->(_error, _context) {}
         schema = build_schema(<<~GRAPHQL)
@@ -712,18 +730,33 @@ RSpec.describe '@search' do
       # A post titled "secret" may not be viewed.
       before { Lighthouse::Config.authorizer = ->(_user, record, _ability) { record.title != 'secret' } }
 
-      it 'checks each record the search finds, in a request of its own, as PHP Lighthouse checks the hits of the Scout builder, then pages them' do
+      it 'checks each record the search finds, as PHP Lighthouse checks the hits of the Scout builder, then pages the hits it checked' do
         result = run(schema, '{ posts(first: 1, page: 2, search: "great") { data { title } paginatorInfo { total } } }')
 
         expect(result).to eq('data' => { 'posts' => { 'data' => [{ 'title' => 'Really great title' }], 'paginatorInfo' => { 'total' => 2 } } })
-        expect(engine.requests.map { |request| request.slice(:offset, :limit) })
-          .to eq([{ offset: 0, limit: Lighthouse::Search::Result::READ_LIMIT }, { offset: 1, limit: 1 }])
+        expect(engine.requests.map { |request| request.slice(:offset, :limit) }).to eq([{ offset: 0, limit: Lighthouse::Search::Result::READ_LIMIT }])
+      end
+
+      it 'never pages a record the index gained after the check, which it did not check' do
+        grown = great + [SearchPost.create!(title: 'secret')]
+        reads = 0
+        growing = lambda do |_original, _query, offset:, limit:|
+          found = (reads += 1) == 1 ? great : grown
+          [found.drop(offset).first(limit), found.size]
+        end
+        allow(engine).to receive(:page).and_wrap_original(&growing)
+
+        result = run(schema, '{ posts(first: 10, search: "great") { data { title } paginatorInfo { total } } }')
+
+        expect(result.dig('data',
+                          'posts')).to eq('data' => [{ 'title' => 'great title' }, { 'title' => 'Really great title' }],
+                                          'paginatorInfo' => { 'total' => 2 })
       end
 
       it 'searches again for each field, and for each place of a field in the response' do
         run(schema, '{ a: posts(first: 1, search: "great") { data { title } } b: posts(first: 1, search: "great") { data { title } } }')
 
-        expect(engine.requests.size).to eq(4)
+        expect(engine.requests.size).to eq(2)
       end
 
       it 'denies the field when the search finds a record the user may not see, on any page' do
@@ -743,7 +776,7 @@ RSpec.describe '@search' do
 
         run(all, '{ posts(search: "great") { title } }')
 
-        expect(engine.requests.pluck(:limit)).to eq([10_000, 10_000]) # @canQuery's read, then the field's
+        expect(engine.requests.pluck(:limit)).to eq([10_000]) # @canQuery's read, which the field answers
       end
 
       it 'refuses a search with more matches than it can check that a page could reach, not those past the result window' do

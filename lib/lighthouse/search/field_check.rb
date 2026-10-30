@@ -125,11 +125,7 @@ class Lighthouse::Search::FieldCheck
   end
 
   # The field's own query constraints a search engine drops.
-  def dropped_constraints
-    scopes = Lighthouse::Support::DirectiveArgs.literal(resolving_directive, 'scopes') if resolving_directive
-    queries = Lighthouse::GraphQL::DirectiveResolvers::BuilderApplier.query_directives(@field_def.ast_node)
-    (scopes.present? ? ['`scopes:`'] : []) + queries.map { |directive| "@#{directive.name}" }
-  end
+  def dropped_constraints = Lighthouse::Search.dropped_constraints(@field_def, resolving_directive)
 
   def resolving_directive
     return @resolving_directive if defined?(@resolving_directive)

@@ -24,8 +24,11 @@
 # Searchkick loads what it finds through the model, whose default scope may hide
 # trashed records (paranoia's): with ONLY and WITH they load past it.
 #
-# The records load through the model's `search_results` scope too, if it has one
-# (Lighthouse::Search), then the app's own `scope_results:` (from @builder).
+# The records load through the app's own `scope_results:` (from @builder) first,
+# then Lighthouse's: the model's default scope (with `unscope: true` too), its
+# `search_results` scope, if it has one (Lighthouse::Search), and the filters
+# above. An @builder sets only the options that rank or shape the hits
+# (Searchkick::Options), never what loads, pages or counts them.
 #
 # The gem is not a dependency of Lighthouse: the adapter is used when the
 # model calls `searchkick`.
@@ -37,7 +40,7 @@ class Lighthouse::Search::Searchkick
 
   # `index`: what the engine tells of an index (Searchkick::Index), read and kept.
   def initialize(index: Lighthouse::Search::Searchkick::Index.new)
-    @per_model = {}
+    @per_model = Lighthouse::Support::Memo.new
     @index = index
   end
 
@@ -73,15 +76,17 @@ class Lighthouse::Search::Searchkick
 
   # Why the model cannot be searched as it is, or nil: a default scope (a
   # tenant's, a soft delete's; any, as declared, since what one selects may
-  # depend on the request), or a search_results scope, needs `search_where`, the
-  # engine's `where:` for the same records (`{}` when they narrow nothing). Without it the engine would count, and page through, records
-  # that do not load: its totals would include other tenants' matches.
+  # depend on the request), a search_results scope, or the type condition of an
+  # STI subclass that searches its parent's index without Searchkick's
+  # `inheritance: true` (which filters the engine by type), needs `search_where`,
+  # the engine's `where:` for the same records (`{}` when they narrow nothing).
+  # Without it the engine would count, and page through, records that do not
+  # load: its totals would include other tenants' matches.
   # Search::FieldCheck asks when the schema is built; a search asks too.
   def model_error(model)
     return nil if model.respond_to?(:search_where)
 
-    narrowing = ("#{model.name}'s default scope" if Lighthouse::Support::Relations.default_scope?(model)) ||
-                ("#{model.name}.search_results" if Lighthouse::Search.results_scope?(model))
+    narrowing = narrowing(model)
     return nil unless narrowing
 
     "#{narrowing} narrows what a search loads, which the engine does not apply: its totals and pages would count records that " \
@@ -90,6 +95,23 @@ class Lighthouse::Search::Searchkick
   end
 
   private
+
+  # What narrows the records a search of the model loads, which the engine does not apply; nil when nothing does.
+  def narrowing(model)
+    return "#{model.name}'s default scope" if Lighthouse::Support::Relations.default_scope?(model)
+    return "#{model.name}.search_results" if Lighthouse::Search.results_scope?(model)
+
+    "#{model.name}'s STI type, in #{model.base_class.name}'s index without `inheritance: true`," if untyped_subclass?(model)
+  end
+
+  # An STI subclass (its relation has a type condition) whose index Searchkick
+  # does not filter by type (`searchkick inheritance: true`).
+  def untyped_subclass?(model)
+    model.respond_to?(:finder_needs_type_condition?) && model.finder_needs_type_condition? &&
+      !searchkick_option(model, :inheritance)
+  end
+
+  def searchkick_option(model, name) = ::ActiveSupport::HashWithIndifferentAccess.new(model.searchkick_options)[name]
 
   # The response's records in their hits' places, nil where one did not load. A
   # record is placed by its hit's index and id, as hits of two indices (Searchkick's
@@ -133,54 +155,40 @@ class Lighthouse::Search::Searchkick
   end
 
   def search_options(query)
-    options = query.options.dup
+    options = Lighthouse::Search::Searchkick::Options.builder!(query)
     wheres = query.wheres.map { |column, value| { column => value } }
     options[:where] = all_of(options[:where], engine_where(query), *wheres, trashed_filter(query))
     options[:index_name] = query.index if query.index
-    options[:load] = true unless options.key?(:load)
-    options[:body_options] = counting(options)
+    options[:load] = true
+    options[:body_options] = Lighthouse::Search::Searchkick::Options.counting(options)
     loading = results_scope(query, options[:scope_results])
     options[:scope_results] = loading if loading
     options
   end
 
-  # The app's body_options, and track_total_hits: true, which they may not set.
-  def counting(options)
-    body = (options[:body_options] || {}).to_h.transform_keys(&:to_sym)
-    if body.key?(:track_total_hits) || options.key?(:track_total_hits)
-      raise Lighthouse::DefinitionError,
-            '@search: Lighthouse asks the engine to count every match (track_total_hits: true), which totals, pages and ' \
-            "@canQuery's check of every hit rely on: body_options cannot set track_total_hits"
-    end
-    body.merge(track_total_hits: true)
-  end
-
   # What Searchkick loads the records it found through (`scope_results:`): the
-  # filters the engine applied that the database can apply too (@trashed's, the
-  # @eq ones on a column of the model, with a plain value), so a record the index
-  # holds as it was no longer matches; the model's `search_results` scope, then
-  # the app's own; nil for the model alone.
+  # app's own first, then what Lighthouse narrows them to, last, so nothing
+  # widens it: the model's default scope when the model loads `unscope: true`
+  # (Searchkick loads through `unscoped`), the filters the engine applied that the
+  # database can apply too (@trashed's, the @eq ones on a column of the model,
+  # with a plain value), so a record the index holds as it was no longer matches,
+  # and the model's `search_results` scope; nil for the model alone.
   def results_scope(query, own)
-    wheres = database_wheres(query)
-    guarded = Lighthouse::Search.results_scope?(query.model)
-    return own unless query.trashed || guarded || wheres.any?
+    wheres = Lighthouse::Search::Searchkick::Options.database_wheres(query)
+    return own unless own || narrows_load?(query, wheres)
 
-    lambda do |records|
-      records = records.all
-      records = Lighthouse::Support::SoftDeletes.filter(records, query.trashed.to_s) if query.trashed
-      records = wheres.reduce(records) { |narrowed, (column, value)| narrowed.where(column => value) }
-      records = Lighthouse::Search.results(records)
-      own ? own.call(records) : records
-    end
+    ->(records) { load_through(own ? own.call(records) : records.all, query, wheres) }
   end
 
-  # The engine conditions the database applies alike: a column of the model, and a
-  # value (a list of them) that is no engine operator (`{ gt: 3 }`).
-  def database_wheres(query)
-    columns = query.model.column_names
-    query.wheres.select do |column, value|
-      columns.include?(column) && Array(value).none?(Hash)
-    end
+  def load_through(records, query, wheres)
+    records = records.merge(query.model.all) if searchkick_option(query.model, :unscope)
+    records = Lighthouse::Support::SoftDeletes.filter(records, query.trashed.to_s) if query.trashed
+    records = wheres.reduce(records) { |narrowed, (column, value)| narrowed.where(column => value) }
+    Lighthouse::Search.results(records)
+  end
+
+  def narrows_load?(query, wheres)
+    searchkick_option(query.model, :unscope) || query.trashed || wheres.any? || Lighthouse::Search.results_scope?(query.model)
   end
 
   # The model's search_where, the engine's `where:` for what its default scope and
@@ -217,12 +225,15 @@ class Lighthouse::Search::Searchkick
 
   # @trashed's condition; without one, the records that are not trashed when the
   # model's default scope hides the others (paranoia's), as they would not load.
+  # That one needs the index to hold the column only when it can be told: on an
+  # index without it, `WITHOUT` matches every hit, and the load still leaves the
+  # trashed records out.
   def trashed_filter(query)
     trashed = query.trashed || (:without if hides_trashed?(query.model))
     return {} if trashed.nil? || trashed == :with # no filter: the index need not hold the column
 
     column, kept = trashed_column(query.model)
-    require_indexed!(query, column)
+    require_indexed!(query, column, told: query.trashed.nil?)
     trashed == :only ? { column.to_sym => { not: kept } } : { column.to_sym => kept }
   end
 
@@ -241,38 +252,41 @@ class Lighthouse::Search::Searchkick
   end
 
   # The index must hold the column, or the filter would match nothing (or everything).
-  # It fails closed: when the columns cannot be told, the search is refused too.
-  def require_indexed!(query, column)
+  # The model's search_data tells for its own index, the engine's mapping for any
+  # other `within:` names (or when search_data cannot run on a blank record). It
+  # fails closed: when the columns cannot be told, the search is refused too,
+  # naming why the mapping could not be read; unless `told` (Lighthouse's own
+  # filter, which holds either way) lets it go on.
+  def require_indexed!(query, column, told: false)
     model = query.model
-    indexed = indexed_columns(model) || @index.fields(model, index_name(query))
+    indexed = (indexed_columns(model) if own_index?(query)) || @index.fields(model, index_name(query))
+    return if indexed.nil? && told
+
     unless indexed
       raise ::GraphQL::ExecutionError,
-            "@trashed cannot tell whether #{model.name}'s index holds #{column}, which it filters the search on: " \
-            "#{model.name}#search_data does not run on a blank record, and the index's mapping cannot be read."
+            "@trashed cannot tell whether #{index_label(query)} holds #{column}, which it filters the search on: " \
+            "#{model.name}#search_data does not run on a blank record, and the index's mapping cannot be read#{mapping_failure(query)}."
     end
     return if indexed.include?(column.to_s)
 
-    raise ::GraphQL::ExecutionError, "#{model.name}'s index does not hold #{column}, which @trashed filters the search on: add it to search_data."
+    raise ::GraphQL::ExecutionError, "#{index_label(query)} does not hold #{column}, which @trashed filters the search on: add it to search_data."
+  end
+
+  def index_label(query) = own_index?(query) ? "#{query.model.name}'s index" : "the index #{query.index}"
+
+  # Why the engine did not answer the index's mapping, and the privilege reading it needs.
+  def mapping_failure(query)
+    error = @index.failure(:mapping, query.model, index_name(query))
+    " (#{error.class}: #{error.message}; reading it needs the view_index_metadata privilege on the index)" if error
   end
 
   # What `search_data` holds, or nil when it cannot run on a blank record, read
   # once per model class.
   def indexed_columns(model)
-    per_model(:indexed_columns, model) do
+    @per_model.get([:indexed_columns, model.name], model) do
       model.new.search_data.keys.map(&:to_s)
     rescue StandardError
       nil
     end
-  end
-
-  # What the block answers for the model, worked out once per model class: a
-  # class code reloading makes, under the same name, is worked out again.
-  def per_model(key, model)
-    model_class, value = @per_model[[key, model.name]]
-    return value if model_class.equal?(model)
-
-    value = yield(model)
-    @per_model[[key, model.name]] = [model, value]
-    value
   end
 end

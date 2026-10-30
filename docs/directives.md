@@ -677,7 +677,8 @@ with a default scope (any, as declared) or `search_results` defines `search_wher
 engine's `where:` for the same records, leaving out the soft-delete column Lighthouse filters on
 itself, or the schema does not build; pages follow the
 engine's positions, so a hit that does not load is never shown twice nor skips another. `@canQuery` on the field checks every record the search
-finds, as PHP Lighthouse does (with Searchkick, in a request of its own, 10,000 at most: more is an error).
+finds, as PHP Lighthouse does (with Searchkick, 10,000 at most: more is an error), and the hits it
+checked serve the field's page, in that resolution only.
 
 Two `@search` arguments sent together, and (Searchkick) an argument whose directive an
 engine cannot apply (`@neq`, `@orderBy`, `@whereConditions`, ...), are errors.

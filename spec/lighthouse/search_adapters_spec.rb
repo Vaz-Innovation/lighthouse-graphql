@@ -9,11 +9,13 @@ RSpec.describe 'search adapters' do
     subject(:adapter) { described_class.new }
 
     let(:query) { Lighthouse::Search::Query.new(SearchkickPost, 'milk') }
+    let(:reported) { [] }
 
     before do
       stub_const('Searchkick', Module.new)
       SearchkickPost.searches = []
       SearchkickPost.indexed = %w[title deleted_at]
+      Lighthouse::Config.on_error = ->(error, _context) { reported << error.message }
     end
 
     def searched = SearchkickPost.searches.last
@@ -56,11 +58,43 @@ RSpec.describe 'search adapters' do
       adapter.page(query, offset: 0, limit: 1)
       expect(searched.last[:body_options]).to eq(min_score: 1, track_total_hits: true)
 
-      [{ body_options: { track_total_hits: 50_000 } }, { body_options: { 'track_total_hits' => false } },
-       { track_total_hits: false }].each do |options|
+      [{ body_options: { track_total_hits: 50_000 } }, { body_options: { 'track_total_hits' => false } }].each do |options|
         query.options.replace(options)
         expect { adapter.page(query, offset: 0, limit: 1) }.to raise_error(Lighthouse::DefinitionError, /body_options cannot set track_total_hits/)
       end
+    end
+
+    it "refuses an @builder's options that decide what loads, how it pages or what it counts" do
+      [{ load: false }, { 'index_name' => 'other' }, { models: [SearchPost] }, { unscope: true }, { track_total_hits: false },
+       { page: 2 }, { body: {} }].each do |options|
+        query.options.replace(options)
+        expect { adapter.page(query, offset: 0, limit: 1) }
+          .to raise_error(Lighthouse::DefinitionError, /an @builder may not set `#{options.keys.first}:` of Searchkick's search/)
+      end
+      %i[query size from terminate_after].each do |key|
+        query.options.replace(body_options: { key => 1 })
+        expect { adapter.page(query, offset: 0, limit: 1) }.to raise_error(Lighthouse::DefinitionError, /body_options may not set #{key}/)
+      end
+    end
+
+    it "keeps the database's checks after an @builder's scope_results, which runs first and cannot widen what loads" do
+      query.where(:author_id, 3)
+      query.options[:scope_results] = ->(records) { records.unscoped }
+
+      adapter.page(query, offset: 0, limit: 1)
+
+      expect(searched.last[:scope_results].call(SearchkickPost).to_sql).to include('"search_posts"."author_id" = 3')
+    end
+
+    it 'checks again in the database only the values it compares as the engine does: scalars, lists and ranges of them' do
+      query.where(:author_id, { gt: 3 }).where(:author_id, /1/).where(:author_id, [{ gt: 1 }]).where(:author_id, 1..1_000_000_000)
+           .where(:deleted_at, Time.utc(2026)..).where(:title, %w[a b]).where(:title, :c)
+
+      adapter.page(query, offset: 0, limit: 1)
+
+      sql = searched.last[:scope_results].call(SearchkickPost).to_sql
+      expect(sql).to include('BETWEEN 1 AND 1000000000', %("search_posts"."deleted_at" >= '2026-01-01), %(IN ('a', 'b')), %("title" = 'c'))
+      expect(sql).not_to include('gt', '{')
     end
 
     it 'refuses a total the engine did not count to the end' do
@@ -87,6 +121,16 @@ RSpec.describe 'search adapters' do
       allow(SearchkickPost).to receive(:searchkick_search).and_return(response)
 
       expect(adapter.page(query, offset: 0, limit: 2)).to eq([[nil, draft], 2])
+    end
+
+    it "refuses an STI subclass searching its parent's index, unless Searchkick filters it by type or search_where does" do
+      expect(adapter.model_error(SearchkickItem)).to be_nil
+      expect(adapter.model_error(SearchkickSpecialItem))
+        .to include("SearchkickSpecialItem's STI type, in SearchkickItem's index without `inheritance: true`, narrows what a search loads")
+      allow(SearchkickSpecialItem).to receive(:searchkick_options).and_return(inheritance: true)
+      expect(adapter.model_error(SearchkickSpecialItem)).to be_nil
+      allow(SearchkickSpecialItem).to receive_messages(searchkick_options: {}, search_where: { type: 'SearchkickSpecialItem' })
+      expect(adapter.model_error(SearchkickSpecialItem)).to be_nil
     end
 
     it 'searches the index within: names, and merges the where of a builder' do
@@ -299,10 +343,38 @@ RSpec.describe 'search adapters' do
           expect(indices).to have_received(:get_mapping).exactly(4).times
         end
 
-        it 'refuses when it cannot tell, rather than filter on a column the index may not hold' do
-          mapping_answers { raise 'no index' }
+        it 'refuses when it cannot tell, naming why, rather than filter on a column the index may not hold; and reports the failure once' do
+          mapping_answers { raise 'security_exception: action [indices:admin/mappings/get] is unauthorized' }
 
-          expect { where_of(:only) }.to raise_error(GraphQL::ExecutionError, /cannot tell whether SearchkickPost's index holds deleted_at/)
+          2.times do
+            expect { where_of(:only) }.to raise_error(GraphQL::ExecutionError) do |error|
+              expect(error.message).to include("cannot tell whether SearchkickPost's index holds deleted_at")
+                .and include('(RuntimeError: security_exception: action [indices:admin/mappings/get] is unauthorized; ' \
+                             'reading it needs the view_index_metadata privilege on the index)')
+            end
+          end
+          expect(reported).to eq(['security_exception: action [indices:admin/mappings/get] is unauthorized'])
+        end
+
+        it 'filters out the trashed records a default scope hides when it cannot tell, as that filter holds either way' do
+          mapping_answers { raise 'no index' }
+          hidden = Lighthouse::Search::Query.new(SearchkickHiddenPost, 'milk')
+          allow(SearchkickHiddenPost).to receive(:searchkick_index).and_return(Struct.new(:name).new('search_posts'))
+          allow_any_instance_of(SearchkickHiddenPost).to receive(:search_data).and_raise('needs a record') # rubocop:disable RSpec/AnyInstance
+
+          adapter.page(hidden, offset: 0, limit: 1)
+
+          expect(SearchkickHiddenPost.searches.last[:where]).to eq(deleted_at: nil)
+        end
+
+        it "reads the mapping of the index within: names, never the model's search_data, which tells its own index" do
+          SearchkickPost.indexed = %w[title deleted_at]
+          mapping_answers { |index:| index == 'archive' ? { 'archive_1' => { 'mappings' => { 'properties' => { 'title' => {} } } } } : mappings }
+          archived = Lighthouse::Search::Query.new(SearchkickPost, 'milk', 'archive').tap { |again| again.trashed = :without }
+
+          expect { adapter.page(archived, offset: 0, limit: 1) }
+            .to raise_error(GraphQL::ExecutionError, /the index archive does not hold deleted_at, which @trashed filters the search on/)
+          expect(where_of(:without)).to eq(deleted_at: nil)
         end
       end
     end

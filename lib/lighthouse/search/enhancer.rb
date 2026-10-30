@@ -75,7 +75,7 @@ class Lighthouse::Search::Enhancer
     whole_index!(adapter) if @search == :given
     reject_incompatible
     query = @arguments.reject { |argument| search?(argument) }.reduce(query) { |narrowed, argument| narrow(narrowed, argument) }
-    Lighthouse::Search::Result.new(adapter, query, context: @context)
+    Lighthouse::Search::Result.checked(adapter, query, @field) || Lighthouse::Search::Result.new(adapter, query, context: @context, field: @field)
   end
 
   # A model the adapter cannot search as it is (Searchkick's model_error: a default

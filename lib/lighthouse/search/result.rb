@@ -5,7 +5,10 @@
 # (Pagination::List), and @all reads whole. The engine is asked once per page,
 # whose response holds the total too, so a page costs one request even when
 # the client selects `paginatorInfo`. Each field's search is its own Result, and
-# asks the engine itself: one is never shared between fields or requests.
+# asks the engine itself: one is never shared between fields or requests, nor
+# kept in the query's context. Within one resolution of a field, the search
+# @canQuery checked serves the page (`Result.serving`), from the hits it read and
+# checked: a record the index gains in between is never answered unchecked.
 #
 # The total is exact, every match counted (Search::Searchkick asks for it): pages,
 # truncation and @canQuery's check of every hit rely on it.
@@ -28,11 +31,35 @@ class Lighthouse::Search::Result
   # Searchkick's `deep_paging`): @all, and the records @canQuery checks.
   READ_LIMIT = 10_000
 
-  # `context`: the query's, to which the engine's errors are reported.
-  def initialize(adapter, query, context: nil)
+  # The fiber-local key of the search @canQuery checked, while the field it checks resolves.
+  CHECKED = :lighthouse_checked_search
+
+  # The block (one resolution of a field: CanQueryDirectiveResolver), in which a
+  # search of the same field (`checked`) is the `result` @canQuery read: the
+  # Enhancer answers it, whose hits serve the page. Fiber-local, so neither
+  # another field, resolving meanwhile in another fiber, nor another query sees it.
+  def self.serving(result)
+    previous = Thread.current[CHECKED]
+    Thread.current[CHECKED] = result
+    yield
+  ensure
+    Thread.current[CHECKED] = previous
+  end
+
+  # The search @canQuery checked in this resolution, when it is this one: the same
+  # field, adapter, model, term, index and conditions; else nil.
+  def self.checked(adapter, query, field)
+    checked = Thread.current[CHECKED]
+    checked if checked.is_a?(self) && checked.same_search?(adapter, query, field)
+  end
+
+  # `context`: the query's, to which the engine's errors are reported. `field`:
+  # "Type.field", whose search this is.
+  def initialize(adapter, query, context: nil, field: nil)
     @adapter = adapter
     @query = query
     @context = context
+    @field = field
   end
 
   attr_reader :query
@@ -49,7 +76,7 @@ class Lighthouse::Search::Result
     return [] if limit.zero?
 
     limit = within_window(offset, limit)
-    entries = request(offset, limit)
+    entries = @checked ? (@checked[offset, limit] || []) : request(offset, limit)
     loaded = entries.each_index.reject { |index| entries[index].nil? }
     Lighthouse::GraphQL::Pagination::Window.new(entries.compact, loaded.map { |index| offset + index }, entries.size)
   end
@@ -79,15 +106,25 @@ class Lighthouse::Search::Result
   def reachable = result_window ? [count, result_window].min : count
 
   # Every record the search finds that a page can reach, for @canQuery to check:
-  # one request of its own, of READ_LIMIT records at most. A search that finds
-  # more within the result window is a client error, as a page could reach a
-  # record not checked.
+  # one request, of READ_LIMIT records at most, whose hits then serve every page
+  # of this Result, and no other request. A search that finds more within the
+  # result window is a client error, as a page could reach a record not checked.
   def every_record
     found = window(0, READ_LIMIT)
-    return found if reachable <= READ_LIMIT
+    unless reachable <= READ_LIMIT
+      raise ::GraphQL::ExecutionError,
+            "@canQuery checks every record the search finds, at most #{READ_LIMIT}, and this one finds #{reachable}. Narrow the search."
+    end
 
-    raise ::GraphQL::ExecutionError,
-          "@canQuery checks every record the search finds, at most #{READ_LIMIT}, and this one finds #{reachable}. Narrow the search."
+    @checked ||= @last_entries
+    found
+  end
+
+  # Is it the search of `field` that `adapter` runs for `query`? Its options aside,
+  # which may hold an @builder's procs, made again for each search.
+  def same_search?(adapter, query, field)
+    @adapter.equal?(adapter) && @field == field && query.model.equal?(@query.model) &&
+      [query.term, query.index, query.wheres, query.trashed] == [@query.term, @query.index, @query.wheres, @query.trashed]
   end
 
   # How many of the matches the engine pages through; nil when the adapter cannot tell.
@@ -110,7 +147,7 @@ class Lighthouse::Search::Result
       end
 
       @count = total
-      entries
+      @last_entries = entries
     end
   end
 

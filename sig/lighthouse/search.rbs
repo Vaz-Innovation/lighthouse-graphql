@@ -43,7 +43,17 @@ module Lighthouse
 
       attr_reader query: Query
 
-      def initialize: (_EngineSearchAdapter adapter, Query query, ?context: untyped) -> void
+      # The fiber-local key of the search @canQuery checked, while the field it checks resolves.
+      CHECKED: Symbol
+
+      # The block, in which the search of the same field is `result`, the one @canQuery checked.
+      def self.serving: [T] (Result? result) { () -> T } -> T
+      # The search @canQuery checked in this resolution, when it is this one; else nil.
+      def self.checked: (_EngineSearchAdapter adapter, Query query, String? field) -> Result?
+
+      # `field`: "Type.field", whose search it is.
+      def initialize: (_EngineSearchAdapter adapter, Query query, ?context: untyped, ?field: String?) -> void
+      def same_search?: (_EngineSearchAdapter adapter, Query query, String? field) -> bool
       def window: (Integer offset, Integer limit) -> Array[_Record]
       def count: () -> Integer
       READ_LIMIT: Integer
@@ -75,6 +85,15 @@ module Lighthouse
       # The index's max_result_window, read from the engine; else the model's options', else 10,000.
       def result_window: (Query query) -> Integer
 
+      # What an @builder may ask of Searchkick's search, and which conditions the database applies alike.
+      module Options
+        # The options of Searchkick's search an @builder may set, and the keys of its body_options.
+        BUILDER_OPTIONS: Array[Symbol]
+        BODY_OPTIONS: Array[Symbol]
+        # The values the database compares a column with as the engine does.
+        SQL_SCALARS: Array[Module]
+      end
+
       # An index's mapping and max_result_window, read from the engine once per INDEX_READ_TTL seconds (a failed read FAILED_READ_TTL).
       class Index
         INDEX_READ_TTL: Integer
@@ -84,6 +103,8 @@ module Lighthouse
         def initialize: (?clock: ^() -> Numeric) -> void
         def fields: (Class model, String? name) -> Array[String]?
         def result_window: (Class model, String? name) -> Integer?
+        # Why the last read of the index's `:mapping` or `:window` failed, while that is kept.
+        def failure: (:mapping | :window kind, Class model, String? name) -> StandardError?
       end
     end
 

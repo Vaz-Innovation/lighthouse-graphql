@@ -120,8 +120,7 @@ class Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
   # is built; one whose model it could not tell is refused here, never answered
   # without them.
   def unconstrained!(result)
-    dropped = Lighthouse::GraphQL::DirectiveResolvers::BuilderApplier.query_directives(@field_def.ast_node).map { |d| "@#{d.name}" }
-    dropped << '`scopes:`' if directive_arg('scopes').present?
+    dropped = Lighthouse::Search.dropped_constraints(@field_def, @directive_node)
     return result if dropped.empty?
 
     raise Lighthouse::DefinitionError,
