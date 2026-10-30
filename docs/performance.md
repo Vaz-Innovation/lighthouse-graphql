@@ -336,8 +336,9 @@ list is answered whole.
 subscriptions, and a negative `initialCount` is a field error: the field is `null`, with the error at
 its path. The plugin adds a graphql-ruby trace module to the schema that uses it (and no other
 schema built on the same types), which cuts the lists of every field of that schema, whenever the
-field was defined, and changes no field; a field that is not streamed costs it a method call and a
-fiber-local read.
+field was defined, and changes no field; a field that is not streamed costs it a method call and
+two fiber-local reads (the @stream mark, then whether a streamed response runs), and a lazy one a
+fiber-local read more when its value syncs.
 
 ### Transport
 
@@ -386,12 +387,21 @@ on the JSON path.
   response runs, the objects its fragments will need, in whatever trace mode the app picks. An app
   that gives a trace class of its own, leaving out the schema's trace modules, gets every response
   whole.
-- **No N+1.** All the fragments of a round run in one multiplex, so the Dataloader batches across
-  them: a deferred fragment under a list of 50 costs the queries it costs without `@defer`.
-- **graphql-ruby's standard engine.** A streamed request runs as `schema.execute` runs one, with the
-  schema's `query_class`, on graphql-ruby's standard execution engine, where the deferred rounds'
-  `GraphQL::Query::Partial`s run, even when the schema opts into graphql-ruby 2.6's new engine
-  (`default_execution_next`) for its other requests.
+- **No N+1.** The fragments of a round run together, in one multiplex, so the Dataloader batches
+  across them: a deferred fragment under a list of 50 costs the queries it costs without `@defer`.
+  When two fragments select different fields of an object field neither was sent, that field
+  resolves first and the fields below it in a second multiplex of the same round (a pass), each
+  batched in turn.
+- **The schema's `execute`.** The first pass is the schema's `execute`, as on the JSON path: an
+  app's own `AppSchema.execute` (instrumentation, a tenant in the context, a default context) runs
+  for a streamed request too, and the query is the schema's `query_class`. An `execute` that runs
+  the query without the context it was given, or answers no `GraphQL::Query::Result`, gets the
+  response whole. The rounds are not operations, and do not go through `execute`: they run their
+  `GraphQL::Query::Partial`s through `schema.multiplex` (which an override of `multiplex` sees),
+  with the first pass's context. To act on every part of a streamed response, use a graphql-ruby
+  trace module (`trace_with`) or Lighthouse's execution events, which see the rounds too.
+  Partials run on graphql-ruby's standard execution engine; its new one (2.6's
+  `GraphQL::Execution::Next`) is not supported.
 - **Validation and complexity cover the whole document**, before the first pass: the deferred
   fragments count for `max_complexity` and `max_depth`, as they would without `@defer`.
 - **Events.** `StartExecution` and `EndExecution` fire for the first pass, and again for each unit a

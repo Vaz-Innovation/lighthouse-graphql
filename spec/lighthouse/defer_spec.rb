@@ -353,6 +353,32 @@ RSpec.describe 'Deferring fields' do
       expect(run('{ users { ... @defer { name } } }').result.query).to be_a(query_class)
     end
 
+    it "runs the first pass through the schema's own execute, as the JSON path does, and the rounds without it" do
+      calls = []
+      tenant = Class.new(schema) do
+        define_singleton_method(:execute) do |query = nil, **options|
+          calls << query
+          super(query, **options, context: options[:context].to_h.merge(tenant: 'acme'))
+        end
+      end
+
+      run = Lighthouse::GraphQL::Incremental::Run.new(tenant, '{ users { ... @defer { name } } }', context: { user: 'u' }).start
+      later = [].tap { |all| run.each_payload { |payload| all << payload } }.last
+
+      expect(calls).to eq(['{ users { ... @defer { name } } }'])
+      expect(run.result.query.context.to_h).to include(tenant: 'acme', user: 'u')
+      expect(later['incremental'].pluck('data')).to eq([{ 'name' => 'u0' }, { 'name' => 'u1' }, { 'name' => 'u2' }])
+    end
+
+    it "answers whole a query the schema's own execute runs without the request's context" do
+      bare = Class.new(schema) { define_singleton_method(:execute) { |query = nil, **options| super(query, **options, context: {}) } }
+
+      run = Lighthouse::GraphQL::Incremental::Run.new(bare, '{ users { ... @defer { name } } }').start
+
+      expect(run).not_to be_deferred
+      expect(run.result.to_h['data']['users'].first).to eq('name' => 'u0')
+    end
+
     it 'parses the query once' do
       allow(GraphQL).to receive(:parse).and_call_original
 
@@ -968,11 +994,11 @@ RSpec.describe 'Deferring fields' do
     it "tells a schema that uses the plugin, and its subclasses, without building the schema's directives" do
       calls = 0
       [schema, build_schema(sdl, dataloader: true)].each do |subject|
-        allow(subject).to receive(:directives).and_wrap_original { |original| (calls += 1) && original.call }
+        allow(subject).to(receive(:directives).and_wrap_original { |original| (calls += 1) && original.call })
       end
       plain = build_schema(sdl, dataloader: true)
 
-      expect(3.times.map { Lighthouse::GraphQL::Defer.enabled?(schema) }).to eq([true] * 3)
+      expect(Array.new(3) { Lighthouse::GraphQL::Defer.enabled?(schema) }).to eq([true] * 3)
       expect([Lighthouse::GraphQL::Defer.enabled?(Class.new(schema)), Lighthouse::GraphQL::Defer.enabled?(plain)]).to eq([true, false])
       expect(calls).to eq(0)
     end

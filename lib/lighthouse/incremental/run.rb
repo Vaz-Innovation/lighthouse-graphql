@@ -7,16 +7,16 @@
 #   run.deferred?                # fragments are pending
 #   run.each_payload { |payload| ... }   # the initial payload, then one per round
 #
-# `start` parses the query once and runs the client's document as it came, as a
-# GraphQL::Query whose `query_string` is the client's: validation, analysis
+# `start` runs the client's document as it came, through the schema's `execute` (an
+# app's own too), parsed once, as a GraphQL::Query whose `query_string` is the client's: validation, analysis
 # (complexity, depth, and Rules, which checks @defer and @stream), listeners and
 # tracing see what they would without @defer. DeferDirective leaves the deferred
 # fragments out of the execution, and State keeps them.
 #
 # Then it goes in rounds, as PHP Lighthouse's Defer: each round runs every
 # fragment pending, on the object it was found on, as Plan cuts them into units
-# (GraphQL::Query::Partial), all in one multiplex so the Dataloader batches across
-# them (and in a pass after it, those Plan plans below the object fields they
+# (GraphQL::Query::Partial), all in one `schema.multiplex` so the Dataloader batches
+# across them (and in a pass after it, those Plan plans below the object fields they
 # resolve), and is one payload; the fragments they hold are announced in it, and
 # make the next round. A field resolves once: what the response already holds is not
 # run again, and a mutation does not run again (PHP Lighthouse runs the whole
@@ -109,20 +109,21 @@ class Lighthouse::GraphQL::Incremental::Run
 
   private
 
-  # graphql-ruby parses the query, once, through the schema's trace, as `schema.execute`
-  # would, and answers one that does not parse. A State goes in the context of a query that
-  # may use @defer or @stream (Document::INCREMENTAL, on the text: a false positive costs an unused
-  # State); it reads the document once it is parsed. The query is the schema's query_class, run
-  # by `schema.multiplex` as `schema.execute` runs it: on graphql-ruby's standard engine, where
-  # a GraphQL::Query::Partial runs, even when a schema opts into graphql-ruby 2.6's new one
-  # (default_execution_next) for its other requests.
+  # The first pass is the schema's `execute`, as the JSON path runs a query (an app's own
+  # `execute` too, with what it adds to the context): graphql-ruby parses the query once,
+  # through the schema's trace, and answers one that does not parse. A State goes in the
+  # context of a query that may use @defer or @stream (Document::INCREMENTAL, on the text: a
+  # false positive costs an unused State), and reads the document of the query it finds there
+  # (State#bind). An `execute` that runs the query without that context, or answers no
+  # GraphQL::Query::Result, defers nothing: the response comes whole.
   def execute
     @state = State.new if Lighthouse::GraphQL::Incremental::Document::INCREMENTAL.match?(@query_string.to_s) && traced?
-    query = @schema.query_class.new(@schema, @query_string, **@options.except(:context), context: query_context)
-    @state&.query = query
-    result = running { @schema.multiplex([query], max_complexity: nil, context: multiplex_context).first }
+    result = running { @schema.execute(@query_string, **@options.except(:context), context: query_context) }
+    query = result.query if result.respond_to?(:query)
+    @state = nil unless query.is_a?(::GraphQL::Query) && query.context[State::CONTEXT_KEY].equal?(@state)
     return result unless @state
 
+    @state.bind(query)
     @tree = Lighthouse::GraphQL::Incremental::Tree.new(result.to_h['data'])
     announce(@state.drain(query))
     result

@@ -34,8 +34,11 @@ class Lighthouse::GraphQL::Incremental::State
   # and every list is answered whole, as PHP Lighthouse's `shouldDeferFurther`.
   attr_accessor :deferring
 
-  # The operation's GraphQL::Query, whose document State reads once it is parsed.
-  attr_writer :query
+  # The operation's GraphQL::Query, whose document State reads: the first query that asks it to
+  # defer or stream (that of the first pass, which runs first), or the one Run gives.
+  def bind(query)
+    @query = query if @query.nil?
+  end
 
   def initialize
     @deferring = true
@@ -73,6 +76,7 @@ class Lighthouse::GraphQL::Incremental::State
     return false unless @deferring
 
     query = context.query
+    bind(query)
     fragment = directive_for(query, 'defer', arguments)&.then { |directive| document.owner(directive) }
     return false unless fragment && document.included?(fragment, query) && document.applies?(fragment, object.class, query)
 
@@ -88,6 +92,7 @@ class Lighthouse::GraphQL::Incremental::State
     return false unless @deferring
 
     query = context.query
+    bind(query)
     directive = directive_for(query, 'stream', arguments) or return false
     path = absolute(query, context[:current_path])
     selections = document.merged(directive, path, parent.class, query, @deferring) or return false

@@ -90,7 +90,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (PHP Lighthouse and Apollo do not defer it); the fields the same fragments select make one
   grouped field set, as the draft's, so a fragment that fails fails only those it shares fields
   with, and sends nothing (not even what it adds to a shared field); and a Non-Null field can be deferred. Needs
-  graphql-ruby 2.5.23. See [performance.md](docs/performance.md#deferring-fields-experimental),
+  graphql-ruby 2.5.23. The first pass is the schema's `execute` (an app's own override too), as on
+  the JSON path. See [performance.md](docs/performance.md#deferring-fields-experimental),
   which lists the differences.
 - **`@stream` (experimental)**, with `@defer` (PHP Lighthouse has none): `users @stream(initialCount: 2)
   { name }` answers the first items at once and the rest in a later part (`items`, the draft's
