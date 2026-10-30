@@ -65,7 +65,7 @@ RSpec.describe 'Deferring fields', type: :request do
 
     file = Rack::Test::UploadedFile.new(StringIO.new('png bytes'), 'image/png', original_filename: 'me.png')
     operations = { query: 'query($file: Upload) { posts(first: 1) { data { title ... @defer { id } } } }', variables: { file: nil } }
-    post '/graphql', params: { operations: operations.to_json, map: { '0' => ['variables.file'] }.to_json, '0' => file }, headers: accept
+    post '/graphql', params: { 'operations' => operations.to_json, 'map' => { '0' => ['variables.file'] }.to_json, '0' => file }, headers: accept
 
     expect(controller.class).to eq(GraphqlController)
     expect(response.media_type).to eq('application/json')
