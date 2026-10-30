@@ -16,7 +16,14 @@
 #
 # The adapter is detected per model (Search::Auto): Searchkick, then pg_search.
 # `Config.search` replaces the detection with one adapter, or the app's own.
+#
+# A model's `search_results` scope, when it has one, is what a search of it may
+# return, checked in the database: pg_search applies it to the search, Searchkick
+# loads the records it finds through it (`scope_results:`), so a record an index
+# not yet updated still holds is not returned.
 module Lighthouse::Search
+  RESULTS_SCOPE = :search_results
+
   module_function
 
   # The adapter in use: Config.search, else the detecting one.
@@ -30,6 +37,14 @@ module Lighthouse::Search
     return adapter.adapter_for(model, index) if adapter.respond_to?(:adapter_for)
 
     adapter if adapter.searchable?(model, index)
+  end
+
+  # Does the model have a `search_results` scope?
+  def results_scope?(model) = model.respond_to?(RESULTS_SCOPE)
+
+  # The relation through the model's `search_results` scope, if it has one.
+  def results(relation)
+    results_scope?(relation.klass) ? relation.public_send(RESULTS_SCOPE) : relation
   end
 
   # [path, @search directive node] for every argument and input field of the

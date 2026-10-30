@@ -111,6 +111,13 @@ RSpec.describe 'search adapters' do
       expect(adapter.searchable?(PgSearchPost)).to be(false)
     end
 
+    it "keeps what the model's search_results scope keeps" do
+      PgSearchGuardedPost.create!(title: 'milk')
+      PgSearchGuardedPost.create!(title: 'stale milk')
+
+      expect(adapter.scope(PgSearchGuardedPost.all, Lighthouse::Search::Query.new(PgSearchGuardedPost, 'milk')).map(&:title)).to eq(['milk'])
+    end
+
     it 'applies the scope the index names to the relation it is given' do
       PgSearchPost.create!(title: 'milk', author_id: 1)
       PgSearchPost.create!(title: 'milk', author_id: 2)

@@ -16,6 +16,9 @@
 # Searchkick loads what it finds through the model, whose default scope may hide
 # trashed records (paranoia's): with ONLY and WITH they load past it.
 #
+# The records load through the model's `search_results` scope too, if it has one
+# (Lighthouse::Search), then the app's own `scope_results:` (from @builder).
+#
 # The gem is not a dependency of Lighthouse: the adapter is used when the
 # model calls `searchkick`.
 class Lighthouse::Search::Searchkick
@@ -51,13 +54,17 @@ class Lighthouse::Search::Searchkick
   end
 
   # What Searchkick loads the records it found through (`scope_results:`): past
-  # the default scope that hides trashed ones when @trashed asks for them, then
-  # the app's own; nil for the model alone.
+  # the default scope that hides trashed ones when @trashed asks for them, the
+  # model's `search_results` scope, then the app's own; nil for the model alone.
   def results_scope(query, own)
-    return own unless %i[only with].include?(query.trashed)
+    trashed = %i[only with].include?(query.trashed)
+    guarded = Lighthouse::Search.results_scope?(query.model)
+    return own unless trashed || guarded
 
     lambda do |records|
-      records = Lighthouse::Support::SoftDeletes.with_trashed(records.all)
+      records = records.all
+      records = Lighthouse::Support::SoftDeletes.with_trashed(records) if trashed
+      records = Lighthouse::Search.results(records)
       own ? own.call(records) : records
     end
   end

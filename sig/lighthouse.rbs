@@ -111,6 +111,12 @@ module Lighthouse
 
   type relation = _Relation
 
+  # An ActiveRecord::Relation, which knows its model (a model class does not answer `klass`).
+  interface _ModelRelation
+    include _Relation
+    def klass: () -> Class
+  end
+
   # An Arel attribute or SQL literal, which predicates build on.
   interface _ArelNode
     def eq: (untyped other) -> _ArelNode

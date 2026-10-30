@@ -10,6 +10,9 @@
 #
 #   pg_search_scope :search, against: %i[title body]
 #
+# The model's `search_results` scope, if it has one, narrows the search too
+# (Lighthouse::Search).
+#
 # The gem is not a dependency of Lighthouse: the adapter is used when the
 # model includes PgSearch::Model.
 class Lighthouse::Search::PgSearch
@@ -27,6 +30,7 @@ class Lighthouse::Search::PgSearch
   # field's @orderBy, applied after, decide between equal ranks (@paginate still ends
   # the order with the key).
   def scope(relation, query)
+    relation = Lighthouse::Search.results(relation)
     searched = relation.public_send(scope_name(query.index), query.term)
     added = searched.order_values.drop(relation.order_values.size)
     return searched unless primary_key_order?(added.last, relation.klass)

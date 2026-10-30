@@ -9,6 +9,15 @@ module Lighthouse
     # The adapter that searches the model (within the scope or index `index` names), or nil.
     def self.adapter_for: (Class model, ?String? index) -> _SearchAdapter?
 
+    # The scope a model may define for what a search of it may return: `search_results`.
+    RESULTS_SCOPE: Symbol
+
+    # Does the model have a `search_results` scope?
+    def self.results_scope?: (Class model) -> bool
+
+    # The relation through the model's `search_results` scope, if it has one.
+    def self.results: (_ModelRelation relation) -> _ModelRelation
+
     # What a search holds: the model, the term and what narrows it.
     class Query
       attr_reader model: Class

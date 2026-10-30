@@ -9,6 +9,13 @@ class Builders::SearchSpecCustom
   def self.call(query, value, _context) = query.where('from_custom_builder', value[:id])
 end
 
+class Builders::SearchSpecLoadOnly
+  def self.call(query, value, _context)
+    query.options[:scope_results] = ->(records) { records.where(title: value) }
+    query
+  end
+end
+
 # A resolver of the app's own, which reads the first record the search finds.
 class SearchSpecEnhanced
   def self.call(_obj, _args, _ctx, resolve_info)
@@ -310,6 +317,28 @@ RSpec.describe '@search' do
           expect(titles_of.call('WITHOUT')).to eq([['kept'], 1])
           expect([kept, trashed].map { |record| model.unscoped.exists?(record.id) }).to eq([true, true])
         end
+      end
+
+      it "loads the hits through the model's search_results scope, which a stale index cannot get past" do
+        SearchkickGuardedPost.create!(title: 'fresh')
+        SearchkickGuardedPost.create!(title: 'stale')
+        schema = build_schema(<<~GRAPHQL)
+          type SearchkickGuardedPost { title: String! }
+          type Query { posts(search: String @search): [SearchkickGuardedPost!]! @all }
+        GRAPHQL
+
+        expect(titles(run(schema, '{ posts(search: "x") { title } }'))).to eq(['fresh'])
+      end
+
+      it "keeps the app's own scope_results, after the model's" do
+        SearchkickGuardedPost.create!(title: 'fresh')
+        SearchkickGuardedPost.create!(title: 'other')
+        schema = build_schema(<<~GRAPHQL)
+          type SearchkickGuardedPost { title: String! }
+          type Query { posts(search: String @search, only: String @builder(class: "SearchSpecLoadOnly")): [SearchkickGuardedPost!]! @all }
+        GRAPHQL
+
+        expect(titles(run(schema, '{ posts(search: "x", only: "other") { title } }'))).to eq(['other'])
       end
     end
 

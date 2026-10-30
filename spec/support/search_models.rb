@@ -158,3 +158,15 @@ class SearchkickHiddenPost < ApplicationRecord
 
   default_scope { where(deleted_at: nil) }
 end
+
+# One whose `search_results` scope keeps what a search may return, whatever the index holds.
+class SearchkickGuardedPost < ApplicationRecord
+  self.table_name = 'search_posts'
+  extend FakeSearch::Searchkicked
+
+  scope :search_results, -> { where.not(title: 'stale') }
+end
+
+class PgSearchGuardedPost < PgSearchPost
+  scope :search_results, -> { where.not('title LIKE ?', 'stale%') }
+end
