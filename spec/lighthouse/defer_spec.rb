@@ -301,9 +301,8 @@ RSpec.describe 'Deferring fields' do
       allow(GraphQL).to receive(:parse).and_call_original
 
       expect(run('{ users { name } }').result.to_h['data']['users'].size).to eq(3)
-      expect(run('{ users { ... @defer { name } } }', stream: false).result.to_h['data']['users'].first).to eq('name' => 'u0')
       expect(run('{ users { ... @defer { name } } }')).to be_deferred
-      expect(GraphQL).to have_received(:parse).thrice
+      expect(GraphQL).to have_received(:parse).twice
     end
 
     it "runs the client's document as it came: listeners, query_string and the fingerprint see it, streamed or not" do
@@ -648,14 +647,10 @@ RSpec.describe 'Deferring fields' do
   end
 
   describe 'a client that does not stream' do
-    it 'gets the whole response' do
-      result = run('{ users { name ... @defer { company { name } } } }', stream: false).result
+    it 'gets the whole response from schema.execute, as a JSON client does' do
+      result = schema.execute('{ users { name ... @defer { company { name } } } }')
 
       expect(result.to_h.dig('data', 'users').first).to eq('name' => 'u0', 'company' => { 'name' => 'Acme' })
-    end
-
-    it 'runs the whole response through graphql-ruby when the schema is used without the controller' do
-      expect(schema.execute('{ users { name ... @defer { company { name } } } }').to_h.dig('data', 'users', 0, 'company')).to eq('name' => 'Acme')
     end
   end
 
@@ -792,12 +787,12 @@ RSpec.describe 'Deferring fields' do
       expect(errors(query, operation_name: 'A')).to eq(['The label "x" is used by more than one @defer or @stream in the document.'])
     end
 
-    it 'checks every query, however it runs: plain, unstreamed, and in a batch' do
+    it 'checks every query, however it runs: plain, streamed, and in a batch' do
       query = '{ users { ... @defer(label: "x") { name } ... @defer(label: "x") { id } } }'
       message = 'The label "x" is used by more than one @defer or @stream in the document.'
 
       expect(schema.execute(query).to_h).to eq('errors' => [{ 'message' => message, 'locations' => [{ 'line' => 1, 'column' => 47 }] }])
-      expect(errors(query, stream: false)).to eq([message])
+      expect(errors(query)).to eq([message])
       expect(schema.multiplex([{ query: query }, { query: '{ names }' }]).map { |result| result.to_h['errors']&.pluck('message') })
         .to eq([[message], nil])
     end

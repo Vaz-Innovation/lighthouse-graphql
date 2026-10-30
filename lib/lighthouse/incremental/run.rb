@@ -2,7 +2,7 @@
 
 # One operation, run in as many passes as @defer asks for.
 #
-#   run = Lighthouse::GraphQL::Incremental::Run.new(schema, query, variables: {}, context: {}, stream: true).start
+#   run = Lighthouse::GraphQL::Incremental::Run.new(schema, query, variables: {}, context: {}).start
 #   run.result                   # the first pass, as `schema.execute` answers it
 #   run.deferred?                # fragments are pending
 #   run.each_payload { |payload| ... }   # the initial payload, then one per round
@@ -26,8 +26,8 @@
 # pass started, the round that runs is the last: the fragments it holds run
 # where they stand, and its lists are answered whole.
 #
-# With `stream: false` nothing is deferred: the query is checked and answered at
-# once, as the specification allows a server that does not stream.
+# A client that does not stream is answered by `schema.execute`, the whole
+# response at once, as the specification allows.
 class Lighthouse::GraphQL::Incremental::Run
   State = Lighthouse::GraphQL::Incremental::State
   Serializer = Lighthouse::GraphQL::Incremental::Serializer
@@ -37,10 +37,9 @@ class Lighthouse::GraphQL::Incremental::Run
   attr_reader :result
 
   # `options`: `schema.execute`'s (variables:, operation_name:, context:, ...).
-  def initialize(schema, query_string, stream: true, **options)
+  def initialize(schema, query_string, **options)
     @schema = schema
     @query_string = query_string
-    @stream = stream
     @options = options
     @queue = []
     @announced = []
@@ -102,7 +101,7 @@ class Lighthouse::GraphQL::Incremental::Run
   # may use @defer or @stream (INCREMENTAL, on the text: a false positive costs an unused
   # State); it reads the document once it is parsed.
   def execute
-    @state = State.new if @stream && INCREMENTAL.match?(@query_string.to_s) && traced?
+    @state = State.new if INCREMENTAL.match?(@query_string.to_s) && traced?
     query = ::GraphQL::Query.new(@schema, @query_string, **@options.except(:context), context: query_context)
     @state&.query = query
     result = running { @schema.multiplex([query], max_complexity: nil, context: multiplex_context).first }

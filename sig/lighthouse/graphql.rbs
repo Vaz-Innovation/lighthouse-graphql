@@ -234,7 +234,7 @@ module Lighthouse
       class Run
         # `options` are `schema.execute`'s: variables:, operation_name:, context:.
         # A nil query string (a request without one) is answered as graphql-ruby answers it.
-        def initialize: (schema schema, String? query_string, ?stream: bool, **untyped options) -> void
+        def initialize: (schema schema, String? query_string, **untyped options) -> void
         # Runs the first pass; returns self.
         def start: () -> Run
         # The first pass's result.
