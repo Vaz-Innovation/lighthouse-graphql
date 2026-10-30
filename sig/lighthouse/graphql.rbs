@@ -227,7 +227,8 @@ module Lighthouse
 
         def self.headers: (?String content_type) -> Hash[String, String]
         def initialize: (_Stream stream) -> void
-        def write: (Hash[String, json] payload) -> void
+        # The payload holds the app's values (a Time, an object's as_json), encoded as render json: does.
+        def write: (Hash[String, untyped] payload) -> void
         def finish: () -> void
       end
 
