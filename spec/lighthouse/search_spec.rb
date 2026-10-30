@@ -508,6 +508,66 @@ RSpec.describe '@search' do
       end
     end
 
+    # PHP Lighthouse's @find and @first call get() and first() on the Scout builder.
+    describe 'with @find and @first' do
+      let(:schema) do
+        build_schema(<<~GRAPHQL)
+          type SearchPost { title: String! }
+          type Query {
+            found(search: String @search, authorId: Int @eq(key: "author_id")): SearchPost @find
+            best(search: String @search): SearchPost @first
+          }
+        GRAPHQL
+      end
+
+      def one(field, records)
+        search_with(FakeSearch::Engine.new([SearchPost], records))
+        run(schema, "{ #{field}(search: \"x\") { title } }")
+      end
+
+      it '@find returns the one record the search finds, null for none, and fails for more than one' do
+        expect(one('found', [SearchPost.new(title: 'only')])).to eq('data' => { 'found' => { 'title' => 'only' } })
+        expect(one('found', [])).to eq('data' => { 'found' => nil })
+        expect(one('found', great)['errors'].pluck('message')).to eq(['The query returned more than one result.'])
+      end
+
+      it "@find narrows the search with the engine's filters, and counts the matches the engine counts" do
+        result = one('found', [nil, SearchPost.new(title: 'loaded')])
+
+        expect(result['errors'].pluck('message')).to eq(['The query returned more than one result.'])
+        run(schema, '{ found(search: "x", authorId: 3) { title } }')
+        expect(Lighthouse::Config.search.query.wheres).to eq([['author_id', 3]])
+      end
+
+      it '@first returns the best match, and the next one when the best did not load' do
+        expect(one('best', great)).to eq('data' => { 'best' => { 'title' => 'great title' } })
+        expect(one('best', [nil, nil, SearchPost.new(title: 'third')])).to eq('data' => { 'best' => { 'title' => 'third' } })
+        expect(one('best', [nil])).to eq('data' => { 'best' => nil })
+      end
+
+      it '@first asks the engine for one hit, and reads further only when it did not load' do
+        expect { one('best', great) }.not_to raise_error
+        expect(Lighthouse::Config.search.requests.map { |request| request.slice(:offset, :limit) }).to eq([{ offset: 0, limit: 1 }])
+
+        one('best', [nil, SearchPost.new(title: 'second')])
+        expect(Lighthouse::Config.search.requests.map { |request| request.slice(:offset, :limit) })
+          .to eq([{ offset: 0, limit: 1 }, { offset: 0, limit: 2 }])
+      end
+
+      it 'searches with @canQuery, which checks every record the search finds' do
+        Lighthouse::Config.authorizer = ->(_user, record, _ability) { record.title != 'secret' }
+        guarded = build_schema(<<~GRAPHQL)
+          type SearchPost { title: String! }
+          type Query { best(search: String @search): SearchPost @first @canQuery(ability: "view") }
+        GRAPHQL
+
+        search_with(FakeSearch::Engine.new([SearchPost], great))
+        expect(run(guarded, '{ best(search: "x") { title } }')).to eq('data' => { 'best' => { 'title' => 'great title' } })
+        search_with(FakeSearch::Engine.new([SearchPost], great + [SearchPost.new(title: 'secret')]))
+        expect(run(guarded, '{ best(search: "x") { title } }')['errors'].pluck('message')).to eq(['This action is unauthorized.'])
+      end
+    end
+
     describe 'with @paginate' do
       let(:schema) do
         build_schema('type SearchPost { id: ID! title: String! } type Query { posts(search: String @search): [SearchPost!]! @paginate }')
@@ -1123,14 +1183,22 @@ RSpec.describe '@search' do
         end.not_to raise_error
       end
 
+      it 'accepts @find and @first, which find in the whole table' do
+        expect do
+          build_posts('a(search: String @search, id: ID @eq): SearchPost @find b(search: String @search): SearchPost @first')
+        end.not_to raise_error
+      end
+
+      it 'refuses @find with an `id` argument without a filter directive, which selects by primary key in the database only' do
+        expect { build_posts('posts(search: String @search, id: ID): SearchPost @find') }
+          .to raise_error(Lighthouse::DefinitionError, /@find \(whose `id` argument has a filter directive, @eq\)/)
+      end
+
       it 'refuses any other directive: the engine answers with records, not a relation' do
-        %w[@first @count @delete].each do |directive|
+        %w[@count @delete].each do |directive|
           expect { build_posts("posts(search: String @search): SearchPost #{directive}(model: \"SearchPost\")") }
             .to raise_error(Lighthouse::DefinitionError, /needs @all, @paginate of the model's whole table .*, or a resolver of your own/)
         end
-        expect do
-          build_posts('posts(search: String @search): SearchPost @find')
-        end.to raise_error(Lighthouse::DefinitionError, /needs @all, @paginate/)
       end
 
       it 'refuses a field nothing resolves but the default reader, which never applies the search' do

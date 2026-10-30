@@ -5,10 +5,12 @@ require_relative 'builder_applier'
 
 # @first(model: "Model") — return a single record (the first match). Like
 # @all but `.first`, honoring `scopes:`, @builder and where/argument filters so it can
-# be combined with @eq/@where to fetch one record by criteria.
+# be combined with @eq/@where to fetch one record by criteria. With a search an
+# engine answers (Searchkick), the best match.
 class Lighthouse::GraphQL::DirectiveResolvers::FirstDirectiveResolver < Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
   def self.directive_name = 'first'
   def self.applies_search? = true
+  def self.takes_search_results?(*) = true
 
   def self.definition
     <<~GRAPHQL.chomp
@@ -34,8 +36,8 @@ class Lighthouse::GraphQL::DirectiveResolvers::FirstDirectiveResolver < Lighthou
 
       args_h = arguments.respond_to?(:to_h) ? arguments.to_h : {}
       relation = resolver_instance.apply_scopes(model_class.all)
-      relation = resolver_instance.apply_where_filters(relation, args_h, ctx)
-      relation.first
+      relation = resolver_instance.apply_where_filters(relation, args_h, ctx, search: :model)
+      relation.is_a?(Lighthouse::Search::Result) ? relation.first_record : relation.first
     end
 
     target_type_class.define_singleton_method(method_name, &resolver)

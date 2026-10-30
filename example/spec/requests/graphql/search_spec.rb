@@ -175,6 +175,8 @@ RSpec.describe 'GraphQL @search', type: :request do
               filters: [SearchedPostFilter!]
             ): [SearchedPost!]! @all
             editable(search: String @search, authorId: Int @eq(key: "author_id")): [SearchedPost!]! @paginate @canQuery(ability: "update")
+            best(search: String @search, authorId: Int @eq(key: "author_id")): SearchedPost @first
+            only(search: String @search, authorId: Int @eq(key: "author_id")): SearchedPost @find
           }
           input SearchedPostFilter { authorId: Int @eq(key: "author_id") }
         GRAPHQL
@@ -237,6 +239,24 @@ RSpec.describe 'GraphQL @search', type: :request do
         Searchkick.callbacks(false) { SearchedPost.find_by!(title: 'Great title').update!(author: other) }
 
         expect(titles(run(schema, %({ posts(search: "great", authorId: #{author.id}) { title } })))).to eq(['Really great great title'])
+      end
+
+      it '@first answers the best match, and the next one when the best is gone from the database' do
+        best = ->(arguments) { run(schema, "{ best(#{arguments}) { title } }").dig('data', 'best', 'title') }
+
+        expect(best.call('search: "great"')).to eq('Really great great title')
+        expect(best.call(%(search: "great", authorId: #{other.id}))).to eq('Another great one')
+        Searchkick.callbacks(false) { SearchedPost.find_by!(title: 'Really great great title').delete }
+        expect(best.call('search: "great"')).to eq('Great title')
+        expect(best.call('search: "nowhere"')).to be_nil
+      end
+
+      it '@find answers the one match, null for none, and an error for more than one' do
+        only = run(schema, %({ only(search: "great", authorId: #{other.id}) { title } }))
+
+        expect(only).to eq('data' => { 'only' => { 'title' => 'Another great one' } })
+        expect(run(schema, '{ only(search: "nowhere") { title } }')).to eq('data' => { 'only' => nil })
+        expect(run(schema, '{ only(search: "great") { title } }')['errors'].pluck('message')).to eq(['The query returned more than one result.'])
       end
 
       describe 'an index of 10,001 documents within: names' do

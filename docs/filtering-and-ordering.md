@@ -269,7 +269,7 @@ nothing leaves the query to the database.
 | Searches | PostgreSQL's full-text search, in the table | an Elasticsearch or OpenSearch index, a copy of the table |
 | The search is | a scope on the field's relation | an engine request that answers records |
 | Everything else Lighthouse applies | composes on it | `@eq`, `@trashed`, `@builder` on an argument, and the model's `search_where` |
-| Fields | any that applies a search | `@all`, `@paginate` of the model's whole table, a resolver of your own |
+| Fields | any that applies a search | `@all`, `@paginate` of the model's whole table, `@find`, `@first`, a resolver of your own |
 | Up to date | always | once the index is (callbacks, jobs) |
 
 Lighthouse is tested with Searchkick 6.2 on Elasticsearch 9.5 and on OpenSearch 2.19 and 3.9,
@@ -449,9 +449,15 @@ root_kind) = true` when it also takes a Searchkick `Lighthouse::Search::Result`.
 The engine answers with records, not a relation, so `@search` with Searchkick is for `@all`, `@paginate`
 of the model's whole table (on a root field, with its own `model:`, or where the parent type's model has
 no association of the field's name; a parent type that is no model is refused, as only a query's records
-would tell what it pages, and a record that turns out to page an association answers a client error)
-and your own code. Any other field (`@find`, `@first`, `@count`, a mass mutation, a nested
-relationship) is a schema error at build, when Lighthouse can tell the field's model. For the same
+would tell what it pages, and a record that turns out to page an association answers a client error),
+`@first`, `@find` and your own code. `@first` answers the best match that loads; `@find` the one match,
+or null, and an error when the engine counts more than one, as PHP Lighthouse's `@find` on Scout's
+`get()`. An `id` argument of `@find` without a filter directive selects by primary key in the
+database, which the engine cannot: give it `@eq`, which the engine applies, or the field is a schema
+error. Any other field (`@count`, `@aggregate`, a mass mutation, a nested relationship) is a schema
+error at build, when Lighthouse can tell the field's model: PHP Lighthouse ignores the search on
+`@count` and `@aggregate` (they drop the Scout builder `enhanceBuilder` returns, and count every
+record) and fails on a mass mutation, which takes only a query builder. For the same
 reason a field with `scopes:`, `@builder`, `@whereAuth` or `@orderBy(column:)`, or an `@canQuery` with
 `scopes:`, is a schema error: **PHP Lighthouse drops those silently when it searches**, and a search that skipped `@whereAuth` would return
 records the user must not see. Lighthouse fails when the schema is built instead. Put the constraint in
@@ -472,7 +478,8 @@ a search with that parent is then the run-time error above. A default for `@eq`,
 A directive that does not change the query is taken with a search: `@limit` cuts what the field
 resolved (not `@limit(builder: true)`, a LIMIT on the query, which is refused); an argument directive
 of your own says so with `def self.changes_query?(directive_node) = false`. (`@in`, `@notIn` and
-`@whereKey`, which Scout has as `whereIn` / `whereNotIn`, are not supported yet.)
+`@whereKey` are refused with a search, as in PHP Lighthouse, where only `@eq`, `@trashed` and
+`@builder` write to Scout's builder.)
 
 **Order.** The engine's relevance; ties as the engine breaks them. `@orderBy` is refused with a search;
 an `@builder` on an argument can set Searchkick's `order:`.
@@ -699,6 +706,10 @@ is: a schema error). This protocol is experimental.
 | Model not searchable | `ScoutException` at run time | schema error at build, once the field's model is known |
 | `within:` not a string | `DefinitionException` | schema error at build |
 | Nested field (a relation) | `ScoutException` at run time | schema error with Searchkick; works with pg_search |
+| `@find` when the search finds more than one record | "The query returned more than one result." | same, counted by the engine with Searchkick |
+| `@find` with an `id` argument without a filter directive | not a case: PHP's `@find` selects by its arguments' directives only | schema error with Searchkick (give it `@eq`); works with pg_search |
+| `@count`, `@aggregate` | the search ignored: every record counted | schema error with Searchkick; works with pg_search |
+| A mass mutation (`@delete`, `@restore`, `@forceDelete`) | a type error at run time | schema error with Searchkick; works with pg_search |
 | Field has `scopes:`, `@builder`, `@whereAuth`, `@orderBy(column:)` | dropped silently | schema error with Searchkick (a client error, reported, for a resolver of your own whose type is no model); applied with pg_search |
 | `@canQuery` with `scopes:` | dropped silently | schema error with Searchkick; applied with pg_search |
 | A default value for a directive the engine cannot apply | `ScoutException` on every search | schema error with Searchkick; applied with pg_search |

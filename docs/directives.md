@@ -685,7 +685,7 @@ each engine up.
 - **Searchkick** answers with the records the engine found, in relevance order. Only `@eq`,
   `@trashed` and `@builder` on an argument narrow it (as Scout's `@eq` / `@trashed` /
   `@builder`); they work at any depth of input objects. It serves `@all`, `@paginate` of the
-  model's whole table, and a resolver of your own (`resolve_info.enhance_builder` answers a
+  model's whole table, `@first` (the best match), `@find` (the one match; more is an error), and a resolver of your own (`resolve_info.enhance_builder` answers a
   `Lighthouse::Search::Result`, for the model's own relation only), with an exact total, within the index's result window (read
   from the engine, 10,000 matches by default; a page past it is an error the client reads). `@all` reads what
   the client asks for (`first`, an argument's `@limit`, else every match), 10,000 records at most at once,

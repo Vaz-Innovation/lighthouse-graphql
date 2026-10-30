@@ -102,6 +102,25 @@ class Lighthouse::Search::Result
   # (READ_LIMIT, the result window)?
   def truncated? = @truncated == true
 
+  # What @find returns: the one record the search finds, or nil. More than one
+  # match, as the engine counts them, is an error, as in PHP Lighthouse.
+  def only_record
+    found = window(0, 1)
+    raise ::GraphQL::ExecutionError, 'The query returned more than one result.' if count > 1
+
+    found.first
+  end
+
+  # What @first returns: the best match that loads, or nil. A best hit that does
+  # not load (the model's scopes, a record gone from the database) yields to the
+  # next one, read within the result window and READ_LIMIT.
+  def first_record
+    found = window(0, 1)
+    return found.first if found.any? || count <= 1
+
+    window(0, [reachable, READ_LIMIT].min).first
+  end
+
   # How many matches a page can reach: the total, within the result window.
   def reachable = result_window ? [count, result_window].min : count
 

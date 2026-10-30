@@ -15,7 +15,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (`Lighthouse::Search`), neither a dependency of Lighthouse: **Searchkick** (Elasticsearch /
   OpenSearch) answers with the records it found, in relevance order, for `@all`, `@paginate`
   (all three types; the total comes with the page, one request, and `first: 0` can count, which Scout
-  cannot) and a resolver of your own. The total is always exact past the 10,000 matches the engines
+  cannot), `@first` (the best match), `@find` (the one match; more than one is an error, as in PHP
+  Lighthouse) and a resolver of your own. The total is always exact past the 10,000 matches the engines
   stop counting at (`track_total_hits`, which an app's `body_options` may not set, so that no page
   serves a record `@canQuery` did not check), a search reads within the index's result window
   (`index.max_result_window`, read from the engine, the index `within:` names too; from the model's

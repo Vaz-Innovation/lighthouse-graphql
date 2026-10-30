@@ -59,6 +59,9 @@ module Lighthouse
       READ_LIMIT: Integer
 
       def records: (?first: Integer?, ?offset: Integer?) -> Array[_Record]
+      # @find's record (more than one match: a GraphQL::ExecutionError), and @first's: the best match that loads.
+      def only_record: () -> _Record?
+      def first_record: () -> _Record?
       # Every record a page can reach, for @canQuery, in a request of its own: READ_LIMIT at most, else a GraphQL::ExecutionError.
       def every_record: () -> Array[_Record]
       # Did the last `records` answer fewer than asked while more match? How many can a page reach?

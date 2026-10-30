@@ -12,7 +12,7 @@
 # - The field's model, when it can be told, is searchable by an adapter.
 # - With an adapter outside the database (Searchkick), the resolver takes the
 #   records the engine answers with (`takes_search_results?`: @all, @paginate of
-#   the model's whole table, the app's own code); and the field has no `scopes:`,
+#   the model's whole table, @first, @find, the app's own code); and the field has no `scopes:`,
 #   @builder, @whereAuth or @orderBy(column:), which the engine cannot apply.
 #   PHP Lighthouse drops them silently, so a search could return records the
 #   user must not see. A relational adapter (pg_search) applies them.
@@ -82,8 +82,9 @@ class Lighthouse::Search::FieldCheck
     name = adapter.class.name.demodulize
     unless own_code? || Lighthouse::Contracts::FieldResolver.takes_search_results?(resolver_class, @type, @field_def, resolving_directive, @root_kind)
       fail!(path, "#{name} answers outside the database, so it needs @all, @paginate of the model's whole table (on a root field, " \
-                  'with its own `model:`, or where the parent has no association of its name), or a resolver of your own ' \
-                  '(which reads the search through resolve_info.enhance_builder)')
+                  'with its own `model:`, or where the parent has no association of its name), @first, @find (whose `id` ' \
+                  'argument has a filter directive, @eq), or a resolver of your own (which reads the search through ' \
+                  'resolve_info.enhance_builder)')
     end
     dropped = dropped_constraints
     unless dropped.empty?
