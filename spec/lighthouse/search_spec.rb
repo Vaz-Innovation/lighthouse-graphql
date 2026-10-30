@@ -526,9 +526,21 @@ RSpec.describe '@search' do
         end.to raise_error(Lighthouse::DefinitionError, /SearchkickTenantPost's default scope narrows what a search loads.*search_where/)
       end
 
+      it 'answers a client error for such a model, as the query runs, on a field whose model the build could not tell' do
+        Lighthouse::Config.on_error = ->(_error, _context) {}
+        schema = build_schema(<<~GRAPHQL)
+          type Hit { id: ID! }
+          type Query { found(search: String @search): [Hit!]! @field(resolver: "SearchSpecGiven") }
+        GRAPHQL
+
+        result = schema.execute('{ found(search: "x") { id } }', context: { relation: -> { SearchkickTenantPost.all } }).to_h
+
+        expect(result['errors'].first['message']).to include("SearchkickTenantPost's default scope narrows what a search loads")
+      end
+
       it 'takes any default scope for one, whatever it narrows outside a request, as a tenant read from the request' do
         expect do
-          build_schema('type SafetyConditionalTenantPost { id: ID! } type Query { posts(search: String @search): [SafetyConditionalTenantPost!]! @all }')
+          build_schema('type SafetyConditionalTenantPost { id: ID! } type Query { p(search: String @search): [SafetyConditionalTenantPost!]! @all }')
         end.to raise_error(Lighthouse::DefinitionError, /SafetyConditionalTenantPost's default scope narrows what a search loads/)
       end
 

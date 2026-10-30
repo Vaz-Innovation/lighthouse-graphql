@@ -71,6 +71,7 @@ class Lighthouse::Search::Enhancer
             "@search with #{adapter.class.name.demodulize} answers outside the database, and #{@field} pages a relation here: it cannot search it."
     end
 
+    searchable!(adapter, query.model)
     whole_index!(adapter) if @search == :given
     reject_incompatible
     query = @arguments.reject { |argument| search?(argument) }.reduce(query) { |narrowed, argument| narrow(narrowed, argument) }
@@ -85,6 +86,14 @@ class Lighthouse::Search::Enhancer
 
     results = (@context[:lighthouse_search_results] ||= {})
     results[[@field, @context[:current_path], query.model]] ||= Lighthouse::Search::Result.new(adapter, query)
+  end
+
+  # A model the adapter cannot search as it is (Searchkick's model_error: a default
+  # scope without search_where) is the schema's error, found here, as the field's
+  # filters run, for a field whose model the build could not tell.
+  def searchable!(adapter, model)
+    error = adapter.model_error(model) if adapter.respond_to?(:model_error)
+    raise Lighthouse::DefinitionError, "@search: #{error}." if error
   end
 
   # The engine searches the model's whole index: the conditions of a relation
