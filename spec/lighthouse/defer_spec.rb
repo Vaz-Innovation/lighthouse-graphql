@@ -879,6 +879,25 @@ RSpec.describe 'Deferring fields' do
     end
   end
 
+  describe 'the multiplexes of a streamed response' do
+    it "runs each round in a multiplex of its own trace and dataloader, and leaves the app's context hash as it was" do
+      multiplexes = []
+      schema.trace_with(Module.new do
+        define_method(:execute_multiplex) do |multiplex:, &block|
+          (multiplexes << multiplex) && super(multiplex: multiplex, &block)
+        end
+      end)
+      context = { current_user: :someone }
+
+      all = payloads('{ users { ... @defer(label: "a") { name posts { ... @defer(label: "b") { title } } } } }', context: context)
+
+      expect(all.size).to eq(3)
+      expect(multiplexes.map { |multiplex| multiplex.current_trace.object_id }.uniq.size).to eq(3)
+      expect(multiplexes.map { |multiplex| multiplex.dataloader.object_id }.uniq.size).to eq(3)
+      expect(context).to eq(current_user: :someone)
+    end
+  end
+
   describe 'the operation events of a streamed response' do
     it 'ends the operation after the last round, with the data and the errors of every round' do
       log = []

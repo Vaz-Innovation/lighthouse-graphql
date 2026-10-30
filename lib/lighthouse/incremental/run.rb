@@ -102,8 +102,9 @@ class Lighthouse::GraphQL::Incremental::Run
   # may use @defer or @stream (INCREMENTAL, on the text: a false positive costs an unused
   # State); it reads the document once it is parsed.
   def execute
-    query = ::GraphQL::Query.new(@schema, @query_string, **@options)
-    @state = query.context[State::CONTEXT_KEY] = State.new(query) if @stream && INCREMENTAL.match?(@query_string.to_s)
+    @state = State.new if @stream && INCREMENTAL.match?(@query_string.to_s)
+    query = ::GraphQL::Query.new(@schema, @query_string, **@options.except(:context), context: query_context)
+    @state&.query = query
     result = @schema.multiplex([query], max_complexity: nil, context: multiplex_context).first
     return result unless @state
 
@@ -112,8 +113,16 @@ class Lighthouse::GraphQL::Incremental::Run
     result
   end
 
+  # The app's context, as it gave it; with the State, a copy of it, so that its Hash is left
+  # as it was.
+  def query_context
+    context = @options[:context]
+    @state ? (context || {}).merge(State::CONTEXT_KEY => @state) : context
+  end
+
   # What Schema.execute hands its multiplex of the query's context, and the trace mode with
-  # Recorder when the response streams, unless the app picked one.
+  # Recorder when the response streams, unless the app picked one: a new Hash each time, where
+  # graphql-ruby puts the multiplex's dataloader and trace, so each round gets its own.
   def multiplex_context
     context = @options[:context] || {}
     mode = context[:trace_mode] || (Lighthouse::GraphQL::Incremental::Recorder::MODE if @state && @schema.default_trace_mode == :default)
@@ -173,7 +182,7 @@ class Lighthouse::GraphQL::Incremental::Run
   # The first pass analyzed the whole document: no max_complexity again, which analysis
   # cannot apply to a Partial.
   def run(partials)
-    @schema.multiplex(partials, context: @result.query.context, max_complexity: nil).map(&:to_h)
+    @schema.multiplex(partials, context: multiplex_context, max_complexity: nil).map(&:to_h)
   end
 
   # The payload's `incremental`, `completed` and `extensions` for the units' responses, which

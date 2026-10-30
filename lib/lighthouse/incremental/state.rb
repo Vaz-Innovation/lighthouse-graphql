@@ -35,9 +35,10 @@ class Lighthouse::GraphQL::Incremental::State
   # and every list is answered whole, as PHP Lighthouse's `shouldDeferFurther`.
   attr_accessor :deferring
 
-  # `query`: the operation's GraphQL::Query, whose document State reads once it is parsed.
-  def initialize(query)
-    @query = query
+  # The operation's GraphQL::Query, whose document State reads once it is parsed.
+  attr_writer :query
+
+  def initialize
     @deferring = true
     @recorded = {}.compare_by_identity
     @seen = {}.compare_by_identity
