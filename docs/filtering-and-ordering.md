@@ -373,14 +373,15 @@ an argument to filter.`), and a `@search` argument counts as one only when the s
 string: `deletePosts(search: null)` deletes nothing, as in PHP Lighthouse. With Searchkick a mass
 mutation is a schema error.
 
-**Order.** pg_search's rank sorts first, then the client's `orderBy` and the field's
-`@orderBy(column:)` break its ties, and the primary key ends the order, once, unless an order
+**Order.** A search is in order of relevance: pg_search's rank always sorts first. The orders the
+relation already had break its ties, in the order they apply, as on a field without a search: the
+model's default scope, the field's `scopes:`, the model's `search_results` scope; then the client's
+`orderBy`, the field's `@orderBy(column:)`, and the primary key ends the order, once, unless an order
 before already names it. A client that sorts by date gets the best matches first and, among equally
 ranked ones, the newest; matches that rank and sort alike come back in the same order every time, on
-every field. A `scopes:` entry that orders the relation sorts before the rank, since it applies
-first. pg_search's own tie-break, the primary key, is dropped so that these orders decide (a node of
-its own in pg_search 2.4, the end of the rank's SQL in 2.3); an `order_within_rank:` the scope names is
-kept, before them.
+every field. pg_search's own tie-break, the primary key, is dropped so that these orders decide (a node
+of its own in pg_search 2.4, the end of the rank's SQL in 2.3); an `order_within_rank:` the scope names
+is kept, right after the rank.
 
 ### What Lighthouse does with Searchkick
 

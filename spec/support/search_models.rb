@@ -203,3 +203,10 @@ class SearchTimedPost < ApplicationRecord
 
   default_scope { where('deleted_at IS NULL OR deleted_at > ?', Time.current) }
 end
+
+# A default order, and a search_results scope that orders too: a search sorts by rank before them.
+class PgSearchOrderedPost < PgSearchPost
+  default_scope { order(title: :desc) }
+
+  scope :search_results, -> { order(author_id: :desc) }
+end

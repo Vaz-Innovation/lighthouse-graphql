@@ -44,6 +44,11 @@ if postgres
     scope :recent, -> { where('posts.created_at > ?', 1.year.ago) }
   end
 
+  # A default order, which a search sorts by rank before.
+  class PgOrderedPost < PgSearchedPost
+    default_scope { order(title: :desc) }
+  end
+
   class PgSearchedUser < User
     has_many :posts, class_name: 'PgSearchedPost', foreign_key: :author_id, inverse_of: false, dependent: nil
   end
@@ -422,6 +427,7 @@ RSpec.describe 'GraphQL @search', type: :request do
           title: String!
           author: PgSearchedUser! @belongsTo
         }
+        type PgOrderedPost { id: ID! title: String! }
         type Query {
           users: [PgSearchedUser!]! @all
           posts(
@@ -432,6 +438,7 @@ RSpec.describe 'GraphQL @search', type: :request do
           ): [PgSearchedPost!]! @all
           paged(search: String @search): [PgSearchedPost!]! @paginate(scopes: ["recent"])
           byTitle(search: String @search(within: "search_title")): [PgSearchedPost!]! @all
+          ordered(search: String @search): [PgOrderedPost!]! @all
           mine(search: String @search): [PgSearchedPost!]! @paginate @whereAuth(relation: "author") @orderBy(column: "id", direction: DESC)
         }
       GRAPHQL
@@ -500,6 +507,11 @@ RSpec.describe 'GraphQL @search', type: :request do
       expect(run(mutations, 'mutation { deletePosts(search: "") { id } }').dig('data', 'deletePosts')).to eq([])
       expect(titles(run(mutations, 'mutation { deletePosts(search: "bad") { title } }'), 'deletePosts')).to eq(['Bad title'])
       expect(PgSearchedPost.count).to eq(3)
+    end
+
+    it "sorts a search by rank before the model's default order, which orders the list without one" do
+      expect(titles(run(schema, '{ ordered(search: "great") { title } }'), 'ordered')).to eq(['Great great title', 'Great title', 'Plain'])
+      expect(titles(run(schema, '{ ordered { title } }'), 'ordered')).to eq(['Plain', 'Great title', 'Great great title', 'Bad title'])
     end
 
     it 'searches within the pg_search scope that is named' do

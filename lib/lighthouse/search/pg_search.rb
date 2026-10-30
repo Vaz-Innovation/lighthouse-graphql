@@ -4,7 +4,7 @@
 # returns an ActiveRecord::Relation, so the search composes with everything
 # else Lighthouse applies to the query: scopes, @builder, @whereAuth, argument
 # filters, @orderBy and nested fields. pg_search orders the rows by rank first;
-# the client's `orderBy` and the primary key follow.
+# the relation's own orders, the client's `orderBy` and the primary key follow.
 #
 # `within:` names the `pg_search_scope` to search with, `search` by default:
 #
@@ -27,17 +27,19 @@ class Lighthouse::Search::PgSearch
   # Does `index` name one of the model's pg_search scopes? (Search::Auto)
   def named?(model, index) = !index.nil? && searchable?(model, index)
 
-  # The relation narrowed to the records that match and ordered by rank. pg_search
-  # breaks the ties of rank by the primary key unless the scope names
-  # `order_within_rank:`; that tie-break is dropped, so the client's `orderBy` and the
-  # field's @orderBy, applied after, decide between equal ranks. The key still ends
-  # the order, after them (BaseDirectiveResolver#apply_search).
+  # The relation narrowed to the records that match, ordered by rank first: a
+  # search is in order of relevance, so the orders the relation had (the model's
+  # default scope, the field's `scopes:`, the search_results scope) break the ties
+  # of rank, before the client's `orderBy` and the field's @orderBy, applied after.
+  # pg_search's own tie-break, the primary key (unless the scope names
+  # `order_within_rank:`), is dropped so that they decide; the key still ends the
+  # order, after them (BaseDirectiveResolver#apply_search).
   def scope(relation, query)
     relation = Lighthouse::Search.results(relation)
     searched = relation.public_send(scope_name(query.index), query.term)
     added = searched.order_values.drop(relation.order_values.size)
-    ranked = without_key_tie_break(added, relation.klass)
-    ranked.equal?(added) ? searched : searched.reorder(*relation.order_values, *ranked)
+    orders = [*without_key_tie_break(added, relation.klass), *relation.order_values]
+    orders.empty? ? searched : searched.reorder(*orders)
   end
 
   private
