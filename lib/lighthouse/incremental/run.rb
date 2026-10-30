@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require 'active_support/core_ext/object/deep_dup'
-
 # One operation, run in as many passes as @defer asks for.
 #
 #   run = Lighthouse::GraphQL::Incremental::Run.new(schema, query, variables: {}, context: {}, stream: true).start
@@ -108,7 +106,7 @@ class Lighthouse::GraphQL::Incremental::Run
     result = @schema.multiplex([query], max_complexity: nil, context: multiplex_context).first
     return result unless @state
 
-    @tree = result.to_h['data'].deep_dup
+    @tree = result.to_h['data']
     announce(@state.drain(query))
     result
   end
@@ -215,7 +213,7 @@ class Lighthouse::GraphQL::Incremental::Run
     @errors.concat(errors.to_a)
     return { 'errors' => errors, 'extensions' => extensions } if data.nil?
 
-    merge(unit, data.deep_dup)
+    merge(unit, data)
     sub_path = unit.sub_path unless unit.stream? || unit.sub_path.empty?
     { 'id' => unit.owner.id, 'subPath' => sub_path, (unit.stream? ? 'items' : 'data') => data, 'errors' => errors,
       'extensions' => extensions }.compact
@@ -225,15 +223,38 @@ class Lighthouse::GraphQL::Incremental::Run
 
   # The response's data so far, with (a copy of) a unit's: a stream's items after the list's, a
   # fragment's fields in its object.
+  #
+  # Nothing is copied whole, and no payload changes: the response holds the first payload's
+  # data and the entries' as they are, and each Hash or list later data goes in is copied
+  # (shallowly) the first time it does, with the ones above it (@own).
   def merge(unit, data)
-    target = State.at(@tree, unit.path)
-    unit.stream? ? target&.concat(data) : deep_merge(target, data)
+    target = own_path(unit.path) or return
+    unit.stream? ? target.concat(data) : merge_into(target, data)
   end
 
-  def deep_merge(target, data)
+  # The containers along `path`, copied into the response where they are not its own yet; the last.
+  def own_path(path)
+    return nil unless @tree.is_a?(Hash)
+
+    container = @tree = own(@tree)
+    path.each do |key|
+      child = State.at(container, [key])
+      return nil unless child.is_a?(Hash) || child.is_a?(Array)
+
+      container = container[key] = own(child)
+    end
+    container
+  end
+
+  def merge_into(target, data)
     return unless target.is_a?(Hash)
 
-    data.each { |key, value| target[key].is_a?(Hash) && value.is_a?(Hash) ? deep_merge(target[key], value) : target[key] = value }
+    data.each { |key, value| target[key].is_a?(Hash) && value.is_a?(Hash) ? merge_into(target[key] = own(target[key]), value) : target[key] = value }
+  end
+
+  def own(container)
+    @own ||= {}.compare_by_identity
+    @own.key?(container) ? container : container.dup.tap { |copy| @own[copy] = true }
   end
 
   # The paths of a stream's errors, as the response's.

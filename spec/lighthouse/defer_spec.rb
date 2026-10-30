@@ -898,6 +898,21 @@ RSpec.describe 'Deferring fields' do
     end
   end
 
+  describe 'the data a streamed response keeps' do
+    it 'copies none of the first payload but the containers later data goes in, and changes no payload' do
+      started = run('{ users { id company { name } ... @defer { name } } }')
+      all = []
+      started.each_payload { |payload| all << payload }
+      first = all.first['data']['users'].first
+      whole = started.response['data']['users'].first
+
+      expect(first).to eq('id' => '1', 'company' => { 'name' => 'Acme' })
+      expect(all.last['incremental'].first).to eq('id' => '0', 'data' => { 'name' => 'u0' })
+      expect(whole).to eq('id' => '1', 'company' => { 'name' => 'Acme' }, 'name' => 'u0')
+      expect(whole['company']).to equal(first['company'])
+    end
+  end
+
   describe 'the operation events of a streamed response' do
     it 'ends the operation after the last round, with the data and the errors of every round' do
       log = []
