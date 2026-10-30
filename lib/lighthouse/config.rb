@@ -29,8 +29,7 @@ module Lighthouse
       persisted_queries_manifest persisted_queries_only on_error authenticated_user policy_user authorizer
       feature_checker feature_actor
       convert_empty_strings_to_null
-      soft_deletes
-      search
+      soft_deletes search
       queue_broadcasts broadcast_queue
       global_id
       schema_output schema_log
