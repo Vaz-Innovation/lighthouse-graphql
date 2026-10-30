@@ -72,14 +72,15 @@ class Lighthouse::GraphQL::Incremental::Run
   # fails, to run or to be written (the block raised: its app values did not encode), ends the
   # stream with a last payload, which completes, with an error, every id the client was sent and
   # has not seen completed, then raises again. A first payload that fails raises, nothing being
-  # sent. However it ends, `finish` follows.
+  # sent. `finish` is the caller's, once it has closed the stream (PersistedQueries.incremental
+  # calls it once its block is done), so the operation ends after the response does.
   #
   # A client that went away (Gone, raised by the block) stops it: nothing more is written, and
   # the operation ends with what the client was sent. An error of the app's stays the error
   # raised, even if the client has gone by the time its last payload is written.
   def each_payload(&block)
     @streaming = true
-    emit(Serializer.initial(@result, @announced, has_next: deferred?), &block)
+    first(&block)
     until @queue.empty?
       begin
         emit(next_payload, &block)
@@ -89,15 +90,14 @@ class Lighthouse::GraphQL::Incremental::Run
         fail_stream(e, &block)
       end
     end
-  ensure
-    finish
   end
 
   # The whole response as the client put it together: the data and the errors of every payload
-  # it was sent (the first pass's first), the first pass's extensions. Nothing (an empty Hash) when
-  # the payloads went out and the client left before the first.
+  # it was sent (the first pass's first), the first pass's extensions. When nothing was sent: an
+  # empty Hash if the client left before the first payload, the error the JSON path would answer
+  # (Internal server error) if that payload failed.
   def response
-    return {} if @streaming && !@delivered
+    return @refused ? { 'errors' => [{ 'message' => 'Internal server error' }] } : {} if @streaming && !@delivered
 
     first = @result.to_h
     { 'data' => @sent || first['data'], 'errors' => (first['errors'].to_a + @errors).presence, 'extensions' => first['extensions'] }.compact
@@ -112,6 +112,14 @@ class Lighthouse::GraphQL::Incremental::Run
   end
 
   private
+
+  # The initial payload: one that fails, but for a client gone, is refused (`response`).
+  def first(&block)
+    emit(Serializer.initial(@result, @announced, has_next: deferred?), &block)
+  rescue StandardError => e
+    @refused = !e.is_a?(Lighthouse::GraphQL::Incremental::Gone)
+    raise
+  end
 
   # The first pass is the schema's `execute`, as the JSON path runs a query (an app's own
   # `execute` too, with what it adds to the context): graphql-ruby parses the query once,

@@ -362,6 +362,47 @@ RSpec.describe 'Deferring fields', type: :request do
     Lighthouse::Events.reset!
   end
 
+  it 'closes the stream of a client that left at the first part, and ends the request with it, closed' do
+    gone = Object.new.tap { |stream| stream.define_singleton_method(:write) { |_| raise ActionController::Live::ClientDisconnected } }
+    allow(Lighthouse::GraphQL::Incremental::Multipart).to(receive(:new).and_wrap_original { |original, _, **options| original.call(gone, **options) })
+    seen = []
+    Lighthouse::Events.listen(Lighthouse::Events::EndRequest) { |event| (seen << [event.response.stream.closed?, event.response.body]) && nil }
+
+    Timeout.timeout(10) { stream(query) }
+
+    expect(seen).to eq([[true, '']])
+  ensure
+    Lighthouse::Events.reset!
+  end
+
+  it 'writes the closing boundary before the operation ends, and closes the stream before the request ends' do
+    order = []
+    allow_any_instance_of(Lighthouse::GraphQL::Incremental::Multipart).to receive(:finish).and_wrap_original do |original| # rubocop:disable RSpec/AnyInstance
+      (order << :boundary) && original.call
+    end
+    Lighthouse::Events.listen(Lighthouse::Events::EndOperationOrOperations) { (order << :operation) && nil }
+    Lighthouse::Events.listen(Lighthouse::Events::EndRequest) { |event| (order << [:request, event.response.stream.closed?]) && nil }
+
+    stream(query)
+
+    expect(order).to eq([:boundary, :operation, [:request, true]])
+  ensure
+    Lighthouse::Events.reset!
+  end
+
+  it 'reports an operation whose first part could not be encoded as failed, not as one that sent nothing' do
+    allow(Lighthouse::GraphQL::Incremental::Serializer).to receive(:initial).and_wrap_original do |original, *args, **options|
+      original.call(*args, **options).merge('extensions' => { 'bad' => unencodable(RuntimeError.new('cannot encode')) })
+    end
+    ended = []
+    Lighthouse::Events.listen(Lighthouse::Events::EndOperationOrOperations) { |event| (ended << event.result_or_results) && nil }
+
+    expect { stream(query) }.to raise_error(RuntimeError, 'cannot encode')
+    expect(ended).to eq([{ 'errors' => [{ 'message' => 'Internal server error' }] }])
+  ensure
+    Lighthouse::Events.reset!
+  end
+
   it 'resolves the schema once a request' do
     resolved = 0
     allow_any_instance_of(GraphqlStreamingController).to receive(:graphql_schema).and_wrap_original do |original| # rubocop:disable RSpec/AnyInstance

@@ -408,7 +408,8 @@ on the JSON path.
   fragments count for `max_complexity` and `max_depth`, as they would without `@defer`.
 - **Events.** `StartExecution` and `EndExecution` fire for the first pass, and again for each unit a
   round runs (the fragments of one path on its object, or a stream's items), with the client's
-  document; `EndRequest` after the last part.
+  document; `EndOperationOrOperations` after the closing boundary, and `EndRequest` once the stream
+  is closed ([events.md](events.md)).
 
 ### Differences from PHP Lighthouse
 

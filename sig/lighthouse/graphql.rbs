@@ -258,7 +258,6 @@ module Lighthouse
         PART_HEADERS: String
 
         def self.headers: (?String content_type) -> Hash[String, String]
-        def initialize: (_Stream stream) -> void
         # The part of a payload, encoded as render json: does (the payload holds the app's values:
         # a Time, an object's as_json; their errors are raised here).
         def part: (Hash[String, untyped] payload) -> String
@@ -268,9 +267,12 @@ module Lighthouse
         def finish: () -> void
         # The response, its stream closed, as EndRequest carries it: its body the parts written.
         def ended: (_StreamedResponse response) -> Response
+        def close: (_StreamedResponse response) -> void
+        def opened?: () -> bool
+        def initialize: (_Stream stream, ?keep: bool) -> void
 
         class Response
-          def initialize: (_StreamedResponse response, String body) -> void
+          def initialize: (_StreamedResponse response, Array[String] parts) -> void
           def body: () -> String
         end
       end

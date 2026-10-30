@@ -61,7 +61,7 @@ module Lighthouse::GraphQL::Controller
     lighthouse_development_error(e)
   ensure
     # A streamed response ends when its stream is closed: before EndRequest, or here when it failed.
-    response.stream.close if @lighthouse_multipart && !response.stream.closed?
+    @lighthouse_multipart&.close(response)
   end
 
   private
@@ -133,21 +133,23 @@ module Lighthouse::GraphQL::Controller
     render json: run.result
   end
 
-  # The payloads of `run`, one part each, written as they are ready.
-  # A part encodes before it is written, so an error of the app's values is not taken for the
-  # stream's. Until the first part is written, the response is not committed: an error then
-  # surfaces as it would on the JSON path (`execute` does not close the stream). Once it is,
-  # the stream ends here, whatever fails: Run has written the last part an error ends it with,
-  # and the error is reported and logged, and goes no further (the app's rescue_from would render
-  # on a response on its way).
+  # The payloads of `run`, one part each, written as they are ready, then the closing boundary
+  # (before the operation ends: PersistedQueries.incremental). A part encodes before it is
+  # written, so an error of the app's values is not taken for the stream's. Until the first part
+  # is written (or tried), the response is not committed: an error then surfaces as it would on
+  # the JSON path. Once it is, the stream ends here, whatever fails: Run has written the last
+  # part an error ends it with, and the error is reported and logged, and goes no further (the
+  # app's rescue_from would render on a response on its way). The parts are kept for EndRequest
+  # only when something listens to it.
   def lighthouse_stream(run)
-    multipart = Lighthouse::GraphQL::Incremental::Multipart.new(response.stream)
+    keep = Lighthouse::Events.listening?(Lighthouse::Events::EndRequest)
+    multipart = @lighthouse_multipart = Lighthouse::GraphQL::Incremental::Multipart.new(response.stream, keep: keep)
     run.each_payload { |payload| lighthouse_write(multipart, multipart.part(payload)) }
     lighthouse_write(multipart, nil)
   rescue Lighthouse::GraphQL::Incremental::Gone
     nil
   rescue StandardError => e
-    raise unless multipart&.started?
+    raise unless multipart&.opened?
 
     lighthouse_report(e)
     lighthouse_close(multipart)
@@ -161,7 +163,6 @@ module Lighthouse::GraphQL::Controller
     headers = Lighthouse::GraphQL::Incremental::Multipart.headers(Lighthouse::GraphQL::Defer.stream_type_of(request)) unless multipart.started?
     headers&.each { |name, value| response.headers[name] = value }
     part ? multipart.emit(part) : multipart.finish
-    @lighthouse_multipart = multipart
   rescue ::ActionController::Live::ClientDisconnected, ::IOError
     raise Lighthouse::GraphQL::Incremental::Gone
   end
@@ -174,13 +175,14 @@ module Lighthouse::GraphQL::Controller
     lighthouse_report(e) unless e.is_a?(Lighthouse::GraphQL::Incremental::Gone)
   end
 
-  # A streamed response EndRequest carries: closed, its body the parts written (Multipart#ended).
-  def lighthouse_response = @lighthouse_multipart ? @lighthouse_multipart.ended(response) : response
+  # The response EndRequest carries: a streamed one, whatever ended it, closed, its body the parts
+  # written (Multipart#ended).
+  def lighthouse_response = @lighthouse_multipart&.opened? ? @lighthouse_multipart.ended(response) : response
 
   # An error that ended a streamed response on its way, which `lighthouse_stream` handled: to
   # Rails.error (where the JSON path's would go, through the executor or rescue_from), and the log.
   def lighthouse_report(error)
-    logger&.error("#{error.class}: #{error.message}\n#{error.backtrace.to_a.join("\n")}")
+    lighthouse_log(error)
     ::Rails.error.report(error, handled: true, severity: :error) if defined?(::Rails) && ::Rails.respond_to?(:error)
   end
 
@@ -195,9 +197,11 @@ module Lighthouse::GraphQL::Controller
     ::ActionDispatch::ExceptionWrapper.status_code_for_exception(error.class.name) != 500
   end
 
+  # An error, with its backtrace, to the log.
+  def lighthouse_log(error) = logger&.error("#{error.class}: #{error.message}\n#{error.backtrace.to_a.join("\n")}")
+
   def lighthouse_development_error(error)
-    logger.error(error.message)
-    logger.error(error.backtrace.join("\n"))
+    lighthouse_log(error)
 
     render json: { errors: [{ message: error.message, backtrace: error.backtrace }], data: {} },
            status: :internal_server_error

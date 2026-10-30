@@ -30,20 +30,22 @@ class Lighthouse::GraphQL::Incremental::Multipart
   end
 
   # A streamed response as EndRequest carries it: closed, with the parts written as its body (the
-  # stream's own body is the client's, which the server reads as it goes).
+  # stream's own body is the client's, which the server reads as it goes), joined when read.
   class Response < SimpleDelegator
-    def initialize(response, body)
+    def initialize(response, parts)
       super(response)
-      @body = body
+      @parts = parts
     end
 
-    attr_reader :body
+    def body = @body ||= @parts.join
   end
 
-  def initialize(stream)
+  # `keep`: keep the parts written, for EndRequest's body (only when something listens to it).
+  def initialize(stream, keep: true)
     @stream = stream
     @started = false
-    @written = []
+    @opened = false
+    @written = keep ? [] : nil
   end
 
   # The part of `payload`, encoded: an error raised here is the app's values'.
@@ -53,25 +55,34 @@ class Lighthouse::GraphQL::Incremental::Multipart
 
   # Writes an encoded part: an error raised here is the stream's.
   def emit(part)
+    @opened = true
     @stream.write(part)
-    @written << part
+    @written&.push(part)
     @started = true
   end
 
   # Has a part been written?
   def started? = @started
 
+  # Was a part written, or tried: the response committed, its stream the request's to close?
+  def opened? = @opened
+
   # The closing boundary. Closing the stream is the controller's (`ended`).
   def finish
     return unless @started
 
     @stream.write("--\r\n")
-    @written << "--\r\n"
+    @written&.push("--\r\n")
   end
 
-  # `response`, its stream closed, as EndRequest carries it (Response).
+  # `response`, its stream closed, as EndRequest carries it (Response): its body the parts kept.
   def ended(response)
-    response.stream.close unless response.stream.closed?
-    Response.new(response, @written.join)
+    close(response)
+    Response.new(response, @written.to_a)
+  end
+
+  # Closes `response`'s stream, once a part was written or tried (opened?), unless it is closed.
+  def close(response)
+    response.stream.close if @opened && !response.stream.closed?
   end
 end

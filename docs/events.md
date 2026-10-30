@@ -74,10 +74,12 @@ end
 ```
 
 For a response streamed with [`@defer`](performance.md#deferring-fields-experimental),
-`EndRequest` comes once the last part is written and the stream is closed. Its `response` is the
+the events end in this order: the last part and the closing boundary are written,
+`EndOperationOrOperations` fires, the stream is closed, and `EndRequest` fires, however the stream
+ended (an error, or a client that left, even at the first part). `EndRequest`'s `response` is the
 response, but for its `body`: the parts written, as the client was sent them (the stream's own body
 is the client's, which the server reads as it goes, and reading it would take parts from the
-client).
+client). The parts are kept for it only while something listens to `EndRequest`.
 
 Without the concern, dispatch them yourself:
 `Lighthouse::Events.dispatch(Lighthouse::Events::StartRequest.new(request))`, and
@@ -102,11 +104,13 @@ With no listener, and no `ActiveSupport::Notifications` subscriber, they cost
 one lookup per request.
 
 For a response streamed with [`@defer`](performance.md#deferring-fields-experimental),
-`EndOperationOrOperations` comes after the last part, and `result_or_results` is the whole
+`EndOperationOrOperations` comes after the closing boundary, and `result_or_results` is the whole
 response as the client puts it together: a Hash of the data of every part, and the errors of every
 part (the first one's first). When the client goes away before the last part, it comes then, with
 what the client was sent (no error says so: the client left, the server did not fail): an empty
-Hash, `{}`, when it left before the first part. A query that
+Hash, `{}`, when it left before the first part. When the first part fails (a value of the app's
+that does not encode), nothing was sent and the error is the server's: `{ "errors" => [{
+"message" => "Internal server error" }] }`. A query that
 defers nothing gets its result at once, as without `@defer`.
 
 The fragments deferred with [`@defer`](performance.md#deferring-fields-experimental) run after the
