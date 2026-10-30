@@ -697,15 +697,34 @@ RSpec.describe '@search' do
         end.to raise_error(Lighthouse::DefinitionError, /SearchPost.relatedCount\(search\): .*needs @all, @paginate/)
       end
 
-      it 'refuses a default value a directive the engine cannot apply would apply to every search, as an argument or an input field' do
-        {
-          'posts(search: String @search, orderBy: [OrderByClause!] = [{ column: "title", order: ASC }] @orderBy): [SearchPost!]! @all' =>
-            '@orderBy on orderBy',
-          'posts(search: String @search, minId: Int = 1 @where(operator: ">", key: "id")): [SearchPost!]! @all' => '@where on minId',
-          'posts(search: String @search, filter: PostsFilter): [SearchPost!]! @all' => '@neq on filter.title'
-        }.each do |field, refused|
-          expect { build_schema("type SearchPost { id: ID! } input PostsFilter { title: String = \"x\" @neq } type Query { #{field} }") }
-            .to raise_error(Lighthouse::DefinitionError, /Engine cannot apply #{Regexp.escape(refused)}, whose default value/)
+      describe 'default values, as graphql-ruby fills them in' do
+        def build_filtered(arguments)
+          build_schema(<<~GRAPHQL)
+            type SearchPost { id: ID! }
+            input PostsFilter { title: String = "x" @neq, minId: Int @where(operator: ">", key: "id") }
+            input PostsWhere { filter: PostsFilter }
+            type Query { posts(search: String @search, #{arguments}): [SearchPost!]! @all }
+          GRAPHQL
+        end
+
+        it 'refuses one a directive the engine cannot apply would apply to every search the client sends without it' do
+          {
+            'orderBy: [OrderByClause!] = [{ column: "title", order: ASC }] @orderBy' => '@orderBy on orderBy',
+            'minId: Int = 1 @where(operator: ">", key: "id")' => '@where on minId',
+            'filter: PostsFilter = { minId: 1 }' => '@neq on filter.title',
+            'filter: PostsFilter = { title: null, minId: 1 }' => '@where on filter.minId',
+            'filter: PostsFilter!' => '@neq on filter.title',
+            'where: PostsWhere = { filter: {} }' => '@neq on where.filter.title',
+            'filters: [PostsFilter!] = [{ title: null }, {}]' => '@neq on filters.*.title'
+          }.each do |arguments, refused|
+            expect { build_filtered(arguments) }
+              .to raise_error(Lighthouse::DefinitionError, /Engine cannot apply #{Regexp.escape(refused)}, whose default value/), arguments
+          end
+        end
+
+        it "accepts an input field's default under a parent the client may leave out, which applies only when it sends the parent" do
+          expect { build_filtered('filter: PostsFilter, where: PostsWhere, filters: [PostsFilter!]') }.not_to raise_error
+          expect { build_filtered('filter: PostsFilter = null') }.not_to raise_error
         end
       end
 

@@ -433,8 +433,12 @@ At run time, a client that sends an argument whose directive the engine cannot a
 `@like`, `@orderBy`, `@whereConditions`, ...) with a search, or two `@search` arguments, gets an error,
 as in PHP Lighthouse. Such an argument with a **default value** would be sent on every search, as
 graphql-ruby fills the default in (and PHP Lighthouse fails every search of the field): it is a schema
-error, on an argument or an input field at any depth. A default for `@eq`, `@trashed` or `@builder`
-is fine. (`@in`, `@notIn` and `@whereKey`, which Scout has as `whereIn` / `whereNotIn`, are
+error. So is an input field that holds a value the client did not send, as graphql-ruby fills it in:
+the value an argument's default object gives it, else its own default, inside a default object or an
+input object the client must send (`filter: PostFilter!`). An input field's default under a parent the
+client may leave out (`filter: PostFilter`) applies only when it sends the parent, and is not refused:
+a search with that parent is then the run-time error above.
+A default for `@eq`, `@trashed` or `@builder` is fine. (`@in`, `@notIn` and `@whereKey`, which Scout has as `whereIn` / `whereNotIn`, are
 not supported yet.)
 
 **Order.** The engine's relevance; ties as the engine breaks them. `@orderBy` is refused with a search;

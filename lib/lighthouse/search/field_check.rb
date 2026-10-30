@@ -94,13 +94,14 @@ class Lighthouse::Search::FieldCheck
     end
   end
 
-  # "@where on minId" for every argument or input field with a default value, and
-  # a directive an engine cannot apply: graphql-ruby fills the default in, as PHP
-  # Lighthouse's arguments hold it, so the directive would apply to every search.
+  # "@where on filter.minId" for every argument or input field that holds a value
+  # the client did not send (Support::ArgumentWalk.implicit: graphql-ruby fills
+  # defaults in, as PHP Lighthouse's arguments hold them), with a directive an
+  # engine cannot apply: it would apply to every search the client sends without it.
   def defaulted_constraints
     registry = Lighthouse::DirectiveRegistry.default
     walk = Lighthouse::Support::ArgumentWalk
-    walk.definitions(@field_def.arguments).select { |_path, argument| argument.default_value? }.flat_map do |path, argument|
+    walk.implicit(@field_def.arguments).flat_map do |path, argument|
       walk.directives(argument).filter_map do |directive|
         builder = registry.arg_builder_class(directive.name)
         next if builder.nil? || directive.name == 'search' || Lighthouse::Search::Enhancer.compatible?(builder)
