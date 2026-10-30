@@ -25,6 +25,8 @@ module Lighthouse::Events
     end
   end
 
+  PARTIAL = (::GraphQL::Query::Partial if defined?(::GraphQL::Query::Partial))
+
   @listeners = [].freeze
   @mutex = Mutex.new
 
@@ -69,9 +71,10 @@ module Lighthouse::Events
     end
 
     # The query of the operation `query` runs: a GraphQL::Query::Partial (a deferred fragment's
-    # run, see Defer) runs part of one; a GraphQL::Query is its own.
+    # run, see Defer) runs part of one; a GraphQL::Query is its own. graphql-ruby has Partial from
+    # 2.5.6 (PARTIAL, nil before), and only Defer, which needs a later one, runs them.
     def operation_query(query)
-      query.is_a?(::GraphQL::Query::Partial) ? query.query : query
+      PARTIAL && query.is_a?(PARTIAL) ? query.query : query
     end
 
     # The ActiveSupport::Notifications name an event class is instrumented as.

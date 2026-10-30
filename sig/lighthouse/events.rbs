@@ -45,6 +45,9 @@ module Lighthouse
     # query it runs part of.
     def self.operation_query: (_Query query) -> _Query
 
+    # GraphQL::Query::Partial, where graphql-ruby has it (2.5.6 on).
+    PARTIAL: Class?
+
     # The ActiveSupport::Notifications name an event class is instrumented as.
     def self.notification_name: (Class event_class) -> String
 
