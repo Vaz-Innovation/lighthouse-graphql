@@ -80,9 +80,21 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Lighthouse fails every search of such a field). A relational engine (pg_search) applies them all.
   `enhance_builder` refuses, with Searchkick, a relation that selects other records than the
   model's own (a narrowed one, `unscoped`, `with_deleted`, ...), whose conditions PHP Lighthouse
-  drops. A Searchkick model that narrows what loads without `search_where`, whose totals PHP
-  Lighthouse lets count other tenants' matches, is a schema error too; a nested `@paginate` whose
-  parent type is no model is one, and a record that pages an association there a client error.
+  drops. A Searchkick model that declares a default scope (any, whatever it reads as a request
+  runs) or a `search_results` scope without `search_where`, whose totals PHP Lighthouse lets count
+  other tenants' matches, is a schema error too; a nested `@paginate` whose parent type is no model
+  is one, and a record that pages an association there a client error.
+
+### Fixed
+
+- **`@find` keeps `@whereAuth` and the query's context.** Its filters ran without the context, so
+  `@whereAuth` never saw the user and an argument `@builder` got none, and a lookup by `id` alone was
+  batched past the field's own query directives: `post(id:) @find @whereAuth(relation: "author")`
+  answered another user's post. It now passes the context, and batches only a field with no query
+  directive of its own.
+- **`@canQuery`, `@canFind` and `@canModel` tell their model when the schema is built.** A field
+  whose model cannot be told (a type that is no model, and no `model:`) built, and every query of it
+  raised an internal error; the schema now fails to build with that message.
 
 ## [0.8.2] - 2026-10-30
 
