@@ -64,6 +64,9 @@ module Lighthouse
     # with the Search::Query. @eq, @trashed and @builder on an argument do.
     module SearchBuilder
       include Directive
+
+      # Narrow the search by the client's value, writing to the query (`where`, `trashed`, `options`).
+      def handle_search_builder: (Search::Query query, untyped value) -> Search::Query
     end
   end
 
@@ -221,6 +224,16 @@ module Lighthouse
           # Constrain the relation by the value the client gave the argument
           # (whatever its type allows, so untyped).
           def handle_builder: (relation relation, untyped value) -> relation
+
+          # Does the directive, as the SDL writes it, change the field's query? A
+          # Searchkick search takes one that does not (@limit without `builder: true`).
+          def self.changes_query?: (_DirectiveNode? directive_node) -> bool
+
+          # Does the client's value, once sent, narrow the query? (@search: only a string.)
+          def self.filters?: (untyped value) -> bool
+
+          # Does the directive run the field's search (@search)?
+          def self.searches?: () -> bool
 
           private
 

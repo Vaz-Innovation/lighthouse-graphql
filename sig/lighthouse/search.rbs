@@ -18,6 +18,9 @@ module Lighthouse
     # The relation through the model's `search_results` scope, if it has one.
     def self.results: (_ModelRelation relation) -> _ModelRelation
 
+    # Does the field have an argument or input field with @search? Walked once per field.
+    def self.searching?: (_FieldDefinition field_def) -> bool
+
     # What a search holds: the model, the term and what narrows it.
     class Query
       attr_reader model: Class

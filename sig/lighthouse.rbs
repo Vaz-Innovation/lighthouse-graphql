@@ -395,6 +395,12 @@ module Lighthouse
 
   module Support
     module SoftDeletes
+      # :only, :with or :without, for a Trashed enum value; a client error for any other.
+      def self.trashed: (untyped value) -> (:only | :with | :without)
+      # The column that marks the model's trashed records, as the adapter tells it, and its value for the others.
+      def self.column: (Class model) -> String?
+      def self.kept_value: (Class model) -> untyped
+
       # A nullable timestamp column marking trashed records, with no gem:
       # `Config.soft_deletes = Support::SoftDeletes::Column.new(:archived_at)`.
       class Column
