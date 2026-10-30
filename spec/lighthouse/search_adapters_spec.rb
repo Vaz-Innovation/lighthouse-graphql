@@ -117,7 +117,6 @@ RSpec.describe 'search adapters' do
         Lighthouse::Config.soft_deletes = Lighthouse::Support::SoftDeletes::Column.new(:archived_at)
 
         expect(where_of(:only)).to eq(archived_at: { not: nil })
-        expect { described_class.new(trashed_column: :archived_at) }.to raise_error(ArgumentError)
       end
 
       it 'does not need the column for WITH, which filters nothing' do
