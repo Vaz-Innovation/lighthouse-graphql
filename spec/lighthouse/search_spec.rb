@@ -651,6 +651,17 @@ RSpec.describe '@search' do
       expect(relational.queries).to be_empty
     end
 
+    it 'ends the order with the primary key, after the orders that decide ties, once' do
+      last_order = lambda do |query|
+        queries_in { run(schema, query) }.grep(/FROM "search_posts"/).last[/ORDER BY .*\z/]
+      end
+
+      expect(last_order.call('{ posts(search: "great") { title } }')).to eq('ORDER BY "search_posts"."id" ASC')
+      expect(last_order.call('{ posts(search: "great", orderBy: [{ column: ID, order: DESC }]) { title } }'))
+        .to eq('ORDER BY "search_posts"."id" DESC')
+      expect(last_order.call('{ posts { title } }')).to be_nil
+    end
+
     it 'pages, counts, takes the first and counts the relation' do
       paged = run(schema, '{ paged(first: 2, search: "great", authorId: 1) { data { title } paginatorInfo { total } } }')
       expect(paged.dig('data',

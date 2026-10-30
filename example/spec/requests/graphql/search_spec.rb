@@ -429,6 +429,17 @@ RSpec.describe 'GraphQL @search', type: :request do
       expect(result.dig('data', 'paged', 'paginatorInfo', 'total')).to eq(3)
     end
 
+    it 'ends the order with the primary key, after the rank and the orders that break its ties' do
+      order_of = lambda do |query|
+        sql_in { run(schema, query) }.grep(from(:posts)).last.sub(%r{\s*/\*.*\*/\z}, '')[/ORDER BY .*\z/]
+      end
+      key = %("posts"."id")
+
+      expect(order_of.call('{ byTitle(search: "plain") { title } }')).to match(/\AORDER BY .*rank"? DESC, #{Regexp.escape(key)} ASC\z/)
+      expect(order_of.call('{ posts(search: "great", orderBy: [{ column: ID, order: DESC }]) { title } }'))
+        .to match(/rank"? DESC, #{Regexp.escape(key)} DESC\z/)
+    end
+
     it 'searches within the pg_search scope that is named' do
       expect(titles(run(schema, '{ byTitle(search: "plain") { title } }'), 'byTitle')).to eq(['Plain'])
     end

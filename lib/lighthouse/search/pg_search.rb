@@ -27,8 +27,8 @@ class Lighthouse::Search::PgSearch
   # The relation narrowed to the records that match and ordered by rank. pg_search
   # breaks the ties of rank by the primary key unless the scope names
   # `order_within_rank:`; that tie-break is dropped, so the client's `orderBy` and the
-  # field's @orderBy, applied after, decide between equal ranks (@paginate still ends
-  # the order with the key).
+  # field's @orderBy, applied after, decide between equal ranks. The key still ends
+  # the order, after them (BaseDirectiveResolver#apply_search).
   def scope(relation, query)
     relation = Lighthouse::Search.results(relation)
     searched = relation.public_send(scope_name(query.index), query.term)

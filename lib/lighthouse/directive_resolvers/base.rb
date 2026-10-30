@@ -37,10 +37,11 @@ class Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
     return relation unless relation.respond_to?(:where)
 
     args_h = args.respond_to?(:to_h) ? args.to_h : (args || {})
-    relation = apply_search(relation, args_h, ctx, search_results)
-    return relation if relation.is_a?(Lighthouse::Search::Result)
+    searched = apply_search(relation, args_h, ctx, search_results)
+    return searched if searched.is_a?(Lighthouse::Search::Result)
 
-    apply_query_filters(relation, args_h, ctx)
+    filtered = apply_query_filters(searched, args_h, ctx)
+    searched.equal?(relation) ? filtered : Lighthouse::GraphQL::Pagination.stable_order(filtered)
   end
 
   # Compose argument-builder directives (@eq, @neq, @in, @notIn, @like,
@@ -115,7 +116,10 @@ class Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
   end
 
   # The relation searched, when the client sent a string for an argument with @search
-  # (Search::Enhancer): its errors are the client's or the schema's, never swallowed.
+  # (Search::Enhancer), else the relation itself: its errors are the client's or
+  # the schema's, never swallowed. A relational search's order ends with the primary
+  # key once every other order applies (apply_where_filters), so the matches that
+  # rank, and sort, alike come back in one order, whatever the field resolves with.
   def apply_search(relation, args_h, ctx, results)
     return relation unless searching? && @field_def.ast_node
 
