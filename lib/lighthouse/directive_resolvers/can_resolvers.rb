@@ -64,7 +64,10 @@ module Lighthouse::GraphQL::DirectiveResolvers
     def self.model? = false
 
     def define_resolver(target_type_class)
-      model_class if self.class.model? # a field whose model cannot be told fails the build, not a query
+      # A field whose model cannot be told fails the build, not a query. On an
+      # argument, the model is looked for only when the client gives it a value:
+      # an input type may be shared with fields that have no model.
+      model_class if self.class.model? && !@opts[:argument]
       me = self
       inner = capture_inner(target_type_class)
       install(target_type_class, lambda do |obj, args, ctx|

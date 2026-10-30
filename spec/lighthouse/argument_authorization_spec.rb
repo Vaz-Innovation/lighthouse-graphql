@@ -58,4 +58,30 @@ RSpec.describe '@canModel on arguments' do
   it "follows the directive's action:" do
     expect(run('{ quiet(trashed: WITH) { name } }', reader)).to eq('data' => { 'quiet' => [] })
   end
+
+  # An input field's @canModel without `model:` takes the model of the field it is
+  # given to, so the field's model is looked for only when the client gives it.
+  it 'builds an input with @canModel that a field without a model also takes' do
+    shared = build_schema(<<~GRAPHQL)
+      type Query {
+        tasks(filter: LooseFilter): [SoftTask!]! @all
+        total(filter: LooseFilter): Int @field(resolver: "ArgumentAuthorizationSpecTotal@call")
+      }
+
+      input LooseFilter {
+        trashed: Trashed @trashed @canModel(ability: "view_trashed")
+      }
+
+      type SoftTask { id: ID! name: String }
+    GRAPHQL
+    run = ->(query, user) { shared.execute(query, context: { current_user: user }).to_h }
+
+    expect(run.call('{ total }', reader)).to eq('data' => { 'total' => 2 })
+    expect(run.call('{ tasks(filter: { trashed: ONLY }) { name } }', admin).dig('data', 'tasks')).to eq([{ 'name' => 'gone' }])
+    expect(run.call('{ tasks(filter: { trashed: ONLY }) { name } }', reader)['errors'].pluck('message')).to eq(['This action is unauthorized.'])
+  end
+end
+
+class ArgumentAuthorizationSpecTotal
+  def self.call(_obj, _args, _ctx) = SoftTask.count
 end
