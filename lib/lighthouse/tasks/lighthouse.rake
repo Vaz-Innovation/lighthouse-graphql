@@ -47,7 +47,7 @@ namespace :lighthouse do
 
   desc 'Build the schema, dispatch the ValidateSchema event and check graphql-ruby accepts it (SCHEMA=AppSchema)'
   task validate_schema: :environment do
-    schema = Object.const_get(ENV.fetch('SCHEMA', 'AppSchema'))
+    schema = Lighthouse::GraphQL::SchemaPrinter.app_schema(ENV.fetch('SCHEMA', nil))
     Lighthouse::Events.dispatch(Lighthouse::Events::ValidateSchema.new(schema))
     schema.to_definition # builds every type: unresolvable references and duplicate names raise
     puts "#{schema} is valid."
@@ -58,7 +58,7 @@ namespace :lighthouse do
   namespace :persisted_queries do
     desc 'Validate every operation of the persisted query manifest against the schema (SCHEMA=AppSchema)'
     task verify: :environment do
-      schema = Object.const_get(ENV.fetch('SCHEMA', 'AppSchema'))
+      schema = Lighthouse::GraphQL::SchemaPrinter.app_schema(ENV.fetch('SCHEMA', nil))
       failures = Lighthouse::GraphQL::PersistedQueries.manifest.filter_map do |hash, body|
         errors = schema.validate(body)
         "#{hash}: #{errors.map(&:message).join('; ')}" if errors.any?

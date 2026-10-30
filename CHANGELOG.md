@@ -25,8 +25,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `lighthouse:print_schema` takes PHP Lighthouse's options: `FORMAT=json` (the introspection
   result), `FORMAT=federation` (a subgraph's SDL), and `WRITE=1` / `WRITE=path` to write a
   file (schema_output's, else `lighthouse-schema.graphql`). graphql-ruby already prints in
-  alphabetical order, so there is no `--sort`. With no `SCHEMA=`, it prints `<App>Schema`,
-  the name graphql-ruby's install gives, before trying `AppSchema`.
+  alphabetical order, so there is no `--sort`. With no `SCHEMA=`, it and the other tasks
+  (`validate_schema`, `persisted_queries:verify`) take `<App>Schema`, the name graphql-ruby's
+  install gives, before trying `AppSchema`.
 
 ### Changed
 
