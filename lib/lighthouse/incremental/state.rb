@@ -129,14 +129,14 @@ class Lighthouse::GraphQL::Incremental::State
     candidates = values[name][arguments.keyword_arguments] or return nil
     return candidates.first if candidates.one?
 
-    definition = @query.schema.directives[name]
+    definition = document.directive(name)
     candidates.find { |directive| query.arguments_for(directive, definition).equal?(arguments) }
   end
 
   # The document's @defer and @stream, by name, then by the values of their arguments.
   def values
     @values ||= %w[defer stream].to_h do |name|
-      definition = @query.schema.directives[name]
+      definition = document.directive(name)
       [name, document.directives(name).group_by { |directive| @query.arguments_for(directive, definition).keyword_arguments }]
     end
   end

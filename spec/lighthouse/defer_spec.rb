@@ -297,6 +297,22 @@ RSpec.describe 'Deferring fields' do
       expect(walks.call(3)).to eq(walks.call(1))
     end
 
+    it "looks the schema's directives up once a request, not once a selection" do
+      lookups = lambda do |count|
+        LH::User.where.not(id: LH::User.order(:id).limit(count).select(:id)).find_each { |user| user.posts.each(&:delete) && user.delete }
+        calls = 0
+        allow(schema).to receive(:directives).and_wrap_original do |original|
+          caller = caller_locations.find { |location| location.path.exclude?('/rspec-') }
+          (calls += 1) if caller.path.include?('/lib/lighthouse/incremental/')
+          original.call
+        end
+        payloads('{ users { ... @defer { name @include(if: true) posts { title @skip(if: false) ... @defer { id } } } } }')
+        calls
+      end
+
+      expect(lookups.call(3)).to eq(lookups.call(1))
+    end
+
     it 'parses the query once' do
       allow(GraphQL).to receive(:parse).and_call_original
 

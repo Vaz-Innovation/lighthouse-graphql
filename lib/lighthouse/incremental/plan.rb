@@ -116,7 +116,7 @@ class Lighthouse::GraphQL::Incremental::Plan
 
   def defer(fragment, spot)
     directive = fragment.directives.find { |candidate| candidate.name == 'defer' }
-    label = @query.arguments_for(directive, @schema.directives['defer'])[:label]
+    label = @query.arguments_for(directive, @document.directive('defer'))[:label]
     @state.found(self,
                  State::Pending.new(node: fragment, object: spot.object, type: spot.type, path: spot.path, label: label, parent: spot.group.first))
     []

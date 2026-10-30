@@ -74,15 +74,9 @@ class Lighthouse::GraphQL::Incremental::Document
     (@index ||= index)[pattern] || []
   end
 
-  # Do the node's @skip and @include let it through?
+  # Do the node's @skip and @include let it through? graphql-ruby's own check, as its runtime makes it.
   def included?(node, query)
-    node.directives.all? do |directive|
-      case directive.name
-      when 'skip' then !argument(directive, query)
-      when 'include' then argument(directive, query)
-      else true
-      end
-    end
+    ::GraphQL::Execution::DirectiveChecks.include?(node.directives, query)
   end
 
   # Does the fragment's type condition hold for an object of the object type `type`?
@@ -95,7 +89,12 @@ class Lighthouse::GraphQL::Incremental::Document
   # Does the fragment carry a @defer that `if` does not turn off?
   def deferred?(fragment, query)
     directive = fragment.directives.find { |candidate| candidate.name == 'defer' } or return false
-    argument(directive, query) != false
+    query.arguments_for(directive, directive('defer'))[:if] != false
+  end
+
+  # The schema's directive `name`: Schema.directives builds its Hash on every call, so once a request.
+  def directive(name)
+    (@directive_definitions ||= {})[name] ||= @schema.directives[name]
   end
 
   # The selections the later items of a streamed list run: those of each declaration of the field
@@ -115,10 +114,6 @@ class Lighthouse::GraphQL::Incremental::Document
   end
 
   private
-
-  def argument(directive, query)
-    query.arguments_for(directive, @schema.directives[directive.name])[:if]
-  end
 
   def holds?(declaration, parent_type, query)
     (declaration.gates + declaration.around + [declaration.field]).all? { |node| included?(node, query) } &&
