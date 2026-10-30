@@ -19,9 +19,10 @@ require 'set'
 class Lighthouse::GraphQL::Incremental::Document
   Nodes = ::GraphQL::Language::Nodes
   DIRECTIVES = %w[defer stream].freeze
-  # A directive named defer or stream, as the lexer reads one (`@`, then ignored characters): a
-  # text without one uses neither (one with it may not: a comment, a string).
-  INCREMENTAL = /@[\s,\uFEFF]*(?:defer|stream)\b/
+  # The name defer or stream, as a word: a text without it uses neither directive (one with it may
+  # not: a field, a comment, a string), whatever the lexer ignores between `@` and the name
+  # (whitespace, commas, a BOM, comments).
+  INCREMENTAL = /\b(?:defer|stream)\b/
 
   # A declaration of a field: the field node, the fragments around it in its parent's
   # selection set (`around`, whose type conditions are the parent object's), the fragments and

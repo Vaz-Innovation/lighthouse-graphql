@@ -949,6 +949,15 @@ RSpec.describe 'Deferring fields' do
       expect(LH::User.where(name: 'z')).to be_empty
     end
 
+    it 'checks a directive the lexer reads through comments and other ignored tokens between @ and its name' do
+      query = "{ users { ... @ # a comment\n , defer(label: \"x\") { name } ... @\uFEFF,#\ndefer(label: \"x\") { id } } }"
+      message = 'The label "x" is used by more than one @defer or @stream in the document.'
+
+      expect(errors(query)).to eq([message])
+      expect(schema.execute(query).to_h['errors'].pluck('message')).to eq([message])
+      expect(run("{ users { id ... @#c\ndefer { name } } }")).to be_deferred
+    end
+
     it 'refuses a label two directives share anywhere in the document, not only in the operation that runs' do
       query = 'query A { users { ... @defer(label: "x") { name } } } query B { users { ... @defer(label: "x") { id } } }'
 

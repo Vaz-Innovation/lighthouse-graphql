@@ -33,7 +33,7 @@ class Lighthouse::GraphQL::Incremental::Rules < GraphQL::Analysis::Analyzer
   end
 
   # The text the query was given (graphql-ruby's Query#query_string would print a document given
-  # instead): the lexer's view of it first, the document's walk only where it may use one.
+  # instead): the names defer and stream in it first, the document's walk only where it has one.
   def analyze?
     text = query.instance_variable_get(:@query_string)
     return false if text.is_a?(String) && !Lighthouse::GraphQL::Incremental::Document::INCREMENTAL.match?(text)
