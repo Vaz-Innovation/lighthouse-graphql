@@ -90,6 +90,17 @@ updateAvatar(avatar: Upload! @upload(disk: "avatars", path: "users", public: tru
 `@upload` runs once `@guard`, the `@can*` family and `@validator` have let the call
 through, so a refused call stores nothing.
 
+## Serving the files: `@attachment`
+
+[`@attachment`](directives.md#attachment) answers the URL of an attachment, loading
+every parent's at once:
+
+```graphql
+type User {
+  avatarUrl: String @attachment
+}
+```
+
 ## The request
 
 ```shell

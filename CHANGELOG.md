@@ -8,6 +8,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`@attachment` answers the URL of an ActiveStorage attachment**, or the URLs of a
+  `has_many_attached`: the read side of `@upload`. Every parent's attachments and blobs load
+  at once (two queries for any number of parents), the name defaults to the field's without
+  `Url`/`Urls` (`avatarUrl` reads `avatar`), and `url:` picks Rails' `REDIRECT` (default),
+  `PROXY`, or the service's `DIRECT` URL signed for `expiresIn`; `variant:` names a variant.
 - **`@canModel` on an argument or input field: who may use it.** It checks its ability against
   the model only when the client gives that argument a value, at any depth (in each input of
   a list too), with the field's `@can*` directives and their `action:`.

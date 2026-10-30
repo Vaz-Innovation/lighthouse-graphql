@@ -41,8 +41,10 @@ type User @cacheControl(maxAge: 300) {
   "Their posts, published or not — a plain list, loaded in one query per page of users, with their tags."
   posts: [Post!]! @hasMany @lazyLoad(relations: ["tags"])
   postsCount: Int! @count(relation: "posts")
-  "Where their avatar is served, when they set one (Mutation.updateAvatar)."
-  avatarUrl: String @method
+  "Where their avatar is served, when they set one (Mutation.updateAvatar). Every user's avatar loads at once."
+  avatarUrl: String @attachment
+  "Their avatar served straight from the storage service, with a URL valid for five minutes."
+  avatarDirectUrl: String @attachment(name: "avatar", url: DIRECT, expiresIn: 300)
   "Their newest post's title. @with loads every user's posts at once; User#latest_post_title reads them."
   latestPostTitle: String @with(relation: "posts") @method
   """

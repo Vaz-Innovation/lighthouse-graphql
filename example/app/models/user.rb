@@ -21,9 +21,4 @@ class User < ApplicationRecord
   def latest_post_title
     posts.max_by(&:created_at)&.title
   end
-
-  # User.avatarUrl calls it through @method.
-  def avatar_url
-    Rails.application.routes.url_helpers.rails_blob_path(avatar, only_path: true) if avatar.attached?
-  end
 end

@@ -122,6 +122,7 @@ require_relative 'namespaces'
   directive_resolvers/event_resolver
   directive_resolvers/convert_empty_strings_resolver
   directive_resolvers/with_resolver
+  directive_resolvers/attachment_resolver
   directive_resolvers/with_count_resolver
   directive_resolvers/lazy_load_resolver
   directive_resolvers/limit_resolver

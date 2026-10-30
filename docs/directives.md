@@ -252,6 +252,35 @@ keywords (`def summary(words:)`), otherwise positionally, in the order the SDL
 declares them, as PHP Lighthouse passes them (`def summary(words)`). The SDL's
 defaults apply, and a method taking no parameters is called without them.
 
+### `@attachment`
+
+The URL of an ActiveStorage attachment of the parent, or the URLs of a
+`has_many_attached`: the read side of [`@upload`](uploads.md). Lighthouse's own, as
+Laravel has no ActiveStorage.
+
+```graphql
+type User {
+  avatarUrl: String @attachment                                   # has_one_attached :avatar
+  avatarThumbUrl: String @attachment(name: "avatar", variant: "thumb")
+  photoUrls: [String!]! @attachment(url: PROXY)                   # has_many_attached :photos
+}
+```
+
+- **`name`** defaults to the field's name without its `Url` / `Urls` suffix:
+  `avatarUrl` reads `avatar`, `photoUrls` reads `photos`. A missing attachment is
+  `null`, a model without one of that name an error.
+- **Every parent's attachments and blobs load at once**, two queries for any
+  number of users (`avatar_attachment: :blob`, what `User.with_attached_avatar`
+  loads), through the Dataloader when the schema uses it.
+- **`url`**: `REDIRECT` (default) is Rails' redirect to the storage service,
+  `PROXY` streams the file through the app, and `DIRECT` is the service's own URL,
+  signed for `expiresIn` seconds on a private one (`ActiveStorage.service_urls_expire_in`
+  by default). The URL is absolute with the request's host, else a path.
+- **`variant`** names a variant of the attachment
+  (`has_one_attached :avatar { |attachable| attachable.variant :thumb, resize_to_limit: [100, 100] }`).
+  A file that is not an image has none: `null`. A `REDIRECT` or `PROXY` variant is
+  processed when its URL is first followed; `DIRECT` processes it while resolving.
+
 ## Relay
 
 ### `@globalId` and `@node`

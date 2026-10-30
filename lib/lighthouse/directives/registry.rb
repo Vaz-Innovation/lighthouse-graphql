@@ -202,7 +202,7 @@ class Lighthouse::DirectiveRegistry
     CacheDirectiveResolver ClearCacheDirectiveResolver EventDirectiveResolver
     ValidatorDirectiveResolver ConvertEmptyStringsToNullDirectiveResolver
     SubscriptionDirectiveResolver BroadcastDirectiveResolver
-    WithDirectiveResolver WithCountDirectiveResolver LazyLoadDirectiveResolver
+    WithDirectiveResolver WithCountDirectiveResolver LazyLoadDirectiveResolver AttachmentDirectiveResolver
     GlobalIdDirectiveResolver NamespacedDirectiveResolver ThrottleDirectiveResolver AsyncDirectiveResolver
   ].freeze
 
