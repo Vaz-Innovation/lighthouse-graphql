@@ -362,6 +362,9 @@ Experimental. On a fragment: its fields arrive after the rest of the response, s
 Lighthouse::GraphQL::Defer` adds it, and clients write it in their queries, as the
 [specification draft](https://github.com/graphql/graphql-spec/pull/1110) has it
 (`directive @defer(if: Boolean! = true, label: String) on FRAGMENT_SPREAD | INLINE_FRAGMENT`).
+PHP Lighthouse's `@defer` goes on a field instead: `parent @defer { name }` is written
+`... @defer { parent { name } }` here. Not on a root mutation field; limits:
+[`defer_max_nested_fields` and `defer_max_execution_ms`](configuration.md#defer_max_nested_fields-and-defer_max_execution_ms).
 Guide: [performance.md](performance.md#deferring-fields-experimental).
 
 ### `@stream`

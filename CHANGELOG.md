@@ -68,22 +68,30 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   fails the field, reported to `Config.on_error`, rather than answer what it would have left out; so
   does the engine, whenever a page asks it.
   See [Full-text search](docs/filtering-and-ordering.md#full-text-search).
-- **`@defer` (experimental).** `use Lighthouse::GraphQL::Defer` in the schema class adds the
-  directive as the specification draft has it (graphql-spec PR #1110: on fragments, with
-  `if` and `label`, answered as `pending` / `incremental` / `completed` / `hasNext`), and a
-  controller that includes `ActionController::Live` streams it as `multipart/mixed` to a client
-  that accepts it. The first pass leaves the deferred fragments out; each one then runs on the
-  objects the first pass loaded, once, through `GraphQL::Query::Partial`, so a field's
-  directives run once, a mutation does not run again, and the Dataloader still batches across a
-  list. Fragments nest, and may sit under a mutation's root field. The whole document goes
-  through validation and complexity analysis first. Other clients get one ordinary response.
-  New settings: `defer_max_nested_fields`, `defer_max_execution_ms`. Needs graphql-ruby 2.5.21. See
-  [performance.md](docs/performance.md#deferring-fields-experimental). PHP Lighthouse's
-  field-level `@defer`, which runs the query again for each round, is not what this is.
-- **`@stream` (experimental)**, with `@defer`: `users @stream(initialCount: 2) { name }` answers the
-  first items at once and the rest in a later part (`items`, the draft's format). A graphql-ruby field
-  extension on the schema's list fields cuts the list after its resolver ran, once; the later items'
-  selections run together, so the Dataloader still batches. Items may carry `@defer`.
+- **`@defer` (experimental)**, PHP Lighthouse's extension, on the specification draft's terms.
+  `use Lighthouse::GraphQL::Defer` in the schema class adds the directive as the draft has it
+  (graphql-spec PR #1110: on fragments, with `if` and `label`, answered as `pending` /
+  `incremental` / `completed` / `hasNext`), and a controller that includes
+  `ActionController::Live` streams it as `multipart/mixed` to a client that accepts it; other
+  clients get one ordinary response. As PHP Lighthouse's, a response goes in rounds, one payload
+  each, and stops deferring past its limits, with their names and meaning:
+  `defer_max_nested_fields` and `defer_max_execution_ms` (0, the default, for none). PHP
+  Lighthouse's rules hold: no `@defer` on a root mutation field ("The @defer directive cannot be
+  used on a root mutation field.", inline or through a named fragment), a field is deferred only if
+  every declaration of it is, `@skip` and `@include` answer first, and a deferred field's errors
+  come with it. The rules are checked for every query, streamed or not, by a graphql-ruby analyzer.
+  Unlike PHP Lighthouse's, `@defer` goes on fragments, not fields (`... @defer { parent { name } }`
+  for `parent @defer { name }`); the format is the draft's, not Apollo's 2018 one; a round runs only
+  the pending fragments, on the objects already loaded (`GraphQL::Query::Partial`), not the whole
+  query again, so a field resolves once, a mutation runs once and the Dataloader batches across a
+  round; and a Non-Null field can be deferred. Needs graphql-ruby 2.5.21. See
+  [performance.md](docs/performance.md#deferring-fields-experimental), which lists the differences.
+- **`@stream` (experimental)**, with `@defer` (PHP Lighthouse has none): `users @stream(initialCount: 2)
+  { name }` answers the first items at once and the rest in a later part (`items`, the draft's
+  format). A graphql-ruby field extension on the schema's list fields cuts the list after its
+  resolver ran, once; a field that is not streamed costs it next to nothing. The later items'
+  selections run together, so the Dataloader still batches. Items may carry `@defer`. A negative
+  `initialCount` is a field error.
 
 ### Changed
 

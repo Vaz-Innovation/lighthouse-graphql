@@ -140,9 +140,14 @@ bin/rails lighthouse:persisted_queries:verify SCHEMA=AppSchema
 
 ## Deferring fields (experimental)
 
-`@defer` lets a client ask for the slow part of a query to arrive after the rest. The
-server answers what it can at once, and streams the deferred fragments as they are
-ready:
+**Experimental: not enabled by default, not guaranteed to be stable.**
+
+Deferring fields lets a client get the data it needs to render the most important content
+as fast as possible, and the rest in the background, in later parts of the same response.
+Lighthouse supports `@defer` (and `@stream`) through a plugin of the schema, as PHP Lighthouse
+does through an extension, but as the
+[specification draft](https://github.com/graphql/graphql-spec/pull/1110) (RFC stage 2) has them:
+`@defer` goes on a fragment, not on a field.
 
 ```graphql
 query Feed {
@@ -155,15 +160,14 @@ query Feed {
 }
 ```
 
-It follows the [specification draft](https://github.com/graphql/graphql-spec/pull/1110)
-(RFC stage 2), not PHP Lighthouse's `@defer` on fields, which answers `null` for a
-deferred field and runs the whole query again for each round. **It is experimental**: the
-draft can still change, and the plugin, the setting and the payload classes may change with
-it before it reaches stage 3. Clients that read the draft's format include Apollo Client
+The draft can still change, and the plugin, the settings and the payloads may change with it
+before it reaches stage 3. Clients that read the draft's format include Apollo Client
 (`GraphQL17Alpha9Handler`), graphql-js 17 and Relay; those on the older
 `Defer20220824Handler` format (Apollo Router's) are answered a whole response.
 
-### Turn it on
+### Setup
+
+Use the plugin in the schema class, and stream from the controller:
 
 ```ruby
 # app/graphql/app_schema.rb
@@ -180,26 +184,66 @@ class GraphqlController < ApplicationController
 end
 ```
 
-The controller streams when three things hold: the schema uses the plugin, the
-controller includes `ActionController::Live`, and the request's `Accept` header takes
-`multipart/mixed` (without the older format's `deferSpec` parameter). In every other case,
-the whole response comes at once, with `@defer` ignored, as the specification allows. A
-batch (a JSON array) is not streamed either. Without the plugin the schema has no `@defer`,
-as the specification asks of a server that does not implement it.
+Without the plugin the schema has no `@defer`, as the specification asks of a server that does
+not implement it.
 
-Streaming needs a server that writes as the action goes (Puma; not a single-threaded
-buffering one) and proxies that do not buffer: the response sends `X-Accel-Buffering: no`
-for nginx, `Cache-Control: no-cache`, and a `Last-Modified` so `Rack::ETag` lets it through.
-Do not put `Rack::Deflater` in front of it. Because `ActionController::Live` runs the action in
-its own thread, keep thread-locals (`ActiveSupport::CurrentAttributes`) in mind in hooks of your
-own.
+### Configuration
+
+Two settings keep a deferred response from running too long, PHP Lighthouse's
+`defer.max_nested_fields` and `defer.max_execution_ms`, with their meaning. `0`, the default, is
+no limit.
+
+```ruby
+Lighthouse.configure do |config|
+  config.defer_max_nested_fields = 3       # rounds of nested deferred fragments
+  config.defer_max_execution_ms = 2_000    # since the first pass started
+end
+```
+
+A response goes in rounds: the first payload, then one payload for each round, which resolves
+every fragment pending and announces the fragments those hold. Past `defer_max_nested_fields`
+rounds, or once `defer_max_execution_ms` milliseconds have gone, the round that runs is the last:
+it resolves the fragments it holds where they stand, without deferring them. See
+[configuration.md](configuration.md#defer_max_nested_fields-and-defer_max_execution_ms).
+
+### Writing @defer
+
+`@defer` goes on an inline fragment or a fragment spread (`...Details @defer`), with `if` (defer
+only when true; a variable is fine) and `label` (names the fragment in the response):
+
+```graphql
+directive @defer(if: Boolean! = true, label: String) on FRAGMENT_SPREAD | INLINE_FRAGMENT
+```
+
+To defer one field, as PHP Lighthouse's `field @defer { ... }` does, put it in a fragment of its
+own: `... @defer { field { ... } }`. Fragments nest: one inside a deferred fragment arrives a round
+after it.
+
+The rules, from the draft and PHP Lighthouse. They hold for every query of the schema, streamed or
+not (a graphql-ruby analyzer checks them before anything runs, and a query that breaks one is
+answered the errors, without data):
+
+- `@defer` is not allowed on a root mutation field, whose fields must run one after the other:
+  "The @defer directive cannot be used on a root mutation field.", whether the fragment is inline or
+  named. A fragment deeper in a mutation's response defers as in a query.
+- In a subscription, `@defer` must be disabled with `if: false` (or a variable).
+- `label` is a string, not a variable, and no two `@defer` or `@stream` share one.
+- A field is deferred only if every declaration of it is, as in Apollo and PHP Lighthouse: in
+  `{ ...UserWithParent ... @defer { parent { name } } }`, where `UserWithParent` also selects
+  `parent`, `parent` comes in the first payload, with the selections of both declarations, and is
+  resolved once. A fragment left with nothing of its own is not deferred at all.
+- `@skip` and `@include` on the fragment answer first: a fragment they leave out is neither
+  deferred nor resolved.
+- A fragment on a type the object does not have runs nowhere, and one on a union with no type
+  condition runs where it stands, as the specification has it.
 
 ### What the client gets
 
 The first part is the response without the deferred fragments, and a `pending` entry for each
-one, with a string `id`, the `path` it will arrive at and its `label`. A fragment under a list is
-pending once for each item. Then a part for each round: every fragment pending, with its
-`incremental` data and the ids that are `completed`; the last has `hasNext: false`.
+one, with a string `id`, the `path` of the object it will run on and its `label`. A fragment under
+a list is pending once for each item. Then a part for each round: the `incremental` data of each
+fragment, under its `id`, and the ids that are `completed`, with the `pending` entries of the
+fragments that round found; the last part has `hasNext: false`.
 
 ```json
 { "data": { "posts": { "data": [{ "title": "Hello" }] } },
@@ -208,43 +252,20 @@ pending once for each item. Then a part for each round: every fragment pending, 
   "completed": [{ "id": "0" }], "hasNext": false }
 ```
 
-An error in a deferred field is on its `incremental` entry, with the path it has in the
-response. A non-null field that fails beyond the fragment leaves no data: the `id` is `completed`
-with the `errors`. A fragment nested in a deferred one is announced in the part of its parent,
-and arrives after it.
-
-### How it runs
-
-- **Every field resolves once.** The first pass leaves the deferred fragments out; each one
-  then runs on the objects the first pass loaded (`GraphQL::Query::Partial`), never by running its
-  parents again. `@throttle`, `@guard`, `@cache`, events and the rest of a field's directives
-  run in the pass that resolves the field; a mutation does not run twice. A fragment
-  leaves out the fields without selections its selection set already asks for outside it
-  (`id` in `{ id ... @defer { id name } }`). An object field asked for on both sides resolves again.
-- **No N+1.** All the fragments of a round run in one multiplex, so the Dataloader batches
-  across a list's items: a deferred fragment under a list of 50 costs the queries it costs without
-  `@defer`.
-- **Validation and complexity cover the whole document**, before the first pass: the deferred
-  fragments count for `max_complexity` and `max_depth`, as they would without `@defer`.
-- **The rules of the draft.** `label` must be a string, not a variable, and unique in the document;
-  `@defer` is not allowed on a root field of a mutation, and a subscription's must be disabled
-  with `if: false`. A fragment on a union with no type condition, or on a type the object does not
-  have, runs where it stands or not at all, as the specification has it.
-- **Events.** `StartExecution` and `EndExecution` fire for the first pass, and again for each object
-  a deferred fragment runs on; `EndRequest` after the last part.
-- `@cacheControl` does not apply to a streamed response (`Cache-Control: no-cache`); one that
-  defers nothing is cached as always.
-
-[`defer_max_nested_fields` and `defer_max_execution_ms`](configuration.md#defer_max_nested_fields-and-defer_max_execution_ms),
-PHP Lighthouse's limits, bound the rounds of nested fragments and the time a response may take;
-past them, what is left resolves in one last payload.
+The errors of a deferred field come with it, on its `incremental` entry, with the path the field
+has in the response. A non-null field that fails beyond the fragment leaves no data: the `id` is
+`completed` with the `errors`. The `extensions` that `BuildExtensionsResponse` and
+`ManipulateResult` listeners add while a fragment runs are on its `incremental` entry too (on the
+part's own `extensions` when the fragment leaves no data).
 
 ### Streaming lists (experimental)
 
 `@stream` on a list field answers its first `initialCount` items (default 0) at once, and the
-others in a part of their own:
+others in a later part. PHP Lighthouse has no `@stream`.
 
 ```graphql
+directive @stream(if: Boolean! = true, label: String, initialCount: Int! = 0) on FIELD
+
 query { posts(first: 50) { data @stream(initialCount: 5, label: "rest") { title } } }
 ```
 
@@ -255,13 +276,72 @@ query { posts(first: 50) { data @stream(initialCount: 5, label: "rest") { title 
 ```
 
 The field's resolver runs once and returns the whole list; `@stream` cuts it where `initialCount`
-says, and the selections of the items that follow run in the later part, all together so the
+says, and the selections of the items that follow run in the next round, all together so the
 Dataloader batches across them. A list of scalars streams too, and so does a paginated field's
-`data`. An item may carry `@defer`: its fragment is announced with the items, at the index the item
-has in the list, and arrives after them. `@stream` needs a list field (`@stream on a field that is
-not a list` is a validation error), and follows the rules of `@defer` for `label`, mutations and
-subscriptions. The rest of a list is one batch: the specification allows a server to cut it as it
-pleases. The plugin puts a graphql-ruby field extension on every list field of the schema to do it.
+`data`. A list that resolves to `null` is `null`. An item may carry `@defer`: its fragment is
+announced with the items, at the index the item has in the list, and arrives after them. The rest
+of a list is one batch: the specification allows a server to cut it as it pleases.
+
+`@stream` needs a list field (a validation error otherwise), follows the rules of `@defer` for
+`label`, mutations ("The @stream directive cannot be used on a root mutation field.") and
+subscriptions, and a negative `initialCount` is a field error: the field is `null`, with the error at
+its path. The plugin puts a graphql-ruby field extension on every list field to cut them; a field
+that is not streamed costs it two method calls and a fiber-local read.
+
+### Transport
+
+The controller streams the response, as `multipart/mixed` parts (graphql-over-http's incremental
+delivery), when three things hold: the schema uses the plugin, the controller includes
+`ActionController::Live`, and the request's `Accept` header takes `multipart/mixed` (without the
+older format's `deferSpec` parameter). In every other case the whole response comes at once, the
+deferred fragments in it, as the specification allows: a JSON client, `schema.execute`, a batch (a
+JSON array). A query that defers nothing is answered as JSON, whatever the client accepts. A part's
+JSON is encoded as `render json:` encodes any response.
+
+Streaming needs a server that writes as the action goes (Puma; not a single-threaded buffering
+one) and proxies that do not buffer: the response sends `X-Accel-Buffering: no` for nginx,
+`Cache-Control: no-cache`, and a `Last-Modified` so `Rack::ETag` lets it through. Do not put
+`Rack::Deflater` in front of it. Because `ActionController::Live` runs the action in its own
+thread, keep thread-locals (`ActiveSupport::CurrentAttributes`) in mind in hooks of your own.
+`@cacheControl` does not apply to a streamed response (`Cache-Control: no-cache`).
+
+### How it runs
+
+- **Every field resolves once.** The first pass leaves the deferred fragments out; each round
+  then runs the pending fragments on the objects the passes before it loaded
+  (`GraphQL::Query::Partial`), never by running their parents again. `@throttle`, `@guard`,
+  `@cache`, events and the rest of a field's directives run in the pass that resolves the field; a
+  mutation does not run twice.
+- **No N+1.** All the fragments of a round run in one multiplex, so the Dataloader batches across
+  them: a deferred fragment under a list of 50 costs the queries it costs without `@defer`.
+- **Validation and complexity cover the whole document**, before the first pass: the deferred
+  fragments count for `max_complexity` and `max_depth`, as they would without `@defer`.
+- **Events.** `StartExecution` and `EndExecution` fire for the first pass, and again for each
+  fragment a round runs (on each object); `EndRequest` after the last part.
+
+### Differences from PHP Lighthouse
+
+- **Fragments, not fields.** PHP Lighthouse's `@defer` goes on a field (`directive @defer(if:
+  Boolean = true) on FIELD`); the draft's, and this one, on a fragment, with a `label`. A query
+  written for PHP Lighthouse puts each deferred field in a fragment: `parent @defer { name }`
+  becomes `... @defer { parent { name } }`.
+- **The draft's format, not Apollo's 2018 one.** PHP Lighthouse answers `null` for a deferred field
+  first, then chunks keyed by path (`{ "user.parent": { "data": ... } }`) and no `hasNext`. This
+  leaves the field out of the first payload, and answers `pending`, `incremental`, `completed` and
+  `hasNext`, which today's clients read.
+- **One pass per round, not the query again.** PHP Lighthouse runs the whole operation again for
+  each round, and answers what it already has from the previous result; this runs only the deferred
+  fragments, on the objects already loaded. A field resolves once, and a mutation runs once.
+- **`@stream` is added.** PHP Lighthouse has none.
+- **Non-null fields can be deferred.** PHP Lighthouse refuses `@defer` on a Non-Null field ("The
+  @defer directive cannot be used on a Non-Nullable field.") because it answers `null` for it first;
+  the draft's format leaves the field out instead, so nothing needs refusing.
+- **The rules hold for every query.** PHP Lighthouse checks them as a deferred field resolves; here
+  they are checked before anything runs, for every request, streamed or not.
+- **The time limit counts milliseconds from the first pass.** `defer_max_execution_ms` starts when
+  the first pass does; PHP Lighthouse's deadline is set when its `Defer` is built, as
+  `microtime(true) + max_execution_ms * 1000`, a time in seconds plus the setting times a thousand
+  (2000 reads as two million seconds).
 
 ## What is deliberately not cached
 
