@@ -7,10 +7,10 @@
 #   run.deferred?                # fragments are pending
 #   run.each_payload { |payload| ... }   # the initial payload, then one per deferred fragment
 #
-# `start` parses the query, has Document check and stamp its @defer, and runs
-# the first pass on the stamped document: the whole document goes through
-# graphql-ruby's validation and analysis (complexity, depth) once, as it would
-# without @defer, and DeferDirective leaves the deferred fragments out of the
+# `start` parses the query, has Document stamp its @defer, and runs the first
+# pass on the stamped document: the whole document goes through graphql-ruby's
+# validation and analysis (complexity, depth, and Rules, which checks @defer and
+# @stream) once, as it would without @defer, and DeferDirective leaves the deferred fragments out of the
 # execution. Each pending fragment is then run on the object it was found on
 # (GraphQL::Query#run_partials), the fragments of one kind together in one
 # multiplex so the Dataloader batches across the objects of a list. A field's
@@ -68,7 +68,6 @@ class Lighthouse::GraphQL::Incremental::Run
     return @schema.execute(@query_string, **@options) unless document
 
     prepared = Lighthouse::GraphQL::Incremental::Document.prepare(@schema, document)
-    return { 'errors' => prepared.errors.map(&:to_h) } unless prepared.errors.empty?
     return @schema.execute(@query_string, **@options) unless @stream && !prepared.fragments.empty?
 
     @state = State.new(prepared.fragments)

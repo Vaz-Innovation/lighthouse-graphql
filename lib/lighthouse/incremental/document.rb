@@ -1,15 +1,9 @@
 # frozen_string_literal: true
 
-# Reads a query's @defer for Run: checks the rules the specification draft sets
-# for the directive (section 5), and stamps each @defer with the number of its
+# Reads a query's @defer and @stream for Run: stamps each with the number of its
 # fragment (as its `label`, see DeferDirective) in a copy of the document, with
-# the fragments it found.
-#
-# The rules, which hold whether or not the response is streamed:
-#
-# - `label` is a String literal, not a variable, and no two @defer share it;
-# - @defer does not sit at the root of a mutation, whose fields must run one
-#   after the other, and a subscription's is disabled with `if: false` (or a variable).
+# the fragments it found. The rules the directives follow are Rules', which
+# graphql-ruby checks for every query, before the first pass runs.
 #
 # A fragment leaves out the fields its selection set already asks for outside
 # it (`id` in `{ id ... @defer { id name } }`), which the first response delivers:
@@ -17,23 +11,31 @@
 class Lighthouse::GraphQL::Incremental::Document
   Nodes = ::GraphQL::Language::Nodes
   DIRECTIVES = %w[defer stream].freeze
-  Prepared = Struct.new(:document, :fragments, :errors, keyword_init: true)
+  Prepared = Struct.new(:document, :fragments, keyword_init: true)
 
-  # Where a selection set sits: the operation type (nil under a fragment definition),
-  # whether it is the operation's own selection set and not a field's (`root`), the
-  # type it selects on, and the response keys of the fields it asks for itself.
-  Scope = Struct.new(:kind, :root, :type, :covered)
+  # Where a selection set sits: the type it selects on, and the response keys of the fields it asks for itself.
+  Scope = Struct.new(:type, :covered)
 
   def self.prepare(schema, document)
     new(schema, document).prepare
+  end
+
+  # Does the document use @defer or @stream? A walk of its selections, for the queries that do not.
+  def self.incremental?(document)
+    document.definitions.any? { |definition| definition.respond_to?(:selections) && uses?(definition.selections) }
+  end
+
+  def self.uses?(selections)
+    selections.any? do |selection|
+      selection.directives.any? { |directive| DIRECTIVES.include?(directive.name) } ||
+        (selection.respond_to?(:selections) && uses?(selection.selections))
+    end
   end
 
   def initialize(schema, document)
     @schema = schema
     @document = document
     @fragments = []
-    @errors = []
-    @labels = {}
     @definitions = document.definitions.grep(Nodes::FragmentDefinition).index_by(&:name)
     @stamped = {}
   end
@@ -46,13 +48,13 @@ class Lighthouse::GraphQL::Incremental::Document
       else definition
       end
     end
-    Prepared.new(document: @document.merge(definitions: definitions), fragments: @fragments, errors: @errors)
+    Prepared.new(document: @document.merge(definitions: definitions), fragments: @fragments)
   end
 
   private
 
   def operation(definition)
-    scope = Scope.new(definition.operation_type, true, @schema.root_type_for_operation(definition.operation_type))
+    scope = Scope.new(@schema.root_type_for_operation(definition.operation_type))
     definition.merge(selections: walk(definition.selections, scope))
   end
 
@@ -62,7 +64,7 @@ class Lighthouse::GraphQL::Incremental::Document
 
     definition = @definitions[name] or return nil
     @stamped[name] = definition
-    scope = Scope.new(nil, false, @schema.get_type(definition.type.name))
+    scope = Scope.new(@schema.get_type(definition.type.name))
     @stamped[name] = definition.merge(selections: walk(definition.selections, scope))
   end
 
@@ -84,14 +86,14 @@ class Lighthouse::GraphQL::Incremental::Document
     type = scope.type
     definition = type && !type.kind.union? ? @schema.get_field(type, node.name) : nil
     selections = node.selections
-    selections = walk(selections, Scope.new(scope.kind, false, definition&.type&.unwrap)) unless selections.empty?
-    node.merge(selections: selections, directives: stamp_stream(definition, check_directives(node, scope)))
+    selections = walk(selections, Scope.new(definition&.type&.unwrap)) unless selections.empty?
+    node.merge(selections: selections, directives: stamp_stream(node.directives))
   end
 
-  # The field's @stream, if it has one, stamped; it must be on a list.
-  def stamp_stream(definition, directives)
-    stream = directives.find { |directive| directive.name == 'stream' } or return directives
-    error(stream, 'The @stream directive must be used on a list field.') if definition && !definition.type.list?
+  # The field's @stream, if it has one, stamped.
+  def stamp_stream(directives)
+    stream = directives.find { |directive| directive.name == 'stream' }
+    return directives unless stampable?(stream)
 
     id = @fragments.size
     @fragments << Lighthouse::GraphQL::Incremental::State::Fragment.new(id: id, label: label_of(stream), stream: true)
@@ -100,23 +102,23 @@ class Lighthouse::GraphQL::Incremental::Document
 
   def inline_fragment(node, scope)
     condition = node.type&.name
-    inner = walk(node.selections, Scope.new(scope.kind, scope.root, condition ? @schema.get_type(condition) : scope.type))
+    inner = walk(node.selections, Scope.new(condition ? @schema.get_type(condition) : scope.type))
     stamp(node, inner, scope, condition) { |selections| node.merge(selections: selections) }
   end
 
   def fragment_spread(node, scope)
     definition = stamped_definition(node.name)
-    return node.merge(directives: check_directives(node, scope)) unless definition
+    return node unless definition
 
     stamp(node, definition.selections, scope, definition.type.name) { |_| node }
   end
 
-  # `node` with its @defer stamped, once the directives are checked; `selections`
-  # are what a deferred fragment runs, `condition` the name of its type condition.
+  # `node` with its @defer stamped; `selections` are what a deferred fragment runs,
+  # `condition` the name of its type condition.
   def stamp(node, selections, scope, condition)
-    directives = check_directives(node, scope)
+    directives = node.directives
     defer = directives.find { |directive| directive.name == 'defer' }
-    return yield(selections).merge(directives: directives) unless defer
+    return yield(selections).merge(directives: directives) unless stampable?(defer)
 
     id = @fragments.size
     @fragments << Lighthouse::GraphQL::Incremental::State::Fragment.new(
@@ -127,9 +129,15 @@ class Lighthouse::GraphQL::Incremental::Document
     yield(selections).merge(directives: directives.reject { |directive| directive.equal?(defer) } + [stamp_label(defer, id)])
   end
 
-  # The directive with the fragment's number as its label.
+  # A directive Document can stamp: one with no label, or a literal one. A label that is a
+  # variable (which Rules refuses) stays, or the variable would be unused.
+  def stampable?(directive)
+    !directive.nil? && !directive.arguments.find { |argument| argument.name == 'label' }&.value.is_a?(Nodes::VariableIdentifier)
+  end
+
+  # The directive with the fragment's number as its label, and the label the client gave after it.
   def stamp_label(directive, id)
-    label = Nodes::Argument.new(name: 'label', value: "#{Lighthouse::GraphQL::Incremental::State::STAMP}#{id}")
+    label = Nodes::Argument.new(name: 'label', value: Lighthouse::GraphQL::Incremental::State.stamp(id, label_of(directive)))
     directive.merge(arguments: directive.arguments.reject { |argument| argument.name == 'label' } + [label])
   end
 
@@ -146,44 +154,5 @@ class Lighthouse::GraphQL::Incremental::Document
   def label_of(directive)
     argument = directive.arguments.find { |arg| arg.name == 'label' }
     argument&.value.is_a?(String) ? argument.value : nil
-  end
-
-  # Reports what breaks the rules; the directives come back as they were.
-  def check_directives(node, scope)
-    node.directives.each do |directive|
-      next unless DIRECTIVES.include?(directive.name)
-
-      check_label(directive)
-      error(directive, "The @#{directive.name} directive cannot be used on a root field of a mutation.") if scope.kind == 'mutation' && scope.root
-      check_subscription(directive, scope.kind)
-    end
-    node.directives
-  end
-
-  def check_subscription(directive, kind)
-    return unless kind == 'subscription'
-
-    disabled = directive.arguments.find { |argument| argument.name == 'if' }&.value
-    return if disabled == false || disabled.is_a?(Nodes::VariableIdentifier)
-
-    error(directive, "The @#{directive.name} directive must be disabled with `if: false` in a subscription.")
-  end
-
-  def check_label(directive)
-    argument = directive.arguments.find { |arg| arg.name == 'label' } or return
-    unless argument.value.is_a?(String)
-      error(directive, "The label of @#{directive.name} must be a String literal, not a variable.")
-      return
-    end
-
-    if @labels.key?(argument.value)
-      error(directive, "The label \"#{argument.value}\" is used by more than one @defer or @stream in the document.")
-    else
-      @labels[argument.value] = true
-    end
-  end
-
-  def error(node, message)
-    @errors << ::GraphQL::StaticValidation::Error.new(message, nodes: [node])
   end
 end

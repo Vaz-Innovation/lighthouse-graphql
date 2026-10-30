@@ -11,11 +11,21 @@
 class Lighthouse::GraphQL::Incremental::State
   CONTEXT_KEY = :lighthouse_incremental
 
-  # What Document sets the `label` of each @defer and @stream to: this, and the fragment's number.
+  # What Document sets the `label` of each @defer and @stream to: this, the fragment's
+  # number, and the label the client gave, if it did ("lh:3", "lh:4:details").
   STAMP = 'lh:'
+
+  def self.stamp(id, label)
+    label ? "#{STAMP}#{id}:#{label}" : "#{STAMP}#{id}"
+  end
 
   def self.stamped_id(label)
     label.delete_prefix(STAMP).to_i if label.is_a?(String) && label.start_with?(STAMP)
+  end
+
+  # The label the client gave a stamped directive (nil when it gave none).
+  def self.given_label(stamped)
+    stamped.delete_prefix(STAMP).split(':', 2)[1]
   end
 
   # A deferred fragment, or a streamed field (`stream`), of the document, as Document

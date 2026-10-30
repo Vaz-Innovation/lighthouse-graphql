@@ -70,6 +70,7 @@ require_relative 'namespaces'
   incremental/stream_directive
   incremental/stream_extension
   incremental/document
+  incremental/rules
   incremental/serializer
   incremental/multipart
   incremental/run

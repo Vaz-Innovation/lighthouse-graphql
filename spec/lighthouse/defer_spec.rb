@@ -82,7 +82,7 @@ RSpec.describe 'Deferring fields' do
     run(query, **options).then { |run| [].tap { |all| run.each_payload { |payload| all << payload } } }
   end
 
-  def errors(query, **options) = run(query, **options).result['errors'].pluck('message')
+  def errors(query, **options) = run(query, **options).result['errors']&.pluck('message')
 
   def pending(*payloads) = payloads.flat_map { |payload| payload['pending'] || [] }
 
@@ -406,21 +406,61 @@ RSpec.describe 'Deferring fields' do
       expect(errors('query($l: String) { users { ... @defer(label: $l) { name } } }')).to eq([message])
     end
 
-    it 'refuses @defer on a root field of a mutation, whose fields run in turn' do
-      message = 'The @defer directive cannot be used on a root field of a mutation.'
+    it 'refuses @defer on a root mutation field, whose fields run in turn, in PHP Lighthouse\'s words' do
+      message = 'The @defer directive cannot be used on a root mutation field.'
 
       expect(errors('mutation { ... @defer { createUser(name: "a") { id } } }')).to eq([message])
       expect(LH::User.where(name: 'a')).to be_empty
     end
 
-    it 'refuses @defer in a subscription unless it is disabled' do
-      schema = build_schema("#{sdl}\ntype Subscription { userCreated: User }", dataloader: true)
-      prepare = ->(query) { Lighthouse::GraphQL::Incremental::Document.prepare(schema, GraphQL.parse(query)).errors.map(&:message) }
-      message = 'The @defer directive must be disabled with `if: false` in a subscription.'
+    it 'refuses @defer on a root mutation field in a named fragment, and runs no mutation' do
+      query = <<~GRAPHQL
+        mutation { ...M }
+        fragment M on Mutation { a: createUser(name: "x") { id } ... @defer { b: createUser(name: "y") { id } } }
+      GRAPHQL
 
-      expect(prepare.call('subscription { userCreated { ... @defer { name } } }')).to eq([message])
-      expect(prepare.call('subscription { userCreated { ... @defer(if: false) { name } } }')).to eq([])
-      expect(prepare.call('subscription($d: Boolean!) { userCreated { ... @defer(if: $d) { name } } }')).to eq([])
+      expect(errors(query)).to eq(['The @defer directive cannot be used on a root mutation field.'])
+      expect(errors('mutation { ...M @defer } fragment M on Mutation { createUser(name: "y") { id } }'))
+        .to eq(['The @defer directive cannot be used on a root mutation field.'])
+      expect(errors('mutation { createUser(name: "y") { ...U } } fragment U on User { ... @defer { name } }')).to be_nil
+      expect(LH::User.where(name: %w[x y]).count).to eq(1)
+    end
+
+    it 'refuses @stream on a root mutation field' do
+      expect(errors('mutation { createUser(name: "a") @stream { id } }'))
+        .to eq(['The @stream directive cannot be used on a root mutation field.', 'The @stream directive must be used on a list field.'])
+    end
+
+    describe 'in a subscription' do
+      let(:schema) do
+        build_schema("#{sdl}\ntype Subscription { userCreated: User }", dataloader: true).tap { |s| s.use(Lighthouse::GraphQL::Defer) }
+      end
+      let(:message) { 'The @defer directive must be disabled with `if: false` in a subscription.' }
+
+      # What the analysis answers, as the subscription is not run (the schema has no subscriptions).
+      def analysis(query)
+        GraphQL::Analysis.analyze_query(GraphQL::Query.new(schema, query), schema.query_analyzers).flatten.map(&:message)
+      end
+
+      it 'refuses @defer unless it is disabled' do
+        expect(analysis('subscription { userCreated { ... @defer { name } } }')).to eq([message])
+        expect(analysis('subscription { userCreated { ... @defer(if: false) { name } } }')).to eq([])
+        expect(analysis('subscription($d: Boolean!) { userCreated { ... @defer(if: $d) { name } } }')).to eq([])
+      end
+
+      it 'refuses it in a named fragment the subscription spreads' do
+        expect(analysis('subscription { ...S } fragment S on Subscription { userCreated { ... @defer { name } } }')).to eq([message])
+      end
+    end
+
+    it 'checks every query, however it runs: plain, unstreamed, and in a batch' do
+      query = '{ users { ... @defer(label: "x") { name } ... @defer(label: "x") { id } } }'
+      message = 'The label "x" is used by more than one @defer or @stream in the document.'
+
+      expect(schema.execute(query).to_h).to eq('errors' => [{ 'message' => message, 'locations' => [{ 'line' => 1, 'column' => 47 }] }])
+      expect(errors(query, stream: false)).to eq([message])
+      expect(schema.multiplex([{ query: query }, { query: '{ names }' }]).map { |result| result.to_h['errors']&.pluck('message') })
+        .to eq([[message], nil])
     end
 
     it 'leaves a query that does not parse to graphql-ruby' do
