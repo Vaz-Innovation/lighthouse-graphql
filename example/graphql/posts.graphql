@@ -76,6 +76,8 @@ type Post implements Authored @cacheControl(maxAge: 60) {
   body: String
   published: Boolean!
   createdAt: DateTime!
+  "Where its images are served (@attachment on has_many_attached :images), every post's loaded at once."
+  imageUrls: [String!]! @attachment
   author: User! @belongsTo
   "The first words of the body. @method calls Post#summary, passing the field's argument."
   summary(words: Int = 20): String! @method
@@ -148,6 +150,8 @@ input CreatePostInput {
   published: Boolean
   "Attach existing tags by id and/or create new ones."
   tags: TagsBelongsToMany
+  "Images, sent as a multipart request. A post the model refuses keeps none of them stored."
+  images: [Upload!] @upload(path: "posts")
 }
 
 input UpdatePostInput {

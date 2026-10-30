@@ -300,8 +300,18 @@ end
 context. The operation events (`StartOperationOrOperations`, `StartExecution`, ...)
 fire as for a client's request. The request events (`StartRequest`, `EndRequest`)
 are the GraphQL endpoint's, one per GraphQL request, as PHP Lighthouse's controller
-dispatches them; wrap an action in `lighthouse_request { ... }` to dispatch them
-around it.
+dispatches them. `EndRequest` carries the response, which does not exist yet while
+the action is still loading its data, so wrap the whole action in
+`lighthouse_request { ... }` to dispatch them around it, with the page's response:
+
+```ruby
+def search
+  lighthouse_request do
+    results = lighthouse_execute(SEARCH, variables: { term: params[:term] })
+    render inertia: 'Search', props: { results: results } unless performed?
+  end
+end
+```
 
 Not on the concern? Plain graphql-ruby works too:
 `render json: AppSchema.execute(params[:query], variables: params[:variables], context: { current_user: current_user })`.

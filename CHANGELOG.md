@@ -18,7 +18,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   a list too), with the field's `@can*` directives and their `action:`.
   `@softDeletes(ability: "view_trashed")` puts it on the `trashed` argument it adds, so
   listing trashed records can be for admins only.
-- **`lighthouse_execute` runs an operation from any controller action**, with the context the
+- **`lighthouse_execute` runs an operation from any controller action (#3)**, with the context the
   GraphQL endpoint gives it (`graphql_context`, and the IP and controller `@throttle` counts
   with), to render a page with its data loaded. It comes from the new
   `Lighthouse::GraphQL::Operations` concern, which any controller can include (with
@@ -55,8 +55,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **`@upload` purges what it stored when the field fails.** It stores a file before the
   field resolves, and a model's validations run after: a `@create` the model refused left
-  its blobs in the bucket. The blobs `@upload` stored for a field that raises, returns an
-  error or adds one to the context are now purged (`purge_later`). The uploads guide now
+  its blobs in the bucket (#1). The blobs `@upload` stored for a field that raises, returns
+  an error or adds one to the context are now purged before the response (one the storage
+  service fails to delete is left to `purge_later`). The uploads guide now
   recommends passing the file to the attachment attribute, which ActiveStorage uploads
   only after commit.
 - **Paginated queries end their order with the primary key.** Pages are cut by position, so
@@ -65,7 +66,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   row numbers of a batched relation. `@paginate` (every `type:`) and the paginated relation
   directives now append the primary key unless the order names it already. PHP Lighthouse
   leaves the order as it is.
-- **`@globalId(decode:)` no longer loads the record to read its id.** On a schema with
+- **`@globalId(decode:)` no longer loads the record to read its id (#2).** On a schema with
   graphql-ruby's `object_from_id` (Rails' GlobalID, as its install writes it), decoding went
   through `object_from_id`: a SELECT before `@find`'s own, under the model's default scope,
   so a soft-deleted record's id did not decode for `@restore` / `@forceDelete` with an

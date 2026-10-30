@@ -13,8 +13,8 @@
 #
 # A blob is stored before the field resolves (after @guard, @can* and
 # @validator), and the model's own validations run after. When the field
-# fails, the blobs it stored are purged (purge_later), so a refused mutation
-# leaves no file behind: see purge_on_failure.
+# fails, the blobs it stored are purged, so a refused mutation leaves no blob
+# and no file behind: see purge_on_failure.
 module Lighthouse::GraphQL::UploadStore
   # The fiber-local list of the blobs stored for the field resolving: graphql-ruby's
   # dataloader runs each field in a fiber of its own.
@@ -67,8 +67,15 @@ module Lighthouse::GraphQL::UploadStore
     context.respond_to?(:errors) ? context.errors.size : 0
   end
 
+  # Now, not later: the blobs are attached to nothing, and the client is told
+  # the mutation failed, so none outlives the response. One the service fails
+  # to delete is left to ActiveStorage's job to retry.
   def purge(blobs)
-    blobs.each { |blob| blob.respond_to?(:purge_later) ? blob.purge_later : blob.purge }
+    blobs.each do |blob|
+      blob.purge
+    rescue StandardError
+      blob.purge_later
+    end
     blobs.clear
   end
 

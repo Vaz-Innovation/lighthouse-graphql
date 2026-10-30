@@ -3,6 +3,8 @@ class Post < ApplicationRecord
   has_many :comments, dependent: :destroy
   has_many :taggings, dependent: :destroy
   has_many :tags, through: :taggings
+  # Set by Mutation.createPost's images: @upload stores each file, and @create attaches the blobs.
+  has_many_attached :images
 
   validates :title, presence: true, length: { maximum: 120 }
 

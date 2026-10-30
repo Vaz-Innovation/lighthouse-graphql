@@ -18,10 +18,13 @@ RSpec.describe '@upload when the field fails' do
 
       type Mutation {
         createPost(title: String!, cover: Upload @upload): Post @create(model: "UploadCleanupSpecPost")
+        createPostFromInput(input: PostInput! @spread): Post @create(model: "UploadCleanupSpecPost")
         raising(file: Upload! @upload): String @field(resolver: "UploadCleanupSpecRaise")
         returning(file: Upload! @upload): String @field(resolver: "UploadCleanupSpecReturn")
         reporting(files: [Upload!]! @upload): String @field(resolver: "UploadCleanupSpecReport")
       }
+
+      input PostInput { title: String! files: [Upload!] @upload(path: "posts") }
 
       type Post { title: String cover: String }
     GRAPHQL
@@ -31,15 +34,17 @@ RSpec.describe '@upload when the field fails' do
     stored = blobs
     blob_class = Class.new do
       define_singleton_method(:service) { Struct.new(:name) { def public? = false }.new('test') }
+      define_singleton_method(:generate_unique_secure_token) { 'token' }
       define_singleton_method(:create_and_upload!) do |**|
-        Struct.new(:signed_id, :purged) { def purge_later = self.purged = true }.new("blob-#{stored.size}", false).tap { |blob| stored << blob }
+        Struct.new(:signed_id, :purged) { def purge = self.purged = true }.new("blob-#{stored.size}", false).tap { |blob| stored << blob }
       end
     end
     stub_const('ActiveStorage::Blob', blob_class)
     post_class = Class.new(ApplicationRecord) do
       self.table_name = 'posts'
       attribute :cover, :string
-      validates :title, length: { maximum: 5 }
+      attribute :files
+      validates :title, presence: true, length: { maximum: 5 }
     end
     stub_const('UploadCleanupSpecPost', post_class)
     stub_const('UploadCleanupSpecRaise', ->(*) { raise GraphQL::ExecutionError, 'no' })
@@ -61,6 +66,24 @@ RSpec.describe '@upload when the field fails' do
 
     expect(result['errors']).to be_present
     expect(blobs.map(&:purged)).to eq([true])
+  end
+
+  it 'purges the blobs of a list in a spread input when the model refuses it (#1)' do
+    result = run('mutation($f: [Upload!]) { createPostFromInput(input: { title: "", files: $f }) { title } }', { 'f' => [image, image] })
+
+    expect(result['errors']).to be_present
+    expect(blobs.map(&:purged)).to eq([true, true])
+  end
+
+  it 'leaves a blob the service fails to delete to the purge job' do
+    allow(blobs).to receive(:<<).and_wrap_original do |original, blob|
+      blob.define_singleton_method(:purge) { raise 'service down' }
+      blob.define_singleton_method(:purge_later) { self.purged = :later }
+      original.call(blob)
+    end
+
+    run('mutation($f: Upload!) { raising(file: $f) }', { 'f' => image })
+    expect(blobs.map(&:purged)).to eq([:later])
   end
 
   it 'purges them when the resolver raises, returns an error, or adds one to the context' do

@@ -12,6 +12,7 @@ RSpec.describe '@globalId(decode:) on Rails GlobalIDs' do
       type Query {
         item(id: ID! @globalId(decode: ID) @eq): ParanoidItem @find
         itemType(id: ID! @globalId(decode: TYPE)): String @field(resolver: "GlobalIdDecodeSpecEcho")
+        items(ids: [ID!]! @globalId(decode: ID) @in(key: "id")): [ParanoidItem!]! @all
       }
 
       type Mutation {
@@ -46,6 +47,15 @@ RSpec.describe '@globalId(decode:) on Rails GlobalIDs' do
     queries = selects { result = schema.execute(%({ item(id: "#{id}") { id name } })).to_h }
 
     expect(result).to eq('data' => { 'item' => { 'id' => id, 'name' => 'p' } })
+    expect(queries.size).to eq(1)
+  end
+
+  it 'decodes a list of ids with no query per id (#2)' do
+    ids = Array.new(3) { |index| ParanoidItem.create!(name: "i#{index}").to_gid_param }
+    result = nil
+    queries = selects { result = schema.execute(%({ items(ids: #{ids.to_json}) { name } })).to_h }
+
+    expect(result.dig('data', 'items').pluck('name')).to contain_exactly('i0', 'i1', 'i2')
     expect(queries.size).to eq(1)
   end
 

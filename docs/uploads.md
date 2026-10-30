@@ -60,7 +60,8 @@ type. Lists of files are stored one by one, and `null` stays `null`.
 `@upload` stores the file before the field resolves (after `@guard`, the `@can*`
 directives and `@validator`), and the model validates it after. When the field fails,
 because the model refuses it, or the resolver raises or reports an error, the blobs
-`@upload` stored for it are purged (`purge_later`), so no file is left behind. A blob
+`@upload` stored for it are purged before the response (a blob the service fails to
+delete is left to ActiveStorage's purge job), so no blob and no file is left behind. A blob
 that is stored but never attached (the field succeeds and does not attach it) stays,
 as ActiveStorage's own direct uploads do: purge those with a periodic job over
 `ActiveStorage::Blob.unattached`.
