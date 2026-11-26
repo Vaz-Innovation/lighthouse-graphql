@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-26
+
 ### Added
 
 - **Federation without `apollo-federation`, ported from PHP Lighthouse.** A schema that `@link`s the
@@ -1091,7 +1093,8 @@ had been running inside a private monorepo as a path gem before being extracted.
 - Config-driven extension seams: `Lighthouse.configure`, `resolver_namespaces`,
   `on_error`, and `DirectiveRegistry.register` for app-defined directives.
 
-[Unreleased]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.9.1...HEAD
+[Unreleased]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.9.1...v0.10.0
 [0.9.1]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.8.2...v0.9.0
 [0.8.2]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.8.1...v0.8.2
