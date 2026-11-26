@@ -60,8 +60,11 @@ module Lighthouse::GraphQL::TypeResolution
     value.nil? ? type : [type, value]
   end
 
-  # What the directive's class or the type class says, or nil.
+  # What the directive's class or the type class says, or nil; for a
+  # subgraph's _Entity, the type `_entities` found the object as.
   def custom(abstract_type, object, context)
+    return Lighthouse::GraphQL::Federation::Entities.type_of(object, context) if abstract_type.graphql_name == '_Entity'
+
     resolver = directive_class(abstract_type) || type_class(abstract_type)
     return unless resolver
 
@@ -125,9 +128,7 @@ module Lighthouse::GraphQL::TypeResolution
   end
 
   def typename_of(object)
-    return unless object.is_a?(Hash)
-
-    (object['__typename'] || object[:__typename])&.to_s
+    (object['__typename'] || object[:__typename])&.to_s if object.is_a?(Hash)
   end
 
   # Admin, User, ApplicationRecord, ... for an Admin < User record.

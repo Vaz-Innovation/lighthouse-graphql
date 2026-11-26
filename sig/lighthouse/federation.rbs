@@ -1,0 +1,51 @@
+# Apollo Federation: a schema linking the Federation spec is a subgraph. See docs/federation.md.
+module Lighthouse
+  module GraphQL
+    module Federation
+      # Posts a callback message (a JSON body) and answers the router's status.
+      interface _CallbackClient
+        def post: (String url, String body) -> Integer
+      end
+
+      # Federated subscriptions: a graphql-ruby subscription backend (graphql-ruby
+      # ships no RBS, so its superclass, GraphQL::Subscriptions, is not declared)
+      # that delivers updates to Apollo Router through its HTTP callback protocol.
+      # `use Lighthouse::GraphQL::Federation::CallbackSubscriptions` in the schema class.
+      class CallbackSubscriptions
+        CONTEXT_KEY: Symbol
+        HEADERS: Hash[String, String]
+
+        # The router's `extensions.subscription` for a subscription it asks for.
+        class Callback
+          attr_accessor url: String
+          attr_accessor id: String
+          attr_accessor verifier: String
+          attr_accessor heartbeat_ms: Integer
+
+          def self.from_extensions: (untyped extensions) -> Callback?
+          def self.subscription_of: (untyped extensions) -> Hash[String, untyped]?
+          def message: (String action, **json rest) -> Hash[Symbol, json]
+        end
+
+        class NetHttpClient
+          include _CallbackClient
+
+          def initialize: (?open_timeout: Numeric, ?read_timeout: Numeric) -> void
+        end
+
+        # The context of an operation the router sent (its request's `extensions`); empty for any other.
+        def self.context_for: (untyped extensions) -> Hash[Symbol, Callback]
+        # The body and status that answer the router's request; nil for any other operation.
+        def self.response: (untyped result) -> [Hash[String, json], Integer]?
+
+        # `action_cable:` and the rest are ActionCableSubscriptions' options.
+        def initialize: (?client: _CallbackClient, ?tick: Numeric, ?action_cable: untyped, **untyped options) -> void
+        # Sends the heartbeats that are due (a timer calls it every `tick` seconds).
+        def heartbeat!: (?Float now) -> void
+        # The ids of the subscriptions this process keeps.
+        def subscription_ids: () -> Array[String]
+        def delete_subscription: (String subscription_id) -> void
+      end
+    end
+  end
+end

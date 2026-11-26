@@ -9,7 +9,6 @@ gem 'rake', '~> 13.0'
 
 group :development, :test do
   gem 'activerecord', '>= 6.0'
-  gem 'apollo-federation', '~> 3.0'
   gem 'rspec', '~> 3.0'
   gem 'sqlite3', '>= 1.4'
   # Exercises the Rails generator and rake task; a Rails host provides it at runtime.

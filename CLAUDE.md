@@ -10,26 +10,32 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 bundle exec rspec                                   # gem suite (in-memory SQLite, no DB server needed)
 bundle exec rspec spec/lighthouse/find_spec.rb      # one file
 bundle exec rspec spec/lighthouse/find_spec.rb:42   # one example
-bundle exec rubocop                                 # lints the gem AND example/ (-a to autocorrect)
+bundle exec rubocop                                 # lints the gem AND examples/ (-a to autocorrect)
 bundle exec rake rbs                                # rbs:validate + rbs:test (suite run with every Lighthouse::* method checked against sig/)
 bundle exec rake build                              # package into pkg/
 bundle exec rake                                    # default: spec, rubocop, rbs
 
-# End-to-end suite: a Rails 8.1 app using the gem from this checkout (path: '..'). Needs Docker:
+# End-to-end suite: a Rails 8.1 app using the gem from this checkout (path: '../..'). Needs Docker:
 # Testcontainers starts PostgreSQL, Elasticsearch 9 and OpenSearch 3 on dynamic ports (bin/ci also verifies persisted queries)
-cd example && bundle install && bundle exec rspec
-cd example && bin/rails lighthouse:persisted_queries:verify
-# The same suite on MySQL, with Redis (@throttle) and your own search servers: see example/README.md.
+cd examples/graphql && bundle install && bundle exec rspec
+cd examples/graphql && bin/rails lighthouse:persisted_queries:verify
+# The same suite on MySQL, with Redis (@throttle) and your own search servers: see examples/graphql/README.md.
 # ELASTICSEARCH_URL / OPENSEARCH_URL replace a container; SEARCH_ENGINES=opensearch (or empty) picks the engines
-cd example && DATABASE_URL=trilogy://... REDIS_URL=redis://... OPENSEARCH_URL=http://... bundle exec rspec
+cd examples/graphql && DATABASE_URL=trilogy://... REDIS_URL=redis://... OPENSEARCH_URL=http://... bundle exec rspec
+
+# Federated suite: two subgraph apps (accounts/, blog/) behind Apollo Router (Docker) and GraphQL Yoga (gateway/,
+# Node 20; SSE subscriptions), the supergraph composed with rover. APOLLO_KEY + APOLLO_GRAPH_REF turn on the
+# router's GraphOS features (subscriptions, batching)
+cd examples/graphql-federations && bundle install && bundle exec rspec
+cd examples/graphql-federations && bin/compose   # after changing a subgraph's SDL: router/*.graphql
 
 # Docs site (VuePress, built from docs/)
 cd website && npm install && npm run dev
 ```
 
-Before a PR, CI expects: the gem suite, RuboCop, `rake rbs`, the example's specs, and `rake build` all green. CI runs the suite on Ruby 3.1–3.4.
+Before a PR, CI expects: the gem suite, RuboCop, `rake rbs`, both examples' specs, and `rake build` all green. CI runs the suite on Ruby 3.1–3.4.
 
-There is deliberately no root `Gemfile.lock` (a library resolves against its gemspec). Don't add one. `example/` does have its own lockfile.
+There is deliberately no root `Gemfile.lock` (a library resolves against its gemspec). Don't add one. Each app under `examples/` has its own lockfile.
 
 ## Architecture
 
@@ -58,6 +64,7 @@ There is deliberately no root `Gemfile.lock` (a library resolves against its gem
 - **Contracts:** `lib/lighthouse/contracts/` defines what a resolver class can implement: `FieldResolver`, `FieldMiddleware`, `FieldManipulator`, `ArgManipulator`, `ArgBuilder` and `FieldBuilder`. The registry classifies each class by which contract it includes. An `ArgManipulator` instance rewrites its argument node in `ASTBuilder` (graphql-ruby nodes are immutable: `arg.merge(...)`, new types through `DocumentAST#define_type`); a `FieldBuilder` (`@orderBy(column:)` on a field) applies after the argument builders.
 - **Batching:** relationship directives batch through graphql-ruby's Dataloader (`dataloader_sources/`, `relation_batch.rb`).
 - **Nested mutations:** `nested_mutations/` handles create/update/upsert/connect operations on every association kind.
+- **Federation:** native, ported from PHP Lighthouse (no `apollo-federation`). `Federation.manipulate` runs last in the manipulation phase when the SDL `@link`s the spec (or `federation: true`, marked with `V1_MARKER`): it declares the spec's directives under the `Link`'s names and adds `_Any`/`_Entity`/`_Service`/`_entities`/`_service`; `PaginationManipulator` makes generated types `@shareable`. `Federation.apply` installs the root resolvers; `Federation::Entities` resolves representations (type class `resolve_reference(s)`, then the model by keys, then the representation); `Federation::Printer` prints the subgraph SDL. `Federation::CallbackSubscriptions` is Apollo Router's subscription callback protocol. Guide: `docs/federation.md`.
 
 ### Adding a directive
 
@@ -76,7 +83,7 @@ You don't need to edit the generator:
 - **RBS signatures:** `sig/` ships with the gem and covers the public API: config, extension points and entrypoints. Update it when you change those, because `rake rbs` checks the signatures against real calls made during the suite. graphql-ruby, Active Record and Rails ship no RBS, so what Lighthouse uses of them is declared as interfaces at the top of `sig/lighthouse.rbs` (`_Schema`, `_Context`, `_Relation`, `_DirectiveNode`, ...): add the method there rather than reaching for `untyped`, which is kept for the app's own values (a user, a client's argument value).
 - **Gem packaging:** `spec.files` in the gemspec is an explicit `Dir[...]` allowlist. CI fails if a tracked file under `lib`, `sig` or `docs` is missing from the built gem.
 - **graphql-ruby patches:** `graphql_ruby_patches.rb` patches graphql-ruby's private internals defensively. If a patch can't apply, it is skipped rather than failing.
-- **Tests:** specs build a real schema from inline SDL and run real queries against ActiveRecord models (`Widget` and `Post` in `spec_helper.rb`, plus `spec/support/lighthouse_models.rb`). A regression spec should be the SDL that broke. Put a spec in `example/spec/` when a feature depends on Rails itself: requests, headers, the reloader or rake tasks.
+- **Tests:** specs build a real schema from inline SDL and run real queries against ActiveRecord models (`Widget` and `Post` in `spec_helper.rb`, plus `spec/support/lighthouse_models.rb`). A regression spec should be the SDL that broke. Put a spec in `examples/graphql/spec/` when a feature depends on Rails itself: requests, headers, the reloader or rake tasks.
 - **Docs site:** `docs/*.md` ships in the gem and is published by `website/`. A new guide needs a sidebar entry in `website/.vuepress/config.js`.
 - **Commits and changelog:** use Conventional Commits (`feat(directives): …`, `fix(paginate): …`). Add user-facing changes under `## [Unreleased]` in `CHANGELOG.md`.
 - **Releases:** bump `lib/lighthouse/graphql/version.rb`, move the Unreleased entries into a dated section, then tag `vX.Y.Z`. The Release workflow publishes to RubyGems.

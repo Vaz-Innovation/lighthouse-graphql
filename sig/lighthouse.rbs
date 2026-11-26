@@ -166,6 +166,12 @@ module Lighthouse
     def error: (?String? message) -> void
   end
 
+  # An Action Cable pubsub adapter (ActionCable.server.pubsub: async, redis, solid_cable, ...).
+  interface _PubSub
+    def subscribe: (String channel, ^(String) -> void message_callback, ?(^() -> void)? success_callback) -> void
+    def unsubscribe: (String channel, ^(String) -> void message_callback) -> void
+  end
+
   # --- Values ----------------------------------------------------------------
 
   # A field's arguments, with snake_case Symbol keys as graphql-ruby passes them.

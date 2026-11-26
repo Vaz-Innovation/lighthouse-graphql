@@ -39,6 +39,10 @@ module Lighthouse::GraphQL::SchemaGenerator
   module_function
 
   def build(sdl_string, **opts)
+    # `federation: true` makes a schema without a Federation 2 @link a Federation 1 subgraph.
+    sdl_string = Lighthouse::GraphQL::Federation.prepare(sdl_string, opts.delete(:federation))
+    # The apollo-federation gem's mixins would federate nothing here (the SDL does).
+    Lighthouse::GraphQL::Federation::ApolloFederationCheck.check_types!(opts[:base_types] || {})
     # Decided on the app's SDL: once definitions are injected, every schema mentions it.
     uses_cache_control = sdl_string.to_s.gsub(/directive\s+@cacheControl/, '').include?('@cacheControl')
     # The manipulated document — from the schema cache when it is enabled
@@ -51,10 +55,12 @@ module Lighthouse::GraphQL::SchemaGenerator
     schema = Lighthouse::GraphQL::RootTypes.build(document, bases[:roots]) { from_document(document, impl, opts) }
 
     Lighthouse::GraphQL::ServerDirectives.hide!(schema)
-    delegate_to_federation_sdl(schema)
     Lighthouse::GraphQL::GeneratedResolvers.install_dispatcher(schema)
     attach_schema(impl, schema)
     post_process(schema, impl, bases: bases, **opts)
+    # A subgraph's `_service` and `_entities`; the app's schema class may not take the gem's instead.
+    Lighthouse::GraphQL::Federation.apply(schema, document)
+    Lighthouse::GraphQL::Federation::ApolloFederationCheck.guard!(schema)
     schema.trace_with(Lighthouse::Events::ExecutionTrace)
 
     # @cacheControl hints become the response's Cache-Control header,
@@ -72,8 +78,8 @@ module Lighthouse::GraphQL::SchemaGenerator
     defined?(::SchemaImplementation) ? ::SchemaImplementation.new : FallbackImplementation.new
   end
 
-  # Build using the provided base class so federation / custom schema behavior
-  # is preserved through class hierarchy.
+  # Build using the provided base class so custom schema behavior is
+  # preserved through class hierarchy.
   # The document is handed over through `parser:`, graphql-ruby's public
   # hook, so it is not parsed again. Takes the options it uses out of `opts`;
   # the rest are post_process's.
@@ -84,15 +90,6 @@ module Lighthouse::GraphQL::SchemaGenerator
 
     schema_class.from_definition('', parser: prebuilt_parser(document), default_resolve: impl,
                                      base_types: base_types, using: using)
-  end
-
-  # Make to_definition delegate to federation_sdl when available.
-  def delegate_to_federation_sdl(schema)
-    return unless schema.respond_to?(:federation_sdl)
-
-    schema.define_singleton_method(:to_definition) do
-      federation_sdl
-    end
   end
 
   # Give the implementation object access to the built schema so its
@@ -126,9 +123,10 @@ module Lighthouse::GraphQL::SchemaGenerator
   # The SDL as the schema is built from it: directive definitions injected
   # (so apps don't hand-declare Lighthouse's directives), then the
   # manipulation phase (ASTBuilder: type extensions merged, pagination types,
-  # whereConditions / orderBy inputs, ...).
+  # whereConditions / orderBy inputs, ...), and last, for a subgraph, what
+  # Federation adds.
   def manipulate(sdl)
-    Lighthouse::GraphQL::ASTBuilder.build(inject_directive_definitions(sdl))
+    Lighthouse::GraphQL::Federation.manipulate(Lighthouse::GraphQL::ASTBuilder.build(inject_directive_definitions(sdl)), sdl)
   end
 
   # `bases`: { root kind => the base class its fields' classes inherit from } (ResolverBases).
@@ -141,9 +139,6 @@ module Lighthouse::GraphQL::SchemaGenerator
     schema.types.each_value do |type|
       next unless type.kind.object?
 
-      # Apply object-level federation directives to generated types so the
-      # Apollo Federation helper can detect entities and add _entities.
-      Lighthouse::GraphQL::FederationDirectives.apply(type)
       root_kind = root_kinds[type.graphql_name]
       type_class = Lighthouse::GraphQL::DirectiveResolvers::TypeMethodResolver.type_class(type.graphql_name, bases, root_kind)
       # A field a code-first base declares (RootTypes) resolves as graphql-ruby resolves it.

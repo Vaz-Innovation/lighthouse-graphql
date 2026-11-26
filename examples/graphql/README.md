@@ -22,7 +22,7 @@ and `OPENSEARCH_URL` makes it search in OpenSearch instead
 docker run -d -p 5432:5432 -e POSTGRES_PASSWORD=postgres postgres:16
 docker run -d -p 9200:9200 -e discovery.type=single-node -e xpack.security.enabled=false \
   -e ES_JAVA_OPTS='-Xms512m -Xmx512m' elasticsearch:9.5.5
-cd example
+cd examples/graphql
 bin/setup --skip-server             # bundle install + database
 bin/rails db:seed                   # sample users, posts, tags and a comment; prints two API tokens
 bin/rails runner 'Comment.reindex'  # creates the comments' index in Elasticsearch, and fills it
@@ -199,7 +199,7 @@ wscat -c 'ws://localhost:3000/cable?token=<token from db:seed>' -s actioncable-v
 then publish a draft through `POST /graphql` (`mutation { publishPost(id: 3) { id } }`)
 and the update arrives on the socket. `config/cable.yml` uses the `async` adapter in
 development, which keeps everything in one process; use a shared adapter in
-production (see [docs/subscriptions.md](../docs/subscriptions.md)). The specs use the
+production (see [docs/subscriptions.md](../../docs/subscriptions.md)). The specs use the
 `test` adapter, which is `async` underneath, so the delivery specs exercise the real
 streams.
 

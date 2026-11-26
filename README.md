@@ -43,7 +43,8 @@ the single source of truth. [Motivation](docs/motivation.md) explains the idea i
 
 The same directives reach the rest of an API, too:
 - real-time updates: `Subscription` fields on graphql-ruby's subscriptions, triggered
-  by a mutation's `@broadcast`;
+  by a mutation's `@broadcast`, over WebSocket (Action Cable) and Server-Sent Events
+  at once ([choosing a transport](docs/subscriptions.md#choosing-a-transport));
 - soft deletes (`@softDeletes`, `@restore`, `@forceDelete`) and feature flags (`@feature`);
 - request lifecycle [events](docs/events.md);
 - a controller concern that serves the schema in a few lines.
@@ -67,8 +68,7 @@ Add the gem to your `Gemfile`:
 gem 'lighthouse-graphql'
 ```
 
-It depends on `graphql ~> 2.5` and `activesupport`. For federation you also need
-`apollo-federation` in your app (it is an optional, app-provided dependency).
+It depends on `graphql ~> 2.5` and `activesupport`. Federation needs nothing more.
 On graphql 2.5, keep the `json` gem below 3: graphql 2.5 calls `JSON.generate`
 with an option json 3 removed (graphql 2.6 no longer does).
 
@@ -166,13 +166,19 @@ Prefer to wire it by hand? These are the steps the generator performs.
 See **[docs/getting-started.md](docs/getting-started.md)** for the full setup,
 including base types and configuration.
 
-### Example app
+### Example apps
 
-[`example/`](example) is a small blog API built with Lighthouse on Rails 8.1. It shows
+[`examples/graphql/`](examples/graphql) is a small blog API built with Lighthouse on Rails 8.1. It shows
 the schema, the generated `Resolvers::`/`Mutations::`/`Subscriptions::`/`Builders::`/`Validators::` classes
 under graphql-ruby's base classes,
 Pundit policies and the opt-in performance features working together, and its specs
-are the library's end-to-end suite. See [example/README.md](example/README.md).
+are the library's end-to-end suite. See [examples/graphql/README.md](examples/graphql/README.md).
+
+[`examples/graphql-federations/`](examples/graphql-federations) is the same blog split into two Apollo
+Federation subgraphs, `accounts` and `blog` (two Rails apps), behind Apollo Router: entities across them,
+an entity interface and `@interfaceObject`, `@requires`/`@provides`/`@override`/`@context`, subscriptions
+through the router's HTTP callbacks, uploads, persisted queries and `@defer`, all driven through the router
+by its suite. See [examples/graphql-federations/README.md](examples/graphql-federations/README.md).
 
 ---
 
@@ -194,9 +200,9 @@ or as Markdown in [`docs/`](docs):
 | [Authentication & authorization](docs/authorization.md) | `@guard`, `@canFind` / `@canModel` / `@canQuery` / `@canResolved` / `@canRoot` (Pundit by default) |
 | [Performance at scale](docs/performance.md) | Opt-in schema cache, SDL reloading in development, persisted queries (APQ) and trusted-document allowlists |
 | [Events](docs/events.md) | Request, schema-build and execution events, `@event`, the controller concern |
-| [Subscriptions](docs/subscriptions.md) | `Subscription` fields, `@subscription`, `@broadcast`, filtering and queued broadcasts |
+| [Subscriptions](docs/subscriptions.md) | `Subscription` fields, `@subscription`, `@broadcast`, filtering and queued broadcasts, over WebSocket or Server-Sent Events |
 | [Caching](docs/caching.md) | `@cache`, `@cacheKey`, `@clearCache` (Rails.cache), `@cacheControl` (HTTP) |
-| [Apollo Federation](docs/federation.md) | `@key`, `resolve_reference`, the `ReferenceResolver` registry |
+| [Apollo Federation](docs/federation.md) | Subgraphs: `@key` entities, entity interfaces, the subgraph SDL, subscriptions through Apollo Router |
 | [Custom directives](docs/custom-directives.md) | The contracts, the registry, writing your own directive |
 | [Configuration](docs/configuration.md) | `Lighthouse.configure`, namespaces, error handling |
 | [Best practices](docs/best-practices.md) | Conventions worth adopting |

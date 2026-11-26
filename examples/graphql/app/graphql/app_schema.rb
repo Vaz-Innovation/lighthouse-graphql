@@ -26,7 +26,7 @@ class AppSchema < Lighthouse::GraphQL::RbLightHouse.get_schema(
   use GraphQL::Dataloader
 
   # @defer and @stream: GraphqlController streams the deferred fragments after the rest,
-  # as multipart/mixed parts. Guide: ../docs/defer.md
+  # as multipart/mixed parts. Guide: ../../docs/defer.md
   use Lighthouse::GraphQL::Defer
 
   # ActionCable delivers the Subscription type's fields (app/channels/graphql_channel.rb);
@@ -52,7 +52,7 @@ class AppSchema < Lighthouse::GraphQL::RbLightHouse.get_schema(
   # Refuse expensive queries before they run: graphql-ruby scores each query from
   # the fields it selects. Paginated fields scale by `first`, Tag.posts names the
   # analyzer that sets its cost (@complexity, app/graphql/analyzers) and
-  # Resolvers::SearchPosts declares its own `complexity`. Guide: ../docs/security.md
+  # Resolvers::SearchPosts declares its own `complexity`. Guide: ../../docs/security.md
   max_complexity(1000)
 
   # Relay-style Object Identification:

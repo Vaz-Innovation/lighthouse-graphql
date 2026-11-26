@@ -48,8 +48,6 @@ Gem::Specification.new do |spec|
   # Pundit (@can*) and dry-validation (@validator) are optional too: Lighthouse
   # only touches them when a schema uses those directives with their defaults.
   #
-  # Apollo Federation (`apollo-federation` gem) is an OPTIONAL runtime dependency:
-  # the federation entity binding only activates when the host app's base types
-  # include the ApolloFederation mixins. It is therefore not declared as a hard
-  # dependency so non-federated apps can use Lighthouse without it.
+  # Apollo Federation needs no gem of its own: a schema that @links the spec is a
+  # subgraph (lib/lighthouse/federation.rb).
 end

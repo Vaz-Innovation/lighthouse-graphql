@@ -6,6 +6,66 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Federation without `apollo-federation`, ported from PHP Lighthouse.** A schema that `@link`s the
+  Federation 2 spec (`extend schema @link(url: "https://specs.apollo.dev/federation/v2.9", import: [...])`)
+  is a subgraph; `federation: true` makes one without the link a Federation 1 subgraph. The spec's
+  directives it uses are declared for it under the names the link gives them (imports, `as:` renames, the
+  `federation__` prefix), and it gets `_Any`, `_Service`, `Query._service` and, with an entity, `_Entity`
+  and `Query._entities`.
+- **The subgraph SDL keeps every federation directive** (`_service { sdl }`, `federation_sdl`, `FORMAT=federation`):
+  its own `extend schema @link(...)` and `@composeDirective`, and the directives applied to types, fields,
+  arguments, enum values and input fields; without Lighthouse's directives or the spec's types, fields and
+  definitions.
+- **`_entities` finds a type's entities in one query per key**, by the first `@key` each representation has
+  (compound keys, a nested key through its association, a `@globalId` key decoded), on the type's model; or
+  through the type class's `resolve_references(representations, context)` / `resolve_reference`; or answers
+  the representation itself. The values sent for `@external` fields are set on the records, for `@requires`.
+- **Entity interfaces and `@interfaceObject`**: an interface with `@key` is resolved through its types'
+  models, each record answered as its own type.
+- **The types `@paginate` generates are `@shareable`** in a Federation 2 subgraph, since every subgraph that
+  paginates generates the same ones.
+- **Federated subscriptions**: `use Lighthouse::GraphQL::Federation::CallbackSubscriptions` delivers the
+  Subscription fields to Apollo Router through its HTTP callback protocol (check, next, complete,
+  heartbeats), fanned out across processes through Action Cable's pubsub; `Lighthouse::GraphQL::Controller`
+  reads the router's `extensions.subscription`.
+- **Subscriptions over Server-Sent Events**: `Lighthouse::GraphQL::Controller` answers a request whose
+  `Accept` names `text/event-stream` in graphql-sse's distinct connections mode (what GraphQL Yoga, Hive
+  Gateway and `@graphql-tools/executor-http` speak): a `next` event per result and update, keep-alive
+  comments, `complete` at the end. The stream is the operation's Action Cable channel, so
+  `ActionCableSubscriptions` serves WebSocket and SSE subscribers with one trigger
+  (`Lighthouse::GraphQL::EventStream`). docs/subscriptions.md compares the two transports, with a client
+  for each.
+- **`examples/graphql-federations`**: the example blog as two subgraphs (two Rails apps) behind Apollo Router,
+  with an end-to-end suite that composes the supergraph with rover and drives every federation directive and
+  Lighthouse feature through the router; and behind GraphQL Yoga (`gateway/`, `@graphql-tools/federation`
+  with `@interfaceObject` added), which subscribes to the blog over Server-Sent Events.
+
+### Changed
+
+- **`example/` is `examples/graphql/`**, beside the new federated example.
+- **An object literal given to a scalar directive argument builds** (graphql-ruby read it as an input
+  object): the link's `import: [{ name: "@key", as: "@id" }]`.
+- **`Federation::CallbackSubscriptions` is a `GraphQL::Subscriptions::ActionCableSubscriptions`**: besides
+  Apollo Router's callbacks it keeps the subscriptions that come over SSE or an Action Cable channel, which
+  it refused, and its triggers go through `ActionCableSubscriptions`' broadcast (its `serializer:` and
+  `namespace:` options apply). `CallbackSubscriptions::BROADCASTING_PREFIX` is gone: the topics are
+  `ActionCableSubscriptions`' own.
+
+### Removed
+
+- **The `apollo-federation` integration.** Its SDL linked Federation 2.3 whatever the schema said, printed
+  `@key` twice, left out the directives of fields, arguments and enum values, printed Lighthouse's own
+  directives, and could not resolve an entity interface; included in the schema class, it silently took the
+  subgraph over from Lighthouse's. Its mixins are now refused by name: a base type (or its field, argument or
+  enum value class) including `ApolloFederation::Object`, `Interface`, `Union`, `Enum`, `EnumValue`,
+  `Scalar`, `InputObject`, `Field` or `Argument`, or a schema class including `ApolloFederation::Schema`, is
+  a `Lighthouse::DefinitionError` naming the class and the SDL directive that replaces what the mixin
+  declared. docs/federation.md has the table.
+- **`Lighthouse::ReferenceResolver`.** Define `self.resolve_reference(representation, context)` (or
+  `resolve_references`) on the type class instead; looking a record up by id is what `_entities` does by itself.
+
 ## [0.9.1] - 2026-10-30
 
 ### Added

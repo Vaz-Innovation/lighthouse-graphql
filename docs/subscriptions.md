@@ -36,6 +36,11 @@ end
 
 ## Enabling a backend
 
+A subgraph behind Apollo Router delivers its subscriptions through the router
+instead, with `Lighthouse::GraphQL::Federation::CallbackSubscriptions`: see
+[federation.md](federation.md#subscriptions). Everything below about the
+subscription fields, their classes and `@broadcast` holds for it too.
+
 graphql-ruby delivers subscriptions through a *backend* that stores who subscribed
 and sends the updates: ActionCable (bundled), or a gem such as Pusher or Ably.
 Lighthouse needs none of its own; give the schema one with `use`, in the schema
@@ -90,6 +95,141 @@ ActionCable's serialization, so an Active Record model must be serializable with
 GlobalID. A Rails app that loads ActiveJob has that; one that picks its railties
 (an API-only `config/application.rb`) needs `require 'global_id/railtie'`, or the
 subscribers would receive the model's `inspect` string.
+
+## Over Server-Sent Events
+
+The same backend serves subscriptions over
+[Server-Sent Events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events),
+with nothing more to set up: `Lighthouse::GraphQL::Controller` answers a request
+whose `Accept` names `text/event-stream` (a GET or a POST to the endpoint) in
+[graphql-sse](https://github.com/enisdenjo/graphql-sse/blob/master/PROTOCOL.md)'s
+*distinct connections* mode, which `graphql-sse`'s client, GraphQL Yoga, Hive
+Gateway and `@graphql-tools/executor-http` speak:
+
+```text
+GET /graphql?query=subscription+%7B+postCreated+%7B+title+%7D+%7D
+Accept: text/event-stream
+
+event: next
+data: {"data":{"postCreated":{"title":"Hello"}}}
+
+:
+
+event: next
+data: {"data":{"postCreated":{"title":"Again"}}}
+
+event: complete
+data:
+```
+
+Each update is a `next` event; a `:` comment is written every 12 seconds while
+none comes, which keeps proxies from closing the connection and finds out a
+client that left; `complete` ends the stream when the subscription ends on the
+server (`unsubscribe`, `delete_subscription`). A client that goes away ends it
+too, and its subscription is deleted. A query or a mutation sent this way is one
+`next` and `complete`.
+
+The response stands for an Action Cable channel (`channel` in the operation's
+context, as `GraphqlChannel` gives a socket's), so `ActionCableSubscriptions`
+keeps an SSE subscription as it keeps a WebSocket one, and one trigger reaches
+both through Action Cable's pubsub. Action Cable's server speaks WebSocket only:
+it is its pubsub, the `cable.yml` adapter, that SSE rides on, so the app needs
+Action Cable loaded and configured, but no socket open. The rules above hold:
+a shared adapter for triggers from other processes, GlobalID for the roots.
+
+Each open stream holds the server thread that answers it (as
+`ActionController::Live` does): size Puma's threads (or run a server that
+streams without one, such as Falcon) for the subscribers you expect. An update
+runs on a thread of its own, inside the app's executor, as Action Cable runs a
+channel's, with its own database connection and query cache.
+
+## Choosing a transport
+
+There is no switch between them: with `ActionCableSubscriptions` as the backend,
+WebSocket and Server-Sent Events are both on, and each client picks one per
+operation. A `@broadcast` reaches the subscribers of both; the server never needs
+to know which one a subscriber came through.
+
+| | WebSocket (Action Cable) | Server-Sent Events |
+| --- | --- | --- |
+| The client connects to | `/cable`, and calls the `GraphqlChannel`'s `execute` | the GraphQL endpoint, with `Accept: text/event-stream` |
+| The server needs | Action Cable mounted, `ApplicationCable::Connection` and the [channel above](#enabling-a-backend) | nothing more than the backend and `cable.yml` (Action Cable loaded, no socket served) |
+| Who the user is | the channel's context (`current_user` from `identified_by`) | the endpoint's `graphql_context`, as for its queries (`Authorization`, the session cookie) |
+| One connection carries | every operation of the client, both ways | one subscription, server to client |
+| Holds on the server | a socket, in Action Cable's own worker pool | a server thread per open stream ([above](#over-server-sent-events)) |
+| Gets through | proxies and load balancers that upgrade connections | anything that passes HTTP; multiplexed over HTTP/2 |
+| Spoken by | `@rails/actioncable` with `graphql-ruby-client` (Apollo, Relay, urql) | `graphql-sse`, GraphQL Yoga and Hive Gateway, `@graphql-tools/executor-http`, `EventSource` |
+
+Server-Sent Events are the simpler of the two to run: plain HTTP, the endpoint's
+authentication, and what gateways speak to their subgraphs (a subgraph behind
+GraphQL Yoga needs nothing else; see [federation.md](federation.md#subscriptions)).
+WebSocket shares one connection between all of a client's operations, and costs
+the server no thread per subscription: prefer it for many subscriptions per
+client, or many clients on a threaded server such as Puma.
+
+### A client over Server-Sent Events
+
+[`graphql-sse`](https://github.com/enisdenjo/graphql-sse)'s client, in its
+default *distinct connections* mode (`singleConnection: false`), which is the one
+Lighthouse speaks: each subscription is a POST that accepts `text/event-stream`.
+
+```js
+import { createClient } from 'graphql-sse';
+
+const client = createClient({
+  url: '/graphql',
+  headers: () => ({ Authorization: `Bearer ${token}` }),
+});
+
+const unsubscribe = client.subscribe(
+  { query: 'subscription { postCreated { title } }' },
+  { next: (result) => console.log(result.data), error: console.error, complete: () => {} },
+);
+// unsubscribe() closes the stream, and the server deletes the subscription.
+```
+
+Without a library, the browser's `EventSource` sends a GET with the operation in
+the query string (it cannot set headers, so it authenticates with the session cookie):
+
+```js
+const query = encodeURIComponent('subscription { postCreated { title } }');
+const source = new EventSource(`/graphql?query=${query}`, { withCredentials: true });
+
+source.addEventListener('next', (event) => console.log(JSON.parse(event.data)));
+source.addEventListener('complete', () => source.close());
+```
+
+### A client over WebSocket
+
+[`graphql-ruby-client`](https://graphql-ruby.org/javascript_client/apollo_subscriptions)'s
+link sends subscriptions to the `GraphqlChannel`, and the rest over HTTP, in
+Apollo Client (`createActionCableHandler` does the same for Relay):
+
+```js
+import { ApolloClient, ApolloLink, HttpLink, InMemoryCache } from '@apollo/client';
+import { getMainDefinition } from '@apollo/client/utilities';
+import { createConsumer } from '@rails/actioncable';
+import ActionCableLink from 'graphql-ruby-client/subscriptions/ActionCableLink';
+
+const cable = createConsumer(`/cable?token=${token}`); // a browser WebSocket cannot set headers
+const subscription = ({ query }) => {
+  const definition = getMainDefinition(query);
+  return definition.kind === 'OperationDefinition' && definition.operation === 'subscription';
+};
+
+const client = new ApolloClient({
+  link: ApolloLink.split(subscription, new ActionCableLink({ cable }), new HttpLink({ uri: '/graphql' })),
+  cache: new InMemoryCache(),
+});
+```
+
+The token in the URL is read by `ApplicationCable::Connection`, which identifies
+the socket (`identified_by :current_user`), and the channel passes it on in the
+context; the example app's [`connection.rb`](https://github.com/Vaz-Innovation/lighthouse-graphql/blob/main/examples/graphql/app/channels/application_cable/connection.rb)
+does that.
+
+A client can use both, for instance WebSocket in the browser and SSE from a
+server or a gateway: they are the same subscriptions.
 
 ## Defining subscription fields
 
@@ -446,8 +586,8 @@ the repository's own specs do, in `spec/support/in_memory_subscriptions.rb`.
 graphql-ruby also ships `GraphQL::Testing::MockActionCable` for the real
 ActionCable backend.
 
-The repository's `example/` app is a complete setup: subscription classes under
+The repository's `examples/graphql/` app is a complete setup: subscription classes under
 `Subscriptions::BaseSubscription`,
 `GraphqlChannel`, `ApplicationCable::Connection` with token authentication, and
 specs that drive a mutation through `POST /graphql` and watch the update arrive on
-an ActionCable subscriber (`example/spec/subscriptions/delivery_spec.rb`).
+an ActionCable subscriber (`examples/graphql/spec/subscriptions/delivery_spec.rb`).

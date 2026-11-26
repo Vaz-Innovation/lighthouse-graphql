@@ -10,7 +10,8 @@
 #    Lighthouse's directive.
 # 2. Its type class, Types::<Name>Type including Lighthouse::GraphQL::Type: a
 #    GraphQL::Schema::Scalar, as graphql-ruby's `rails g graphql:scalar` writes it.
-# 3. Lighthouse's own, for `scalar Upload` (Lighthouse::GraphQL::Upload).
+# 3. Lighthouse's own, for `scalar Upload` (Lighthouse::GraphQL::Upload) and a
+#    subgraph's `scalar _Any` (Lighthouse::GraphQL::Federation::Any).
 #
 # A scalar with none passes its values through unchanged. A class raising
 # GraphQL::CoercionError from coerce_input (or returning nil for a value) makes
@@ -42,7 +43,7 @@ module Lighthouse::GraphQL::ScalarCoercion
   end
 
   # Scalars Lighthouse brings a class for, when nothing else names one.
-  BUILT_IN = { 'Upload' => 'Lighthouse::GraphQL::Upload' }.freeze
+  BUILT_IN = { 'Upload' => 'Lighthouse::GraphQL::Upload', '_Any' => 'Lighthouse::GraphQL::Federation::Any' }.freeze
 
   def class_for(scalar_type, base = nil)
     directive_class(scalar_type) || type_class(scalar_type, base) || BUILT_IN[scalar_type.graphql_name]&.constantize

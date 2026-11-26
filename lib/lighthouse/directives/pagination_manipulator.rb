@@ -46,9 +46,15 @@ class Lighthouse::GraphQL::Directives::PaginationManipulator
   # pageInfo, edges, node) take their parent's maxAge, as in PHP Lighthouse:
   # they are not entities of their own, so they must not turn a cacheable
   # page into `no-cache`.
+  #
+  # In a Federation 2 subgraph the generated types are @shareable: every
+  # subgraph that paginates generates the same PaginatorInfo, PageInfo, ...,
+  # which the gateway may then resolve from any of them.
   def initialize(document, cache_control: false)
     @document = document
     @inherit = cache_control ? ' @cacheControl(inheritMaxAge: true)' : ''
+    link = Lighthouse::GraphQL::Federation::Link.from_document(document)
+    @shareable = link&.v2? ? " @#{link.directive('shareable')}" : ''
     @defined = document.definitions.filter_map { |d| d.name if d.respond_to?(:name) && !d.class.name.end_with?('Extension') }
     @generated = {}
   end
@@ -108,7 +114,7 @@ class Lighthouse::GraphQL::Directives::PaginationManipulator
   end
 
   def generate(name, sdl)
-    @generated[name] ||= sdl.strip
+    @generated[name] ||= sdl.strip.sub(/^type #{name}\b/, "type #{name}#{@shareable}")
   end
 
   def paginator_type(item, suffix, info)

@@ -15,29 +15,45 @@ AllCops:
     - 'vendor/**/*'
     - 'node_modules/**/*'
     - 'website/**/*'
-    - 'example/bin/**/*'
-    - 'example/db/schema.rb'
+    - 'examples/graphql/bin/**/*'
+    - 'examples/graphql/db/schema.rb'
     # Copied as they are from Rails (bin/rails active_storage:install, solid_queue:install).
-    - 'example/db/migrate/*.active_storage.rb'
-    - 'example/db/migrate/*.solid_queue.rb'
+    - 'examples/graphql/db/migrate/*.active_storage.rb'
+    - 'examples/graphql/db/migrate/*.solid_queue.rb'
     # Written by graphql-ruby's graphql:install, then lighthouse:install, and kept as
     # they write them: the example is regenerated with both to check them.
-    - 'example/app/graphql/app_schema.rb'
-    - 'example/app/graphql/types/base_*.rb'
-    - 'example/app/graphql/types/{node,query,mutation}_type.rb'
-    - 'example/app/graphql/{resolvers/base_resolver,mutations/base_mutation,subscriptions/base_subscription}.rb'
-    - 'example/config/environments/**/*'
-    - 'example/log/**/*'
-    - 'example/public/**/*'
-    - 'example/storage/**/*'
-    - 'example/tmp/**/*'
-    - 'example/vendor/**/*'
+    - 'examples/graphql/app/graphql/app_schema.rb'
+    - 'examples/graphql/app/graphql/types/base_*.rb'
+    - 'examples/graphql/app/graphql/types/{node,query,mutation}_type.rb'
+    - 'examples/graphql/app/graphql/{resolvers/base_resolver,mutations/base_mutation,subscriptions/base_subscription}.rb'
+    - 'examples/graphql/config/environments/**/*'
+    - 'examples/graphql/log/**/*'
+    - 'examples/graphql/public/**/*'
+    - 'examples/graphql/storage/**/*'
+    - 'examples/graphql/tmp/**/*'
+    - 'examples/graphql/vendor/**/*'
+    # The federated example's subgraphs: the same, for each Rails app in it.
+    - 'examples/graphql-federations/tmp/**/*'
+    - 'examples/graphql-federations/*/bin/**/*'
+    - 'examples/graphql-federations/*/db/schema.rb'
+    - 'examples/graphql-federations/*/db/migrate/*.active_storage.rb'
+    - 'examples/graphql-federations/*/app/graphql/types/base_*.rb'
+    - 'examples/graphql-federations/*/app/graphql/types/{node,query,mutation}_type.rb'
+    - 'examples/graphql-federations/*/app/graphql/{resolvers/base_resolver,mutations/base_mutation,subscriptions/base_subscription}.rb'
+    - 'examples/graphql-federations/*/config/environments/**/*'
+    - 'examples/graphql-federations/*/log/**/*'
+    - 'examples/graphql-federations/*/storage/**/*'
+    - 'examples/graphql-federations/*/tmp/**/*'
 
 Layout/LineLength:
   Max: 150
 
 Metrics/ClassLength:
   Max: 175
+
+# Lighthouse::GraphQL::Controller answers every transport (JSON, multipart, SSE) in one concern.
+Metrics/ModuleLength:
+  Max: 110
 
 Metrics/MethodLength:
   Max: 19
@@ -80,7 +96,8 @@ RSpec/NestedGroups:
 Style/ClassAndModuleChildren:
   EnforcedStyle: compact
   Exclude:
-    - 'example/config/application.rb'
+    - 'examples/graphql/config/application.rb'
+    - 'examples/graphql-federations/*/config/application.rb'
     # They define the namespaces every other file opens compactly.
     - 'lib/lighthouse/namespaces.rb'
     - 'lib/lighthouse/graphql/version.rb'
@@ -97,7 +114,8 @@ Style/OneClassPerFile:
 Rails/FindEach:
   Enabled: true
   Include:
-    - 'example/app/**/*.rb'
+    - 'examples/graphql/app/**/*.rb'
+    - 'examples/graphql-federations/*/app/**/*.rb'
 
 # The gem's require name, `require 'lighthouse-graphql'`, matches the gem's name.
 Naming/FileName:

@@ -22,7 +22,8 @@ bundle exec rubocop                  # lint the gem and the example app (-a to a
 bundle exec rake build               # package the gem into pkg/
 bundle exec rake                     # default task — the suite, then RuboCop
 
-cd example && bundle install && bin/rails db:prepare && bundle exec rspec   # end-to-end suite
+cd examples/graphql && bundle install && bin/rails db:prepare && bundle exec rspec   # end-to-end suite
+cd examples/graphql-federations && bundle install && bundle exec rspec               # federated suite (Docker, rover)
 ```
 
 **There is no committed `Gemfile.lock`, deliberately.** A library resolves against its
@@ -95,11 +96,17 @@ cases are deterministic: run more of them, or others, with
 When you change how a field's directives meet the search, run it with more cases,
 and add what it finds to the generator's directives if it cannot reach it.
 
-[`example/`](./example) is a Rails app using the gem from this checkout, and its specs
+[`examples/graphql/`](./examples/graphql) is a Rails app using the gem from this checkout, and its specs
 are the end-to-end suite: they go through the app's real `/graphql` endpoint, with its
 controller, policies, cache store and generated classes. Add one there when a feature
 depends on Rails itself (requests, headers, the reloader, rake tasks), and keep the
 app a readable example: it is also what users look at to see how the pieces fit.
+
+[`examples/graphql-federations/`](./examples/graphql-federations) is the same blog as two
+Apollo Federation subgraphs behind Apollo Router (in Docker), whose suite drives the
+federated graph through the router. Add one there when a feature meets federation:
+entities, the subgraph SDL, the router's transports. After changing a subgraph's
+schema, run its `bin/compose`.
 
 ## Documentation site
 
@@ -130,7 +137,7 @@ Types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`.
 ## Pull requests
 
 1. Rebase on `main`.
-2. `bundle exec rspec`, `bundle exec rubocop`, the example's `bundle exec rspec` and
+2. `bundle exec rspec`, `bundle exec rubocop`, both examples' `bundle exec rspec` and
    `bundle exec rake build` — all green.
 3. Add a note under `## [Unreleased]` in [CHANGELOG.md](./CHANGELOG.md), written for someone
    deciding whether to upgrade.

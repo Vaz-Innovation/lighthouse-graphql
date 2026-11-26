@@ -90,21 +90,28 @@ module Lighthouse::GraphQL::Controller
   end
 
   # What PersistedQueries runs an operation with: its query, extensions, variables and
-  # name, in the request's context.
+  # name, in the request's context. A subscription Apollo Router asks a subgraph
+  # for carries its callback in the extensions (Federation::CallbackSubscriptions).
   def lighthouse_arguments(operation)
     operation = operation.with_indifferent_access if operation.is_a?(Hash)
+    context = lighthouse_context.merge(Lighthouse::GraphQL::Federation::CallbackSubscriptions.context_for(operation[:extensions]))
     { query: operation[:query], extensions: operation[:extensions], variables: graphql_variables(operation[:variables]),
-      operation_name: operation[:operationName], context: lighthouse_context }
+      operation_name: operation[:operationName], context: context }
   end
 
-  # One operation: answered whole, or streamed (Defer) when it defers. The schema is resolved
-  # once, for both.
+  # One operation: over Server-Sent Events when the client asks for them, else answered whole,
+  # or streamed (Defer) when it defers. The schema is resolved once, for all.
   def lighthouse_respond(operation)
     schema = graphql_schema
+    return lighthouse_event_stream(operation, schema) if !request.head? && Lighthouse::GraphQL::EventStream.accepted?(request.headers['Accept'])
+
     stream_type = lighthouse_stream_type(schema)
     return lighthouse_incremental(operation, schema, stream_type) if stream_type
 
     result = lighthouse_operation(operation, schema)
+    callback = Lighthouse::GraphQL::Federation::CallbackSubscriptions.response(result)
+    return render json: callback.first, status: callback.last if callback
+
     Lighthouse::GraphQL::CacheControl.apply(response, result)
     render json: result
   end
@@ -139,11 +146,31 @@ module Lighthouse::GraphQL::Controller
   def lighthouse_stream(run, stream_type)
     multipart = Lighthouse::GraphQL::Incremental::Multipart.new(keep: Lighthouse::Events.listening?(Lighthouse::Events::EndRequest))
     first = lighthouse_first_part(run, multipart)
-    Lighthouse::GraphQL::Incremental::Multipart.headers(stream_type).each { |name, value| response.headers[name] = value }
     ended = -> { Lighthouse::Events.dispatch(Lighthouse::Events::EndRequest.new(multipart.ended(response))) }
-    @lighthouse_body = Lighthouse::GraphQL::Incremental::Body.new(run, multipart, first, on_error: method(:lighthouse_report), on_end: ended)
-    request.env['rack.response_finished']&.push(->(*) { @lighthouse_body.finish })
-    self.response_body = @lighthouse_body
+    body = Lighthouse::GraphQL::Incremental::Body.new(run, multipart, first, on_error: method(:lighthouse_report), on_end: ended)
+    lighthouse_body(body, Lighthouse::GraphQL::Incremental::Multipart.headers(stream_type))
+  end
+
+  # An operation over Server-Sent Events (EventStream), for a client whose Accept asks for
+  # `text/event-stream`: its result as a `next` event and, a subscription, each update as
+  # another, until it ends. The stream is the operation's Action Cable channel (`channel` in
+  # its context, as GraphqlChannel gives a socket's), so the schema's ActionCableSubscriptions
+  # (or Federation::CallbackSubscriptions) delivers to it as to a WebSocket. It ends the request
+  # once it is done.
+  def lighthouse_event_stream(operation, schema)
+    ended = -> { Lighthouse::Events.dispatch(Lighthouse::Events::EndRequest.new(response)) }
+    stream = Lighthouse::GraphQL::EventStream.new(schema, on_error: method(:lighthouse_report), on_end: ended)
+    arguments = lighthouse_arguments(operation)
+    stream.start(Lighthouse::GraphQL::PersistedQueries.execute(schema, **arguments, context: arguments[:context].merge(channel: stream)))
+    lighthouse_body(stream, Lighthouse::GraphQL::EventStream.headers)
+  end
+
+  # A body the server writes after the action, as it comes; finished once the response is.
+  def lighthouse_body(body, headers)
+    headers.each { |name, value| response.headers[name] = value }
+    @lighthouse_body = body
+    request.env['rack.response_finished']&.push(->(*) { body.finish })
+    self.response_body = body
   end
 
   def lighthouse_first_part(run, multipart)

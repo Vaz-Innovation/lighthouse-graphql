@@ -21,7 +21,6 @@ require_relative 'namespaces'
   config
   errors
   graphql_ruby_patches
-  reference_resolver
   support/naming
   support/count
   support/directive_args
@@ -49,7 +48,14 @@ require_relative 'namespaces'
   document_ast
   generated_resolvers
   default_resolve_dispatcher
-  federation_directives
+  federation
+  federation/link
+  federation/definitions
+  federation/any
+  federation/entities
+  federation/printer
+  federation/callback_subscriptions
+  federation/apollo_federation_check
   field_resolver_stack
   events
   events/lifecycle
@@ -82,6 +88,7 @@ require_relative 'namespaces'
   incremental/body
   incremental/run
   defer
+  event_stream
   operations
   controller
   testing

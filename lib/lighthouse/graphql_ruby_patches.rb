@@ -5,10 +5,16 @@ module Lighthouse::GraphQL
   # `@paginate(maxCount: null)` — to the directive as a NullValue node instead
   # of nil, and building the schema then fails to coerce it. Its own
   # build_default_value already maps NullValue to nil; do the same here.
+  # An object literal given to a scalar argument (the Federation link's
+  # `import: [{ name: "@key", as: "@id" }]`, a `link__Import`) is read as an
+  # input object, whose arguments the scalar has none of: it is its Hash.
   module NullDirectiveArguments
     # graphql 2.6.14 added a third parameter (the type resolver): pass on whatever it takes.
     def args_to_kwargs(arg_owner, node, *rest)
-      node.is_a?(::GraphQL::Language::Nodes::NullValue) ? nil : super
+      return if node.is_a?(::GraphQL::Language::Nodes::NullValue)
+      return node.to_h if node.is_a?(::GraphQL::Language::Nodes::InputObject) && !arg_owner.respond_to?(:get_argument)
+
+      super
     end
   end
 

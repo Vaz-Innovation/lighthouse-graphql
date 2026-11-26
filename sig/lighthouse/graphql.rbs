@@ -296,6 +296,35 @@ module Lighthouse
       end
     end
 
+    # GraphQL over Server-Sent Events (graphql-sse's distinct connections mode): an operation's
+    # result as a `next` event and, a subscription, each update as another, until `complete`. The
+    # stream is the operation's Action Cable channel (`channel` in its context).
+    class EventStream
+      CONTENT_TYPE: String
+      KEEP_ALIVE: String
+      COMPLETE: String
+
+      # Does an Accept header take an event stream?
+      def self.accepted?: (String? accept) -> bool
+      def self.headers: () -> Hash[String, String]
+      # The `next` event of a result.
+      def self.event: (Hash[String, untyped] result) -> String
+      # Each `next` event's result, as a client reads a stream's body.
+      def self.parse: (String? body) -> Array[Hash[String, json]]
+
+      attr_reader subscription_id: String?
+
+      def initialize: (_Schema schema, ?pubsub: _PubSub?, ?keep_alive: Numeric, ?on_error: (^(StandardError) -> void)?,
+                       ?on_end: (^() -> void)?) -> void
+      # The operation's result: the first event, and whether the stream stays open.
+      def start: (_Result result) -> self
+      # What ActionCableSubscriptions asks of a channel.
+      def stream_from: (String broadcasting, ?untyped callback, ?coder: untyped) ?{ (untyped message) -> void } -> void
+      def each: () { (String event) -> void } -> void
+      def finish: () -> void
+      def open?: () -> bool
+    end
+
     # The opt-in cache of the manipulated schema document, in tmp/cache.
     module SchemaCache
       PREFIX: String

@@ -3,7 +3,7 @@
 require 'spec_helper'
 
 # The adapters of the two gems, without the gems: what each asks of them and how it detects its model.
-# example/ runs them against OpenSearch and PostgreSQL.
+# examples/graphql/ runs them against OpenSearch and PostgreSQL.
 RSpec.describe 'search adapters' do
   describe Lighthouse::Search::Searchkick do
     subject(:adapter) { described_class.new }

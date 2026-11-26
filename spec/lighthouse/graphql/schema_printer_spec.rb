@@ -34,7 +34,7 @@ RSpec.describe Lighthouse::GraphQL::SchemaPrinter do
     end
 
     it 'refuses an unknown format, and federation for a schema without it' do
-      expect { described_class.print(schema, format: 'federation') }.to raise_error(ArgumentError, /needs a federated schema/)
+      expect { described_class.print(schema, format: 'federation') }.to raise_error(ArgumentError, /needs a subgraph/)
       expect { described_class.print(schema, format: 'xml') }.to raise_error(ArgumentError, /Unknown schema format/)
     end
   end

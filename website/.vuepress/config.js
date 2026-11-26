@@ -77,7 +77,7 @@ export default defineUserConfig({
     navbar: [
       { text: 'Docs', link: '/docs/getting-started.md' },
       { text: 'Directives', link: '/docs/directives.md' },
-      { text: 'Example app', link: `https://github.com/${repo}/tree/main/example` },
+      { text: 'Example apps', link: `https://github.com/${repo}/tree/main/examples` },
       { text: 'Changelog', link: `https://github.com/${repo}/blob/main/CHANGELOG.md` },
       { text: 'RubyGems', link: 'https://rubygems.org/gems/lighthouse-graphql' },
     ],

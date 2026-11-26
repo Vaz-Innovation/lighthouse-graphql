@@ -89,12 +89,10 @@ Lighthouse.configure do |config|
   # config.feature_checker = ->(name, actor, _ctx) { Flipper.enabled?(name.to_sym, actor) }
 end
 
-# Register app-defined directives and federation reference resolvers inside
-# to_prepare, so they reference reloadable constants and run before the schema
-# is built. See docs/custom-directives.md and docs/federation.md.
+# Register app-defined directives inside to_prepare, so they reference
+# reloadable constants and run before the schema is built. See docs/custom-directives.md.
 # Rails.application.config.to_prepare do
 #   Lighthouse::DirectiveRegistry.register(Directives::Upcase)
-#   Lighthouse::ReferenceResolver.register('User') { |ref, _ctx| User.find_by(id: ref['id']) }
 # end
 
 # Listen to Lighthouse's request, schema-build and execution events. A listener

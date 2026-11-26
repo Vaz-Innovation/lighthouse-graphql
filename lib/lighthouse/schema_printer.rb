@@ -40,7 +40,9 @@ module Lighthouse::GraphQL::SchemaPrinter
   end
 
   def federation(schema)
-    raise ArgumentError, 'The federation format needs a federated schema (federation: true).' unless schema.respond_to?(:federation_sdl)
+    unless schema.respond_to?(:federation_sdl)
+      raise ArgumentError, 'The federation format needs a subgraph: a schema that @links the Federation spec, or federation: true.'
+    end
 
     "#{schema.federation_sdl.chomp}\n"
   end

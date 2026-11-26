@@ -329,14 +329,8 @@ returned by the directive class's `type_definitions` (`{ name => sdl }`). They
 are injected only alongside a directive that uses them, and only if the schema
 doesn't define them itself.
 
-## Federation reference resolvers
+## Federation entities
 
-Custom federation entity resolvers are registered with
-`Lighthouse::ReferenceResolver` (see [federation.md](federation.md)), typically in
-`config/initializers/federation.rb` so they re-register on code reload:
-
-```ruby
-Rails.application.config.to_prepare do
-  Lighthouse::ReferenceResolver.register('User') { |ref, _ctx| User.find_by(id: ref['id']) }
-end
-```
+A subgraph needs no configuration: `extend schema @link(...)` to the Federation
+spec makes the schema one. The gateway's entities are found by the type's model,
+or by its type class's `resolve_reference` (see [federation.md](federation.md#entities)).

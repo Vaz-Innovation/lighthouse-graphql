@@ -16,6 +16,7 @@ module Lighthouse
   module GraphQL
     module DataloaderSources; end
     module DirectiveResolvers; end
+    module Federation; end
     module Incremental; end
 
     module Directives

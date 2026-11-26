@@ -1,12 +1,12 @@
 # The API of a small blog, written the Lighthouse way: the schema says what each
 # field does through directives, and Ruby is only written where there is real
 # logic (app/graphql/queries, mutations, builders, validators; app/policies).
-# Directives reference: ../docs/directives.md
+# Directives reference: ../../docs/directives.md
 #
 # This file is the schema's entrypoint (config.schema_path). It defines the root
 # types once; every other file is part of the schema because it is imported
 # here, and adds its fields to them with `extend type Query` / `extend type
-# Mutation`, next to the types they return. Guide: ../docs/schema-organisation.md
+# Mutation`, next to the types they return. Guide: ../../docs/schema-organisation.md
 
 #import users.graphql
 #import posts.graphql
@@ -68,7 +68,7 @@ type Counts {
 # Subscriptions arrive over ActionCable (app/channels/graphql_channel.rb). Each is a
 # GraphQL::Schema::Subscription in app/graphql/subscriptions (postCreated is plain
 # graphql-ruby, postPublished and commentAdded include Lighthouse's concern), and a mutation
-# announces what it did with @broadcast. Guide: ../docs/subscriptions.md
+# announces what it did with @broadcast. Guide: ../../docs/subscriptions.md
 type Subscription {
   "A post was written: drafts reach their author and admins only. Requires a token."
   postCreated: Post!

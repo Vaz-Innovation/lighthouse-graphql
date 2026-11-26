@@ -22,9 +22,8 @@ bundle install
 
 You can also list `gem 'graphql'` yourself, to pin its version. On graphql 2.5, keep
 the `json` gem below 3: graphql 2.5 calls `JSON.generate` with an option json 3
-removed (graphql 2.6 no longer does). If you want federation, add `apollo-federation`
-to your app — it is intentionally **not** a hard dependency of Lighthouse so
-non-federated apps stay lean.
+removed (graphql 2.6 no longer does). An Apollo Federation subgraph needs nothing
+more: see [federation.md](federation.md).
 
 **graphql-ruby's install** (optional). This writes the schema class, the base
 classes (`Types::BaseObject`, ...), the root types and the controller. Choose its
@@ -142,7 +141,6 @@ module Types
     edge_type_class(Types::BaseEdge)
     connection_type_class(Types::BaseConnection)
     field_class Types::BaseField
-    # include ApolloFederation::Object   # if you use federation
   end
 end
 ```

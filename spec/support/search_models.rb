@@ -6,7 +6,7 @@ require_relative 'pg_search/model'
 
 # The models and engines of the @search specs. The engines are fakes, as PHP
 # Lighthouse's own suite fakes Laravel Scout's (tests/TestsScoutEngine): the
-# real ones run in example/ against OpenSearch and PostgreSQL.
+# real ones run in examples/graphql/ against OpenSearch and PostgreSQL.
 ActiveRecord::Schema.define do
   create_table :search_posts, force: true do |t|
     t.string :title
