@@ -1,0 +1,26 @@
+source 'https://rubygems.org'
+
+# Both subgraphs (accounts/ and blog/, each a Rails app of its own) and the
+# end-to-end suite (spec/) share this bundle: config/boot.rb of each app points here.
+gem 'pg', '~> 1.5'
+gem 'puma', '>= 5.0'
+gem 'rails', '~> 8.1.4'
+
+# The library these subgraphs demonstrate, straight from this repository.
+gem 'lighthouse-graphql', path: '../..'
+
+# Pundit backs the @can* directives, Dry::Validation the @validator contracts.
+gem 'dry-validation', '~> 1.10'
+gem 'pundit', '~> 2.4'
+
+# blog's Query.posts(search:) searches through @search and Post's pg_search scope.
+gem 'pg_search', '~> 2.3'
+
+# Windows does not include zoneinfo files, so bundle the tzinfo-data gem
+gem 'tzinfo-data', platforms: %i[windows jruby]
+
+group :test do
+  gem 'rspec', '~> 3.13'
+  # The suite's PostgreSQL, on a port Docker picks (spec/support/stack.rb).
+  gem 'testcontainers-postgres', '~> 0.2', require: false
+end

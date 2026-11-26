@@ -1,0 +1,20 @@
+# The federated example follows the repository's rules (../../.rubocop.yml); its
+# subgraphs are Rails 8.1 apps, so it targets the Ruby that Rails needs rather than the gem's 3.0.
+inherit_from: ../../.rubocop.yml
+
+AllCops:
+  TargetRubyVersion: 3.2
+
+# The suite describes the federated graph's behaviour through the router, not a class.
+RSpec/DescribeClass:
+  Exclude:
+    - 'spec/**/*'
+
+# The suite runs outside Rails (it drives the servers): no Active Support there.
+Rails/Pluck:
+  Exclude:
+    - 'spec/**/*'
+
+Rails/IndexWith:
+  Exclude:
+    - 'spec/**/*'

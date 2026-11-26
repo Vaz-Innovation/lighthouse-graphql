@@ -1,0 +1,32 @@
+# PostgreSQL, on 127.0.0.1:5432 as postgres/postgres unless PGHOST, PGPORT, PGUSER
+# and PGPASSWORD say otherwise (the end-to-end suite sets them, spec/support/stack.rb).
+#
+# `primary` is the blog's own database. `accounts` is the accounts subgraph's,
+# which User (app/models/user.rb) reads only: to authenticate a request's token,
+# and for the authors the blog's associations load. Its tables are accounts'
+# (database_tasks: false), so the blog never migrates them.
+default: &default
+  adapter: postgresql
+  max_connections: <%= ENV.fetch("RAILS_MAX_THREADS") { 5 } %>
+  host: <%= ENV.fetch("PGHOST") { "127.0.0.1" } %>
+  port: <%= ENV.fetch("PGPORT") { 5432 } %>
+  username: <%= ENV.fetch("PGUSER") { "postgres" } %>
+  password: <%= ENV.fetch("PGPASSWORD") { "postgres" } %>
+
+development:
+  primary:
+    <<: *default
+    database: lighthouse_federation_blog_development
+  accounts:
+    <<: *default
+    database: lighthouse_federation_accounts_development
+    database_tasks: false
+
+test:
+  primary:
+    <<: *default
+    database: lighthouse_federation_blog_test
+  accounts:
+    <<: *default
+    database: lighthouse_federation_accounts_test
+    database_tasks: false

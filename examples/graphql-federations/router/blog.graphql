@@ -1,0 +1,726 @@
+extend schema
+  @link(url: "https://specs.apollo.dev/federation/v2.9", import: ["@key", "@external", "@provides", "@requires", "@override", "@tag", "@inaccessible", "@context", "@fromContext", "@cost", "@listSize"])
+
+"""
+Something a user wrote: a Post or a Comment. An entity interface: the accounts
+subgraph adds fields to every one of them (likesCount, likedBy) as an
+@interfaceObject, and `_entities` finds one by id in Post's and Comment's models.
+"""
+interface Authored @key(fields: "id") {
+  author: User!
+  createdAt: DateTime!
+  id: ID!
+}
+
+type Comment implements Authored @key(fields: "id") {
+  """
+  The blog reads the author's name itself here (@provides), sparing the router a fetch from accounts.
+  """
+  author: User! @provides(fields: "name")
+  body: String!
+  createdAt: DateTime!
+  id: ID!
+  post: Post!
+}
+
+"""
+A paginated list of Comment edges.
+"""
+type CommentConnection @federation__shareable {
+  """
+  A list of Comment edges.
+  """
+  edges: [CommentEdge!]!
+
+  """
+  Pagination information about the list of edges.
+  """
+  pageInfo: PageInfo!
+}
+
+"""
+An edge that contains a node of type Comment and a cursor.
+"""
+type CommentEdge @federation__shareable {
+  """
+  A unique cursor that can be used for pagination.
+  """
+  cursor: String!
+
+  """
+  The Comment node.
+  """
+  node: Comment!
+}
+
+"""
+A paginated list of Comment items.
+"""
+type CommentPaginator @federation__shareable {
+  """
+  A list of Comment items.
+  """
+  data: [Comment!]!
+
+  """
+  Pagination information about the list of items.
+  """
+  paginatorInfo: PaginatorInfo!
+}
+
+input CreatePostInput {
+  body: String
+  published: Boolean
+
+  """
+  Attach existing tags by id and/or create new ones.
+  """
+  tags: TagsBelongsToMany
+  title: String!
+}
+
+input CreateTagInput {
+  name: String!
+}
+
+"""
+An ISO 8601 date and time, read and written by Types::DateTimeType.
+"""
+scalar DateTime
+
+"""
+Loose type that allows any value. Be careful when passing in large JSON objects, as it may result in poor performance.
+"""
+scalar Mixed
+
+type Mutation {
+  """
+  Comment on a post as the signed-in user.
+  """
+  addComment(body: String!, postId: ID!): Comment!
+
+  """
+  Write a post as the signed-in user, tagging it in the same request (a nested mutation).
+  """
+  createPost(input: CreatePostInput!): Post!
+
+  """
+  Add a tag, and drop the cached tag list.
+  """
+  createTag(name: String!): Tag!
+
+  """
+  Delete a post (PostPolicy#destroy?).
+  """
+  deletePost(id: ID!): Post
+
+  """
+  Publish a post — resolved by Mutations::PublishPost.
+  """
+  publishPost(id: ID!): Post!
+
+  """
+  Edit a post. Only its author or an admin may (PostPolicy#update?).
+  """
+  updatePost(input: UpdatePostInput!): Post!
+}
+
+"""
+An object with an ID.
+"""
+interface Node {
+  """
+  ID of the object.
+  """
+  id: ID!
+}
+
+"""
+Aggregate functions when ordering by a relation without specifying a column.
+"""
+enum OrderByRelationAggregateFunction {
+  """
+  Amount of items.
+  """
+  COUNT
+}
+
+"""
+Information about pagination using a Relay style cursor connection.
+"""
+type PageInfo @federation__shareable {
+  """
+  Number of nodes in the current page.
+  """
+  count: Int!
+
+  """
+  Index of the current page.
+  """
+  currentPage: Int!
+
+  """
+  The cursor to continue paginating forwards.
+  """
+  endCursor: String
+
+  """
+  When paginating forwards, are there more items?
+  """
+  hasNextPage: Boolean!
+
+  """
+  When paginating backwards, are there more items?
+  """
+  hasPreviousPage: Boolean!
+
+  """
+  Index of the last available page.
+  """
+  lastPage: Int!
+
+  """
+  The cursor to continue paginating backwards.
+  """
+  startCursor: String
+
+  """
+  Total number of nodes in the paginated connection.
+  """
+  total: Int!
+}
+
+"""
+Information about pagination using a fully featured paginator.
+"""
+type PaginatorInfo @federation__shareable {
+  """
+  Number of items in the current page.
+  """
+  count: Int!
+
+  """
+  Index of the current page.
+  """
+  currentPage: Int!
+
+  """
+  Index of the first item in the current page.
+  """
+  firstItem: Int
+
+  """
+  Are there more pages after this one?
+  """
+  hasMorePages: Boolean!
+
+  """
+  Index of the last item in the current page.
+  """
+  lastItem: Int
+
+  """
+  Index of the last available page.
+  """
+  lastPage: Int!
+
+  """
+  Number of items per page.
+  """
+  perPage: Int!
+
+  """
+  Number of total available items.
+  """
+  total: Int!
+}
+
+type Post implements Authored @key(fields: "id") @context(name: "post") {
+  author: User!
+  body: String
+
+  """
+  Comments, paginated: comments(first: 10, page: 1) { data { body } paginatorInfo { total } }.
+  """
+  comments(
+    """
+    Limits number of fetched items.
+    """
+    first: Int! = 10
+
+    """
+    The offset from which items are returned.
+    """
+    page: Int
+  ): CommentPaginator!
+  commentsCount: Int!
+  createdAt: DateTime!
+  id: ID!
+  published: Boolean!
+
+  """
+  How long the post takes to read. No directive: Types::PostType#reading_time resolves it.
+  """
+  readingTime: ReadingTime!
+
+  """
+  The first words of the body. @method calls Post#summary, passing the field's argument.
+  """
+  summary(words: Int = 20): String!
+  tags: [Tag!]!
+  title: String!
+}
+
+"""
+A paginated list of Post edges.
+"""
+type PostConnection @federation__shareable {
+  """
+  A list of Post edges.
+  """
+  edges: [PostEdge!]!
+
+  """
+  Pagination information about the list of edges.
+  """
+  pageInfo: PageInfo!
+}
+
+"""
+An edge that contains a node of type Post and a cursor.
+"""
+type PostEdge @federation__shareable {
+  """
+  A unique cursor that can be used for pagination.
+  """
+  cursor: String!
+
+  """
+  The Post node.
+  """
+  node: Post!
+}
+
+"""
+A paginated list of Post items.
+"""
+type PostPaginator @federation__shareable {
+  """
+  A list of Post items.
+  """
+  data: [Post!]!
+
+  """
+  Pagination information about the list of items.
+  """
+  paginatorInfo: PaginatorInfo!
+}
+
+type Query {
+  """
+  The same posts as a Relay-style connection, newest first.
+  """
+  feed(
+    """
+    A cursor after which elements are returned.
+    """
+    after: String
+
+    """
+    Limits number of fetched items.
+    """
+    first: Int! = 5
+  ): PostConnection!
+
+  """
+  The newest published posts and comments — resolved by Resolvers::LatestActivity.
+  """
+  latestActivity(first: Int = 10, since: DateTime): [Authored!]!
+
+  """
+  The signed-in user's posts, drafts included — resolved by Resolvers::MyPosts.
+  """
+  myPosts(title: String): [Post!]!
+
+  """
+  Fetches an object given its ID. Resolved by Types::QueryType#node (Rails' GlobalID).
+  """
+  node(id: ID!): Node
+
+  """
+  A single published post.
+  """
+  post(id: ID!): Post
+
+  """
+  Published posts, newest first unless the client orders them, with dynamic filters
+  (where: { column: TITLE, operator: LIKE, value: "%Rails%" }) and full-text search.
+  @cost and @listSize tell the router what a page costs (its demand control).
+  """
+  posts(
+    """
+    Limits number of fetched items.
+    """
+    first: Int! = 10
+
+    """
+    Order by clause for Query.posts.orderBy.
+    """
+    orderBy: [QueryPostsOrderByRelationOrderByClause!]
+
+    """
+    The offset from which items are returned.
+    """
+    page: Int
+
+    """
+    Full-text search over the title and the body (@search, with Post's pg_search scope).
+    """
+    search: String
+
+    """
+    Filter results by field conditions.
+    """
+    where: QueryPostsWhereWhereConditions
+  ): PostPaginator! @cost(weight: 2) @listSize(slicingArguments: ["first"], sizedFields: ["data"])
+
+  """
+  Published posts and users matching a term — resolved by Resolvers::Search. Each result is a Post or a User.
+  """
+  search(term: String!): [SearchResult!]!
+
+  """
+  Every tag. Kept in Rails.cache for five minutes; createTag clears it.
+  """
+  tags: [Tag!]!
+}
+
+"""
+Allowed column names for Query.posts.orderBy.
+"""
+enum QueryPostsOrderByColumn {
+  CREATED_AT
+  TITLE
+}
+
+"""
+Aggregate specification for Query.posts.orderBy.comments.
+"""
+input QueryPostsOrderByComments {
+  """
+  Always COUNT.
+  """
+  aggregate: OrderByRelationAggregateFunction!
+}
+
+"""
+Order by clause for Query.posts.orderBy.
+"""
+input QueryPostsOrderByRelationOrderByClause {
+  """
+  The column that is used for ordering.
+  """
+  column: QueryPostsOrderByColumn
+
+  """
+  Aggregate specification.
+  """
+  comments: QueryPostsOrderByComments
+
+  """
+  The direction that is used for ordering.
+  """
+  order: SortOrder!
+}
+
+"""
+Allowed column names for Query.posts.where.
+"""
+enum QueryPostsWhereColumn {
+  AUTHOR_ID
+  TITLE
+}
+
+"""
+Dynamic WHERE conditions for the `where` argument of Query.posts.
+"""
+input QueryPostsWhereWhereConditions {
+  """
+  A set of conditions that requires all conditions to match.
+  """
+  AND: [QueryPostsWhereWhereConditions!]
+
+  """
+  Check whether a relation exists. Extra conditions or a minimum amount can be applied.
+  """
+  HAS: QueryPostsWhereWhereConditionsRelation
+
+  """
+  A set of conditions that requires at least one condition to match.
+  """
+  OR: [QueryPostsWhereWhereConditions!]
+
+  """
+  The column that is used for the condition.
+  """
+  column: QueryPostsWhereColumn
+
+  """
+  The operator that is used for the condition.
+  """
+  operator: SQLOperator = EQ
+
+  """
+  The value that is used for the condition.
+  """
+  value: Mixed
+}
+
+"""
+Dynamic WHERE HAS conditions for the `where` argument of Query.posts.
+"""
+input QueryPostsWhereWhereConditionsHasCondition {
+  """
+  A set of conditions that requires all conditions to match.
+  """
+  AND: [QueryPostsWhereWhereConditionsHasCondition!]
+
+  """
+  Check whether a relation exists. Extra conditions or a minimum amount can be applied.
+  """
+  HAS: QueryPostsWhereWhereConditionsRelation
+
+  """
+  A set of conditions that requires at least one condition to match.
+  """
+  OR: [QueryPostsWhereWhereConditionsHasCondition!]
+
+  """
+  The column that is used for the condition.
+  """
+  column: String
+
+  """
+  The operator that is used for the condition.
+  """
+  operator: SQLOperator = EQ
+
+  """
+  The value that is used for the condition.
+  """
+  value: Mixed
+}
+
+"""
+Dynamic HAS conditions for WHERE conditions for the `where` argument of Query.posts.
+"""
+input QueryPostsWhereWhereConditionsRelation {
+  """
+  The amount to test.
+  """
+  amount: Int = 1
+
+  """
+  Additional condition logic.
+  """
+  condition: QueryPostsWhereWhereConditionsHasCondition
+
+  """
+  The comparison operator to test against the amount.
+  """
+  operator: SQLOperator = GTE
+
+  """
+  The relation that is checked.
+  """
+  relation: String!
+}
+
+"""
+Not a model: computed from a post by Types::PostType and Types::ReadingTimeType. An
+entity by its post's id, which Types::ReadingTimeType.resolve_references finds, so
+the router can fetch `caption` with the title of the post it belongs to.
+"""
+type ReadingTime @key(fields: "postId") {
+  """
+  How the reading time reads for the post it belongs to: the router fills `postTitle`
+  from that post (@fromContext), and Types::ReadingTimeType#caption reads it.
+  """
+  caption(postTitle: String @fromContext(field: "$post { title }")): String!
+  minutes(wordsPerMinute: Int = 200): Int!
+  postId: ID!
+  words: Int!
+}
+
+"""
+The available SQL operators that are used to filter query results.
+"""
+enum SQLOperator {
+  """
+  Whether a value is within a range of values (`BETWEEN`)
+  """
+  BETWEEN
+
+  """
+  Equal operator (`=`)
+  """
+  EQ
+
+  """
+  Greater than operator (`>`)
+  """
+  GT
+
+  """
+  Greater than or equal operator (`>=`)
+  """
+  GTE
+
+  """
+  Whether a value is within a set of values (`IN`)
+  """
+  IN
+
+  """
+  Whether a value is not null (`IS NOT NULL`)
+  """
+  IS_NOT_NULL
+
+  """
+  Whether a value is null (`IS NULL`)
+  """
+  IS_NULL
+
+  """
+  Simple pattern matching (`LIKE`)
+  """
+  LIKE
+
+  """
+  Less than operator (`<`)
+  """
+  LT
+
+  """
+  Less than or equal operator (`<=`)
+  """
+  LTE
+
+  """
+  Not equal operator (`!=`)
+  """
+  NEQ
+
+  """
+  Whether a value is not within a range of values (`NOT BETWEEN`)
+  """
+  NOT_BETWEEN
+
+  """
+  Whether a value is not within a set of values (`NOT IN`)
+  """
+  NOT_IN
+
+  """
+  Negation of simple pattern matching (`NOT LIKE`)
+  """
+  NOT_LIKE
+}
+
+"""
+What Query.search finds: each value resolves to the type of its model's class.
+"""
+union SearchResult = Post | User
+
+"""
+Directions for ordering a list of records.
+"""
+enum SortOrder {
+  """
+  Sort records in ascending order.
+  """
+  ASC
+
+  """
+  Sort records in descending order.
+  """
+  DESC
+}
+
+type Subscription {
+  """
+  A comment was added: to any post, or only to the post given.
+  """
+  commentAdded(postId: ID): Comment!
+
+  """
+  A post was written: drafts reach their author and admins only. Requires a token.
+  """
+  postCreated: Post!
+
+  """
+  A post went public, optionally only by one author.
+  """
+  postPublished(authorId: ID): Post!
+}
+
+"""
+A tag, and a Relay Node (@node): its id is a global id (@globalId), which is also
+its key, as `_entities` decodes it.
+"""
+type Tag implements Node @key(fields: "id") @tag(name: "public") {
+  id: ID!
+  name: String!
+  posts: [Post!]!
+}
+
+input TagsBelongsToMany {
+  connect: [ID!]
+  create: [CreateTagInput!]
+  sync: [ID!]
+}
+
+input UpdatePostInput {
+  body: String @tag(name: "content")
+  id: ID!
+  tags: TagsBelongsToMany
+  title: String
+}
+
+type User @key(fields: "id") {
+  """
+  Their comments, as a Relay cursor connection.
+  """
+  comments(
+    """
+    A cursor after which elements are returned.
+    """
+    after: String
+
+    """
+    Limits number of fetched items.
+    """
+    first: Int! = 10
+  ): CommentConnection!
+  id: ID!
+
+  """
+  Accounts' — the blog resolves it only where it @provides it (Comment.author).
+  """
+  name: String! @external
+
+  """
+  Their posts, published or not.
+  """
+  posts: [Post!]!
+
+  """
+  How many posts they wrote. Accounts had it first: @override takes it over.
+  """
+  postsCount: Int! @override(from: "accounts")
+
+  """
+  Their name and how much they wrote: User#signature, given the name accounts holds (@requires).
+  """
+  signature: String! @requires(fields: "name")
+}

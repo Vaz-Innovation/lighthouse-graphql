@@ -1,0 +1,598 @@
+schema @link(url: "https://specs.apollo.dev/link/v1.0") @link(url: "https://specs.apollo.dev/join/v0.5", for: EXECUTION) @link(url: "https://specs.apollo.dev/tag/v0.3") @link(url: "https://specs.apollo.dev/inaccessible/v0.2", for: SECURITY) @link(url: "https://specs.apollo.dev/context/v0.1", for: SECURITY) @link(url: "https://specs.apollo.dev/cost/v0.1", import: ["@listSize"]) @link(url: "https://lighthouse-graphql.dev/audit/v1.0", import: ["@audit"]) {
+  query: Query
+  mutation: Mutation
+  subscription: Subscription
+}
+
+directive @link(url: String, as: String, for: link__Purpose, import: [link__Import]) repeatable on SCHEMA
+
+directive @join__graph(name: String!, url: String!) on ENUM_VALUE
+
+directive @join__type(graph: join__Graph!, key: join__FieldSet, extension: Boolean! = false, resolvable: Boolean! = true, isInterfaceObject: Boolean! = false) repeatable on OBJECT | INTERFACE | UNION | ENUM | INPUT_OBJECT | SCALAR
+
+directive @join__field(graph: join__Graph, requires: join__FieldSet, provides: join__FieldSet, type: String, external: Boolean, override: String, usedOverridden: Boolean, overrideLabel: String, contextArguments: [join__ContextArgument!]) repeatable on FIELD_DEFINITION | INPUT_FIELD_DEFINITION
+
+directive @join__implements(graph: join__Graph!, interface: String!) repeatable on OBJECT | INTERFACE
+
+directive @join__unionMember(graph: join__Graph!, member: String!) repeatable on UNION
+
+directive @join__enumValue(graph: join__Graph!) repeatable on ENUM_VALUE
+
+directive @join__directive(graphs: [join__Graph!], name: String!, args: join__DirectiveArguments) repeatable on SCHEMA | OBJECT | INTERFACE | FIELD_DEFINITION
+
+directive @tag(name: String!) repeatable on FIELD_DEFINITION | OBJECT | INTERFACE | UNION | ARGUMENT_DEFINITION | SCALAR | ENUM | ENUM_VALUE | INPUT_OBJECT | INPUT_FIELD_DEFINITION | SCHEMA
+
+directive @inaccessible on FIELD_DEFINITION | OBJECT | INTERFACE | UNION | ARGUMENT_DEFINITION | SCALAR | ENUM | ENUM_VALUE | INPUT_OBJECT | INPUT_FIELD_DEFINITION
+
+directive @context(name: String!) repeatable on INTERFACE | OBJECT | UNION
+
+directive @context__fromContext(field: context__ContextFieldValue) on ARGUMENT_DEFINITION
+
+directive @cost(weight: Int!) on ARGUMENT_DEFINITION | ENUM | FIELD_DEFINITION | INPUT_FIELD_DEFINITION | OBJECT | SCALAR
+
+directive @listSize(assumedSize: Int, slicingArguments: [String!], sizedFields: [String!], requireOneSlicingArgument: Boolean = true) on FIELD_DEFINITION
+
+"""
+Marks a field holding personal data. A directive of the app's own, which
+@composeDirective keeps in the supergraph, for the router and its plugins.
+"""
+directive @audit(reason: String!) on FIELD_DEFINITION
+
+enum link__Purpose {
+  """
+  `SECURITY` features provide metadata necessary to securely resolve fields.
+  """
+  SECURITY
+  """
+  `EXECUTION` features provide metadata necessary for operation execution.
+  """
+  EXECUTION
+}
+
+scalar link__Import
+
+enum join__Graph {
+  ACCOUNTS @join__graph(name: "accounts", url: "http://localhost:3001/graphql")
+  BLOG @join__graph(name: "blog", url: "http://localhost:3002/graphql")
+}
+
+scalar join__FieldSet
+
+scalar join__DirectiveArguments
+
+scalar join__FieldValue
+
+input join__ContextArgument {
+  name: String!
+  type: String!
+  context: String!
+  selection: join__FieldValue!
+}
+
+scalar context__ContextFieldValue
+
+"""
+Something a user wrote: a Post or a Comment. An entity interface: the accounts
+subgraph adds fields to every one of them (likesCount, likedBy) as an
+@interfaceObject, and `_entities` finds one by id in Post's and Comment's models.
+"""
+interface Authored @join__type(graph: ACCOUNTS, key: "id", isInterfaceObject: true) @join__type(graph: BLOG, key: "id") {
+  id: ID!
+  """Who likes it, the first ones first."""
+  likedBy: [User!]! @join__field(graph: ACCOUNTS)
+  """How many users like it."""
+  likesCount: Int! @join__field(graph: ACCOUNTS)
+  author: User! @join__field(graph: BLOG)
+  createdAt: DateTime! @join__field(graph: BLOG)
+}
+
+"""An ISO 8601 date and time, read and written by Types::DateTimeType."""
+scalar DateTime @join__type(graph: ACCOUNTS) @join__type(graph: BLOG)
+
+type Mutation @join__type(graph: ACCOUNTS) @join__type(graph: BLOG) {
+  """
+  Like a Post or a Comment of the blog subgraph, by id: resolved by Mutations::Like.
+  It answers the Authored entity, whose fields the router fetches from both subgraphs.
+  """
+  like(id: ID!): Authored! @join__field(graph: ACCOUNTS)
+  """
+  Create an account. Validators::Mutation::SignUpValidator checks the arguments first.
+  """
+  signUp(email: String!, name: String!): User! @join__field(graph: ACCOUNTS)
+  """
+  Set the signed-in user's avatar, sent as a multipart request; @upload stores it with ActiveStorage.
+  """
+  updateAvatar(avatar: Upload!): User! @join__field(graph: ACCOUNTS)
+  """Comment on a post as the signed-in user."""
+  addComment(body: String!, postId: ID!): Comment! @join__field(graph: BLOG)
+  """
+  Write a post as the signed-in user, tagging it in the same request (a nested mutation).
+  """
+  createPost(input: CreatePostInput!): Post! @join__field(graph: BLOG)
+  """Add a tag, and drop the cached tag list."""
+  createTag(name: String!): Tag! @join__field(graph: BLOG)
+  """Delete a post (PostPolicy#destroy?)."""
+  deletePost(id: ID!): Post @join__field(graph: BLOG)
+  """Publish a post — resolved by Mutations::PublishPost."""
+  publishPost(id: ID!): Post! @join__field(graph: BLOG)
+  """Edit a post. Only its author or an admin may (PostPolicy#update?)."""
+  updatePost(input: UpdatePostInput!): Post! @join__field(graph: BLOG)
+}
+
+"""Information about pagination using a fully featured paginator."""
+type PaginatorInfo @join__type(graph: ACCOUNTS) @join__type(graph: BLOG) {
+  """Number of items in the current page."""
+  count: Int!
+  """Index of the current page."""
+  currentPage: Int!
+  """Index of the first item in the current page."""
+  firstItem: Int
+  """Are there more pages after this one?"""
+  hasMorePages: Boolean!
+  """Index of the last item in the current page."""
+  lastItem: Int
+  """Index of the last available page."""
+  lastPage: Int!
+  """Number of items per page."""
+  perPage: Int!
+  """Number of total available items."""
+  total: Int!
+}
+
+type Query @join__type(graph: ACCOUNTS) @join__type(graph: BLOG) {
+  """
+  The signed-in user. Requires `Authorization: Bearer <token>`, which the router passes on.
+  """
+  me: User! @join__field(graph: ACCOUNTS)
+  """Find a user by id."""
+  user(id: ID!): User @join__field(graph: ACCOUNTS)
+  """How many accounts there are."""
+  userCount: Int! @join__field(graph: ACCOUNTS)
+  """
+  Users, a page at a time, filtered by name or role, in an order the client picks.
+  """
+  users(
+    """Limits number of fetched items."""
+    first: Int! = 10,
+    name: String,
+    """Order by clause for Query.users.orderBy."""
+    orderBy: [QueryUsersOrderByOrderByClause!],
+    """The offset from which items are returned."""
+    page: Int,
+    role: Role @tag(name: "filters"),
+  ): UserPaginator! @join__field(graph: ACCOUNTS)
+  """The same posts as a Relay-style connection, newest first."""
+  feed(
+    """A cursor after which elements are returned."""
+    after: String,
+    """Limits number of fetched items."""
+    first: Int! = 5,
+  ): PostConnection! @join__field(graph: BLOG)
+  """
+  The newest published posts and comments — resolved by Resolvers::LatestActivity.
+  """
+  latestActivity(first: Int = 10, since: DateTime): [Authored!]! @join__field(graph: BLOG)
+  """
+  The signed-in user's posts, drafts included — resolved by Resolvers::MyPosts.
+  """
+  myPosts(title: String): [Post!]! @join__field(graph: BLOG)
+  """
+  Fetches an object given its ID. Resolved by Types::QueryType#node (Rails' GlobalID).
+  """
+  node(id: ID!): Node @join__field(graph: BLOG)
+  """A single published post."""
+  post(id: ID!): Post @join__field(graph: BLOG)
+  """
+  Published posts, newest first unless the client orders them, with dynamic filters
+  (where: { column: TITLE, operator: LIKE, value: "%Rails%" }) and full-text search.
+  @cost and @listSize tell the router what a page costs (its demand control).
+  """
+  posts(
+    """Limits number of fetched items."""
+    first: Int! = 10,
+    """Order by clause for Query.posts.orderBy."""
+    orderBy: [QueryPostsOrderByRelationOrderByClause!],
+    """The offset from which items are returned."""
+    page: Int,
+    """
+    Full-text search over the title and the body (@search, with Post's pg_search scope).
+    """
+    search: String,
+    """Filter results by field conditions."""
+    where: QueryPostsWhereWhereConditions,
+  ): PostPaginator! @join__field(graph: BLOG) @cost(weight: 2) @listSize(slicingArguments: ["first"], sizedFields: ["data"])
+  """
+  Published posts and users matching a term — resolved by Resolvers::Search. Each result is a Post or a User.
+  """
+  search(term: String!): [SearchResult!]! @join__field(graph: BLOG)
+  """Every tag. Kept in Rails.cache for five minutes; createTag clears it."""
+  tags: [Tag!]! @join__field(graph: BLOG)
+}
+
+"""Allowed column names for Query.users.orderBy."""
+enum QueryUsersOrderByColumn @join__type(graph: ACCOUNTS) {
+  CREATED_AT @join__enumValue(graph: ACCOUNTS)
+  NAME @join__enumValue(graph: ACCOUNTS)
+}
+
+"""Order by clause for Query.users.orderBy."""
+input QueryUsersOrderByOrderByClause @join__type(graph: ACCOUNTS) {
+  """The column that is used for ordering."""
+  column: QueryUsersOrderByColumn!
+  """The direction that is used for ordering."""
+  order: SortOrder!
+}
+
+enum Role @join__type(graph: ACCOUNTS) {
+  ADMIN @join__enumValue(graph: ACCOUNTS)
+  MEMBER @join__enumValue(graph: ACCOUNTS)
+  """Not in the API the router serves (@inaccessible): accounts' own state."""
+  SUSPENDED @inaccessible @join__enumValue(graph: ACCOUNTS)
+}
+
+"""Directions for ordering a list of records."""
+enum SortOrder @join__type(graph: ACCOUNTS) @join__type(graph: BLOG) {
+  """Sort records in ascending order."""
+  ASC @join__enumValue(graph: ACCOUNTS) @join__enumValue(graph: BLOG)
+  """Sort records in descending order."""
+  DESC @join__enumValue(graph: ACCOUNTS) @join__enumValue(graph: BLOG)
+}
+
+"""A file sent with a multipart request."""
+scalar Upload @join__type(graph: ACCOUNTS)
+
+"""Someone with an account. The blog subgraph adds what they wrote."""
+type User @join__type(graph: ACCOUNTS, key: "id") @join__type(graph: ACCOUNTS, key: "email") @join__type(graph: BLOG, key: "id") @tag(name: "public") {
+  """
+  Where their avatar is served, when they set one (Mutation.updateAvatar).
+  """
+  avatarUrl: String @join__field(graph: ACCOUNTS)
+  createdAt: DateTime! @join__field(graph: ACCOUNTS)
+  """
+  Visible to the user themselves and to admins only (UserPolicy#view_email?).
+  """
+  email: String @join__field(graph: ACCOUNTS) @audit(reason: "personal data")
+  id: ID!
+  """For the staff's tools only: not in the API the router serves."""
+  internalNotes: String @inaccessible @join__field(graph: ACCOUNTS)
+  """Shareable: the blog subgraph @provides it on a comment's author."""
+  name: String! @join__field(graph: ACCOUNTS) @join__field(graph: BLOG, external: true)
+  """
+  How many posts they wrote. Accounts had it first: @override takes it over.
+  """
+  postsCount: Int! @join__field(graph: BLOG, override: "accounts")
+  role: Role! @join__field(graph: ACCOUNTS)
+  """Their comments, as a Relay cursor connection."""
+  comments(
+    """A cursor after which elements are returned."""
+    after: String,
+    """Limits number of fetched items."""
+    first: Int! = 10,
+  ): CommentConnection! @join__field(graph: BLOG)
+  """Their posts, published or not."""
+  posts: [Post!]! @join__field(graph: BLOG)
+  """
+  Their name and how much they wrote: User#signature, given the name accounts holds (@requires).
+  """
+  signature: String! @join__field(graph: BLOG, requires: "name")
+}
+
+"""A paginated list of User items."""
+type UserPaginator @join__type(graph: ACCOUNTS) {
+  """A list of User items."""
+  data: [User!]!
+  """Pagination information about the list of items."""
+  paginatorInfo: PaginatorInfo!
+}
+
+type Comment implements Authored @join__implements(graph: BLOG, interface: "Authored") @join__type(graph: BLOG, key: "id") {
+  """
+  The blog reads the author's name itself here (@provides), sparing the router a fetch from accounts.
+  """
+  author: User! @join__field(graph: BLOG, provides: "name")
+  body: String!
+  createdAt: DateTime!
+  id: ID!
+  post: Post!
+  """Who likes it, the first ones first."""
+  likedBy: [User!]! @join__field
+  """How many users like it."""
+  likesCount: Int! @join__field
+}
+
+"""A paginated list of Comment edges."""
+type CommentConnection @join__type(graph: BLOG) {
+  """A list of Comment edges."""
+  edges: [CommentEdge!]!
+  """Pagination information about the list of edges."""
+  pageInfo: PageInfo!
+}
+
+"""An edge that contains a node of type Comment and a cursor."""
+type CommentEdge @join__type(graph: BLOG) {
+  """A unique cursor that can be used for pagination."""
+  cursor: String!
+  """The Comment node."""
+  node: Comment!
+}
+
+"""A paginated list of Comment items."""
+type CommentPaginator @join__type(graph: BLOG) {
+  """A list of Comment items."""
+  data: [Comment!]!
+  """Pagination information about the list of items."""
+  paginatorInfo: PaginatorInfo!
+}
+
+input CreatePostInput @join__type(graph: BLOG) {
+  body: String
+  published: Boolean
+  """Attach existing tags by id and/or create new ones."""
+  tags: TagsBelongsToMany
+  title: String!
+}
+
+input CreateTagInput @join__type(graph: BLOG) {
+  name: String!
+}
+
+"""
+Loose type that allows any value. Be careful when passing in large JSON objects, as it may result in poor performance.
+"""
+scalar Mixed @join__type(graph: BLOG)
+
+"""An object with an ID."""
+interface Node @join__type(graph: BLOG) {
+  """ID of the object."""
+  id: ID!
+}
+
+"""
+Aggregate functions when ordering by a relation without specifying a column.
+"""
+enum OrderByRelationAggregateFunction @join__type(graph: BLOG) {
+  """Amount of items."""
+  COUNT @join__enumValue(graph: BLOG)
+}
+
+"""Information about pagination using a Relay style cursor connection."""
+type PageInfo @join__type(graph: BLOG) {
+  """Number of nodes in the current page."""
+  count: Int!
+  """Index of the current page."""
+  currentPage: Int!
+  """The cursor to continue paginating forwards."""
+  endCursor: String
+  """When paginating forwards, are there more items?"""
+  hasNextPage: Boolean!
+  """When paginating backwards, are there more items?"""
+  hasPreviousPage: Boolean!
+  """Index of the last available page."""
+  lastPage: Int!
+  """The cursor to continue paginating backwards."""
+  startCursor: String
+  """Total number of nodes in the paginated connection."""
+  total: Int!
+}
+
+type Post implements Authored @join__implements(graph: BLOG, interface: "Authored") @join__type(graph: BLOG, key: "id") @context(name: "blog__post") {
+  author: User!
+  body: String
+  """
+  Comments, paginated: comments(first: 10, page: 1) { data { body } paginatorInfo { total } }.
+  """
+  comments(
+    """Limits number of fetched items."""
+    first: Int! = 10,
+    """The offset from which items are returned."""
+    page: Int,
+  ): CommentPaginator!
+  commentsCount: Int!
+  createdAt: DateTime!
+  id: ID!
+  published: Boolean!
+  """
+  How long the post takes to read. No directive: Types::PostType#reading_time resolves it.
+  """
+  readingTime: ReadingTime!
+  """
+  The first words of the body. @method calls Post#summary, passing the field's argument.
+  """
+  summary(words: Int = 20): String!
+  tags: [Tag!]!
+  title: String!
+  """Who likes it, the first ones first."""
+  likedBy: [User!]! @join__field
+  """How many users like it."""
+  likesCount: Int! @join__field
+}
+
+"""A paginated list of Post edges."""
+type PostConnection @join__type(graph: BLOG) {
+  """A list of Post edges."""
+  edges: [PostEdge!]!
+  """Pagination information about the list of edges."""
+  pageInfo: PageInfo!
+}
+
+"""An edge that contains a node of type Post and a cursor."""
+type PostEdge @join__type(graph: BLOG) {
+  """A unique cursor that can be used for pagination."""
+  cursor: String!
+  """The Post node."""
+  node: Post!
+}
+
+"""A paginated list of Post items."""
+type PostPaginator @join__type(graph: BLOG) {
+  """A list of Post items."""
+  data: [Post!]!
+  """Pagination information about the list of items."""
+  paginatorInfo: PaginatorInfo!
+}
+
+"""Allowed column names for Query.posts.orderBy."""
+enum QueryPostsOrderByColumn @join__type(graph: BLOG) {
+  CREATED_AT @join__enumValue(graph: BLOG)
+  TITLE @join__enumValue(graph: BLOG)
+}
+
+"""Aggregate specification for Query.posts.orderBy.comments."""
+input QueryPostsOrderByComments @join__type(graph: BLOG) {
+  """Always COUNT."""
+  aggregate: OrderByRelationAggregateFunction!
+}
+
+"""Order by clause for Query.posts.orderBy."""
+input QueryPostsOrderByRelationOrderByClause @join__type(graph: BLOG) {
+  """The column that is used for ordering."""
+  column: QueryPostsOrderByColumn
+  """Aggregate specification."""
+  comments: QueryPostsOrderByComments
+  """The direction that is used for ordering."""
+  order: SortOrder!
+}
+
+"""Allowed column names for Query.posts.where."""
+enum QueryPostsWhereColumn @join__type(graph: BLOG) {
+  AUTHOR_ID @join__enumValue(graph: BLOG)
+  TITLE @join__enumValue(graph: BLOG)
+}
+
+"""Dynamic WHERE conditions for the `where` argument of Query.posts."""
+input QueryPostsWhereWhereConditions @join__type(graph: BLOG) {
+  """A set of conditions that requires all conditions to match."""
+  AND: [QueryPostsWhereWhereConditions!]
+  """
+  Check whether a relation exists. Extra conditions or a minimum amount can be applied.
+  """
+  HAS: QueryPostsWhereWhereConditionsRelation
+  """A set of conditions that requires at least one condition to match."""
+  OR: [QueryPostsWhereWhereConditions!]
+  """The column that is used for the condition."""
+  column: QueryPostsWhereColumn
+  """The operator that is used for the condition."""
+  operator: SQLOperator = EQ
+  """The value that is used for the condition."""
+  value: Mixed
+}
+
+"""Dynamic WHERE HAS conditions for the `where` argument of Query.posts."""
+input QueryPostsWhereWhereConditionsHasCondition @join__type(graph: BLOG) {
+  """A set of conditions that requires all conditions to match."""
+  AND: [QueryPostsWhereWhereConditionsHasCondition!]
+  """
+  Check whether a relation exists. Extra conditions or a minimum amount can be applied.
+  """
+  HAS: QueryPostsWhereWhereConditionsRelation
+  """A set of conditions that requires at least one condition to match."""
+  OR: [QueryPostsWhereWhereConditionsHasCondition!]
+  """The column that is used for the condition."""
+  column: String
+  """The operator that is used for the condition."""
+  operator: SQLOperator = EQ
+  """The value that is used for the condition."""
+  value: Mixed
+}
+
+"""
+Dynamic HAS conditions for WHERE conditions for the `where` argument of Query.posts.
+"""
+input QueryPostsWhereWhereConditionsRelation @join__type(graph: BLOG) {
+  """The amount to test."""
+  amount: Int = 1
+  """Additional condition logic."""
+  condition: QueryPostsWhereWhereConditionsHasCondition
+  """The comparison operator to test against the amount."""
+  operator: SQLOperator = GTE
+  """The relation that is checked."""
+  relation: String!
+}
+
+"""
+Not a model: computed from a post by Types::PostType and Types::ReadingTimeType. An
+entity by its post's id, which Types::ReadingTimeType.resolve_references finds, so
+the router can fetch `caption` with the title of the post it belongs to.
+"""
+type ReadingTime @join__type(graph: BLOG, key: "postId") {
+  """
+  How the reading time reads for the post it belongs to: the router fills `postTitle`
+  from that post (@fromContext), and Types::ReadingTimeType#caption reads it.
+  """
+  caption: String! @join__field(graph: BLOG, contextArguments: [{context: "blog__post", name: "postTitle", type: "String", selection: "{ title }"}])
+  minutes(wordsPerMinute: Int = 200): Int!
+  postId: ID!
+  words: Int!
+}
+
+"""The available SQL operators that are used to filter query results."""
+enum SQLOperator @join__type(graph: BLOG) {
+  """Whether a value is within a range of values (`BETWEEN`)"""
+  BETWEEN @join__enumValue(graph: BLOG)
+  """Equal operator (`=`)"""
+  EQ @join__enumValue(graph: BLOG)
+  """Greater than operator (`>`)"""
+  GT @join__enumValue(graph: BLOG)
+  """Greater than or equal operator (`>=`)"""
+  GTE @join__enumValue(graph: BLOG)
+  """Whether a value is within a set of values (`IN`)"""
+  IN @join__enumValue(graph: BLOG)
+  """Whether a value is not null (`IS NOT NULL`)"""
+  IS_NOT_NULL @join__enumValue(graph: BLOG)
+  """Whether a value is null (`IS NULL`)"""
+  IS_NULL @join__enumValue(graph: BLOG)
+  """Simple pattern matching (`LIKE`)"""
+  LIKE @join__enumValue(graph: BLOG)
+  """Less than operator (`<`)"""
+  LT @join__enumValue(graph: BLOG)
+  """Less than or equal operator (`<=`)"""
+  LTE @join__enumValue(graph: BLOG)
+  """Not equal operator (`!=`)"""
+  NEQ @join__enumValue(graph: BLOG)
+  """Whether a value is not within a range of values (`NOT BETWEEN`)"""
+  NOT_BETWEEN @join__enumValue(graph: BLOG)
+  """Whether a value is not within a set of values (`NOT IN`)"""
+  NOT_IN @join__enumValue(graph: BLOG)
+  """Negation of simple pattern matching (`NOT LIKE`)"""
+  NOT_LIKE @join__enumValue(graph: BLOG)
+}
+
+"""
+What Query.search finds: each value resolves to the type of its model's class.
+"""
+union SearchResult @join__type(graph: BLOG) @join__unionMember(graph: BLOG, member: "Post") @join__unionMember(graph: BLOG, member: "User") = Post | User
+
+type Subscription @join__type(graph: BLOG) {
+  """A comment was added: to any post, or only to the post given."""
+  commentAdded(postId: ID): Comment!
+  """
+  A post was written: drafts reach their author and admins only. Requires a token.
+  """
+  postCreated: Post!
+  """A post went public, optionally only by one author."""
+  postPublished(authorId: ID): Post!
+}
+
+"""
+A tag, and a Relay Node (@node): its id is a global id (@globalId), which is also
+its key, as `_entities` decodes it.
+"""
+type Tag implements Node @join__implements(graph: BLOG, interface: "Node") @join__type(graph: BLOG, key: "id") @tag(name: "public") {
+  id: ID!
+  name: String!
+  posts: [Post!]!
+}
+
+input TagsBelongsToMany @join__type(graph: BLOG) {
+  connect: [ID!]
+  create: [CreateTagInput!]
+  sync: [ID!]
+}
+
+input UpdatePostInput @join__type(graph: BLOG) {
+  body: String @tag(name: "content")
+  id: ID!
+  tags: TagsBelongsToMany
+  title: String
+}
+

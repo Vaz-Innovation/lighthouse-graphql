@@ -1,0 +1,10 @@
+/.bundle
+/tmp/*
+!/tmp/.keep
+/*/log/*
+/*/tmp/*
+/*/storage/*
+!/*/log/.keep
+!/*/tmp/.keep
+!/*/storage/.keep
+/gateway/node_modules

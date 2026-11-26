@@ -1,0 +1,9 @@
+# Lighthouse::GraphQL::Federation::CallbackSubscriptions fans a broadcast out to
+# every process through Action Cable's pubsub: `async` keeps it in one process,
+# as the suite runs it. Production wants a shared adapter (solid_cable, redis,
+# postgresql), as a broadcast often comes from a job or another Puma worker.
+development:
+  adapter: async
+
+test:
+  adapter: async

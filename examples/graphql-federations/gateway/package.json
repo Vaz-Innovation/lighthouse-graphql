@@ -1,0 +1,19 @@
+{
+  "name": "lighthouse-federation-gateway",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A GraphQL Yoga gateway in front of the accounts and blog subgraphs: the supergraph stitched by @graphql-tools/federation, which asks the subgraphs for subscriptions over Server-Sent Events.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@graphql-tools/federation": "^4.6.4",
+    "graphql": "^16.11.0",
+    "graphql-yoga": "^5.24.1"
+  }
+}

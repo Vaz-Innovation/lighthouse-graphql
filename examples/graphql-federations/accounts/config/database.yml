@@ -1,0 +1,19 @@
+# PostgreSQL, on 127.0.0.1:5432 as postgres/postgres unless PGHOST, PGPORT, PGUSER
+# and PGPASSWORD say otherwise (the end-to-end suite sets them, spec/support/stack.rb).
+# The blog subgraph reads the users from this database too (to authenticate a
+# token, and to know an author), through a read-only connection of its own.
+default: &default
+  adapter: postgresql
+  max_connections: <%= ENV.fetch("RAILS_MAX_THREADS") { 5 } %>
+  host: <%= ENV.fetch("PGHOST") { "127.0.0.1" } %>
+  port: <%= ENV.fetch("PGPORT") { 5432 } %>
+  username: <%= ENV.fetch("PGUSER") { "postgres" } %>
+  password: <%= ENV.fetch("PGPASSWORD") { "postgres" } %>
+
+development:
+  <<: *default
+  database: lighthouse_federation_accounts_development
+
+test:
+  <<: *default
+  database: lighthouse_federation_accounts_test

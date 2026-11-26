@@ -1,0 +1,228 @@
+extend schema
+  @link(url: "https://specs.apollo.dev/federation/v2.9", import: ["@key", "@shareable", "@inaccessible", "@tag", "@interfaceObject", "@composeDirective"])
+  @link(url: "https://lighthouse-graphql.dev/audit/v1.0", import: ["@audit"])
+  @composeDirective(name: "@audit")
+
+"""
+Marks a field holding personal data. A directive of the app's own, which
+@composeDirective keeps in the supergraph, for the router and its plugins.
+"""
+directive @audit(reason: String!) on FIELD_DEFINITION
+
+type Authored @key(fields: "id") @interfaceObject {
+  id: ID!
+
+  """
+  Who likes it, the first ones first.
+  """
+  likedBy: [User!]!
+
+  """
+  How many users like it.
+  """
+  likesCount: Int!
+}
+
+"""
+An ISO 8601 date and time, read and written by Types::DateTimeType.
+"""
+scalar DateTime
+
+type Mutation {
+  """
+  Like a Post or a Comment of the blog subgraph, by id: resolved by Mutations::Like.
+  It answers the Authored entity, whose fields the router fetches from both subgraphs.
+  """
+  like(id: ID!): Authored!
+
+  """
+  Create an account. Validators::Mutation::SignUpValidator checks the arguments first.
+  """
+  signUp(email: String!, name: String!): User!
+
+  """
+  Set the signed-in user's avatar, sent as a multipart request; @upload stores it with ActiveStorage.
+  """
+  updateAvatar(avatar: Upload!): User!
+}
+
+"""
+Information about pagination using a fully featured paginator.
+"""
+type PaginatorInfo @shareable {
+  """
+  Number of items in the current page.
+  """
+  count: Int!
+
+  """
+  Index of the current page.
+  """
+  currentPage: Int!
+
+  """
+  Index of the first item in the current page.
+  """
+  firstItem: Int
+
+  """
+  Are there more pages after this one?
+  """
+  hasMorePages: Boolean!
+
+  """
+  Index of the last item in the current page.
+  """
+  lastItem: Int
+
+  """
+  Index of the last available page.
+  """
+  lastPage: Int!
+
+  """
+  Number of items per page.
+  """
+  perPage: Int!
+
+  """
+  Number of total available items.
+  """
+  total: Int!
+}
+
+type Query {
+  """
+  The signed-in user. Requires `Authorization: Bearer <token>`, which the router passes on.
+  """
+  me: User!
+
+  """
+  Find a user by id.
+  """
+  user(id: ID!): User
+
+  """
+  How many accounts there are.
+  """
+  userCount: Int!
+
+  """
+  Users, a page at a time, filtered by name or role, in an order the client picks.
+  """
+  users(
+    """
+    Limits number of fetched items.
+    """
+    first: Int! = 10
+    name: String
+
+    """
+    Order by clause for Query.users.orderBy.
+    """
+    orderBy: [QueryUsersOrderByOrderByClause!]
+
+    """
+    The offset from which items are returned.
+    """
+    page: Int
+    role: Role @tag(name: "filters")
+  ): UserPaginator!
+}
+
+"""
+Allowed column names for Query.users.orderBy.
+"""
+enum QueryUsersOrderByColumn {
+  CREATED_AT
+  NAME
+}
+
+"""
+Order by clause for Query.users.orderBy.
+"""
+input QueryUsersOrderByOrderByClause {
+  """
+  The column that is used for ordering.
+  """
+  column: QueryUsersOrderByColumn!
+
+  """
+  The direction that is used for ordering.
+  """
+  order: SortOrder!
+}
+
+enum Role {
+  ADMIN
+  MEMBER
+
+  """
+  Not in the API the router serves (@inaccessible): accounts' own state.
+  """
+  SUSPENDED @inaccessible
+}
+
+"""
+Directions for ordering a list of records.
+"""
+enum SortOrder {
+  """
+  Sort records in ascending order.
+  """
+  ASC
+
+  """
+  Sort records in descending order.
+  """
+  DESC
+}
+
+"""
+A file sent with a multipart request.
+"""
+scalar Upload
+
+"""
+Someone with an account. The blog subgraph adds what they wrote.
+"""
+type User @key(fields: "id") @key(fields: "email") @tag(name: "public") {
+  """
+  Where their avatar is served, when they set one (Mutation.updateAvatar).
+  """
+  avatarUrl: String
+  createdAt: DateTime!
+
+  """
+  Visible to the user themselves and to admins only (UserPolicy#view_email?).
+  """
+  email: String @audit(reason: "personal data")
+  id: ID!
+
+  """
+  For the staff's tools only: not in the API the router serves.
+  """
+  internalNotes: String @inaccessible
+
+  """
+  Shareable: the blog subgraph @provides it on a comment's author.
+  """
+  name: String! @shareable
+  postsCount: Int!
+  role: Role!
+}
+
+"""
+A paginated list of User items.
+"""
+type UserPaginator @shareable {
+  """
+  A list of User items.
+  """
+  data: [User!]!
+
+  """
+  Pagination information about the list of items.
+  """
+  paginatorInfo: PaginatorInfo!
+}

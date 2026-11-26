@@ -1,0 +1,14 @@
+# What `rover supergraph compose` composes (spec/support/stack.rb runs it): the
+# SDL each subgraph's `_service { sdl }` answers, printed by Lighthouse. The
+# routing URLs are the subgraphs' development servers; the suite points the router
+# at its own (override_subgraph_url).
+federation_version: =2.15.2
+subgraphs:
+  accounts:
+    routing_url: http://localhost:3001/graphql
+    schema:
+      file: ./accounts.graphql
+  blog:
+    routing_url: http://localhost:3002/graphql
+    schema:
+      file: ./blog.graphql

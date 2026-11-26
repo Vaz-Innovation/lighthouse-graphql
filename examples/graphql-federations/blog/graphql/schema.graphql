@@ -1,0 +1,209 @@
+# The blog subgraph, written the Lighthouse way, as ../../graphql's schema is:
+# directives say what each field does. It is a Federation 2 subgraph because it
+# links the spec: Lighthouse then adds `_service` and `_entities`, and prints
+# the SDL the router composes (../router/blog.graphql). Guide: ../../../docs/federation.md
+#
+# It owns Post, Comment and Tag, and adds to the accounts subgraph's User what
+# users wrote. Subscriptions reach clients through the router, which this
+# subgraph calls back, and through Yoga, which subscribes over Server-Sent Events
+# (BlogSchema uses Lighthouse::GraphQL::Federation::CallbackSubscriptions).
+extend schema
+  @link(
+    url: "https://specs.apollo.dev/federation/v2.9"
+    import: ["@key", "@external", "@provides", "@requires", "@override", "@tag", "@inaccessible", "@context", "@fromContext", "@cost", "@listSize"]
+  )
+
+type Query {
+  "Fetches an object given its ID. Resolved by Types::QueryType#node (Rails' GlobalID)."
+  node(id: ID!): Node
+
+  """
+  Published posts, newest first unless the client orders them, with dynamic filters
+  (where: { column: TITLE, operator: LIKE, value: "%Rails%" }) and full-text search.
+  @cost and @listSize tell the router what a page costs (its demand control).
+  """
+  posts(
+    "Full-text search over the title and the body (@search, with Post's pg_search scope)."
+    search: String @search
+    where: _ @whereConditions(columns: ["title", "author_id"])
+    orderBy: _ @orderBy(columns: ["title", "created_at"], relations: [{ relation: "comments" }])
+  ): [Post!]!
+    @paginate(defaultCount: 10)
+    @builder(class: "Published")
+    @orderBy(column: "created_at", direction: DESC)
+    @cost(weight: 2)
+    @listSize(slicingArguments: ["first"], sizedFields: ["data"])
+
+  "The same posts as a Relay-style connection, newest first."
+  feed: [Post!]! @paginate(type: CONNECTION, defaultCount: 5) @builder(class: "Published") @orderBy(column: "created_at", direction: DESC)
+
+  "A single published post."
+  post(id: ID! @eq): Post @find(scopes: ["published"])
+
+  "The signed-in user's posts, drafts included — resolved by Resolvers::MyPosts."
+  myPosts(title: String @like): [Post!]! @guard
+
+  "Every tag. Kept in Rails.cache for five minutes; createTag clears it."
+  tags: [Tag!]! @all @cache(maxAge: 300)
+
+  "The newest published posts and comments — resolved by Resolvers::LatestActivity."
+  latestActivity(first: Int = 10, since: DateTime): [Authored!]!
+
+  "Published posts and users matching a term — resolved by Resolvers::Search. Each result is a Post or a User."
+  search(term: String!): [SearchResult!]!
+}
+
+type Mutation {
+  "Write a post as the signed-in user, tagging it in the same request (a nested mutation)."
+  createPost(input: CreatePostInput! @spread): Post!
+    @guard
+    @canModel(ability: "create")
+    @create
+    @inject(context: "current_user.id", name: "author_id")
+    @broadcast(subscription: "postCreated")
+
+  "Edit a post. Only its author or an admin may (PostPolicy#update?)."
+  updatePost(input: UpdatePostInput! @spread): Post!
+    @guard
+    @canFind(ability: "update", find: "input.id")
+    @update
+
+  "Delete a post (PostPolicy#destroy?)."
+  deletePost(id: ID! @whereKey): Post @guard @canFind(ability: "destroy", find: "id") @delete
+
+  "Publish a post — resolved by Mutations::PublishPost."
+  publishPost(id: ID!): Post! @guard @canFind(ability: "publish", find: "id") @broadcast(subscription: "postPublished")
+
+  "Comment on a post as the signed-in user."
+  addComment(postId: ID! @rename(attribute: "post_id"), body: String!): Comment!
+    @guard
+    @create
+    @inject(context: "current_user.id", name: "author_id")
+    @broadcast(subscription: "commentAdded")
+
+  "Add a tag, and drop the cached tag list."
+  createTag(name: String!): Tag! @guard @create @clearCache(type: "Query", field: "tags")
+}
+
+# Each update reaches the router as an HTTP callback; the router resolves the
+# fields of other subgraphs (author { name }) for every one.
+type Subscription {
+  "A post was written: drafts reach their author and admins only. Requires a token."
+  postCreated: Post!
+
+  "A post went public, optionally only by one author."
+  postPublished(authorId: ID): Post!
+
+  "A comment was added: to any post, or only to the post given."
+  commentAdded(postId: ID): Comment!
+}
+
+# The accounts subgraph's User (its description is accounts'), to which the blog adds
+# what users wrote. `_entities` finds a user by id in User (a model on accounts' database).
+type User @key(fields: "id") {
+  id: ID!
+  "Accounts' — the blog resolves it only where it @provides it (Comment.author)."
+  name: String! @external
+  "Their posts, published or not."
+  posts: [Post!]! @hasMany
+  "How many posts they wrote. Accounts had it first: @override takes it over."
+  postsCount: Int! @override(from: "accounts") @count(relation: "posts")
+  "Their comments, as a Relay cursor connection."
+  comments: [Comment!]! @hasMany(type: CONNECTION, defaultCount: 10)
+  "Their name and how much they wrote: User#signature, given the name accounts holds (@requires)."
+  signature: String! @requires(fields: "name") @method
+}
+
+"""
+Something a user wrote: a Post or a Comment. An entity interface: the accounts
+subgraph adds fields to every one of them (likesCount, likedBy) as an
+@interfaceObject, and `_entities` finds one by id in Post's and Comment's models.
+"""
+interface Authored @key(fields: "id") {
+  id: ID!
+  createdAt: DateTime!
+  author: User!
+}
+
+type Post implements Authored @key(fields: "id") @context(name: "post") {
+  id: ID!
+  title: String!
+  body: String
+  published: Boolean!
+  createdAt: DateTime!
+  author: User! @belongsTo
+  "The first words of the body. @method calls Post#summary, passing the field's argument."
+  summary(words: Int = 20): String! @method
+  "Comments, paginated: comments(first: 10, page: 1) { data { body } paginatorInfo { total } }."
+  comments: [Comment!]! @hasMany(type: PAGINATOR, defaultCount: 10)
+  commentsCount: Int! @count(relation: "comments")
+  tags: [Tag!]! @belongsToMany
+  "How long the post takes to read. No directive: Types::PostType#reading_time resolves it."
+  readingTime: ReadingTime!
+}
+
+type Comment implements Authored @key(fields: "id") {
+  id: ID!
+  body: String!
+  createdAt: DateTime!
+  "The blog reads the author's name itself here (@provides), sparing the router a fetch from accounts."
+  author: User! @belongsTo @provides(fields: "name")
+  post: Post! @belongsTo
+}
+
+"""
+A tag, and a Relay Node (@node): its id is a global id (@globalId), which is also
+its key, as `_entities` decodes it.
+"""
+type Tag @node @key(fields: "id") @tag(name: "public") {
+  id: ID! @globalId
+  name: String!
+  posts: [Post!]! @belongsToMany
+}
+
+"""
+Not a model: computed from a post by Types::PostType and Types::ReadingTimeType. An
+entity by its post's id, which Types::ReadingTimeType.resolve_references finds, so
+the router can fetch `caption` with the title of the post it belongs to.
+"""
+type ReadingTime @key(fields: "postId") {
+  postId: ID!
+  words: Int!
+  minutes(wordsPerMinute: Int = 200): Int!
+  """
+  How the reading time reads for the post it belongs to: the router fills `postTitle`
+  from that post (@fromContext), and Types::ReadingTimeType#caption reads it.
+  """
+  caption(postTitle: String @fromContext(field: "$post { title }")): String!
+}
+
+"What Query.search finds: each value resolves to the type of its model's class."
+union SearchResult = Post | User
+
+input CreatePostInput {
+  title: String!
+  body: String
+  published: Boolean
+  "Attach existing tags by id and/or create new ones."
+  tags: TagsBelongsToMany
+}
+
+input UpdatePostInput {
+  id: ID!
+  title: String
+  body: String @tag(name: "content")
+  tags: TagsBelongsToMany
+}
+
+input TagsBelongsToMany {
+  connect: [ID!]
+  sync: [ID!]
+  create: [CreateTagInput!]
+}
+
+input CreateTagInput {
+  name: String!
+}
+
+"An ISO 8601 date and time, read and written by Types::DateTimeType."
+scalar DateTime

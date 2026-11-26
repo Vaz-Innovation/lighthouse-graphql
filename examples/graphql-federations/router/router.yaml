@@ -1,0 +1,81 @@
+# Apollo Router in front of the two subgraphs (supergraph.graphql, composed by
+# `rover supergraph compose --config supergraph.yaml`). The suite (spec/support/stack.rb)
+# runs it in Docker with this file, the subgraphs' URLs replaced by its own
+# servers' (override_subgraph_url) and the callback URL by the port it maps.
+supergraph:
+  listen: 0.0.0.0:4000
+  introspection: true
+
+homepage:
+  enabled: false
+
+health_check:
+  listen: 0.0.0.0:8088
+  enabled: true
+
+# Every subgraph's errors reach the client, with their extensions (validation
+# errors, authorization, @throttle's 429...), as a Lighthouse app answers them.
+include_subgraph_errors:
+  all: true
+
+# The client's token goes to every subgraph: @guard and the @can* directives read it there.
+headers:
+  all:
+    request:
+      - propagate:
+          named: authorization
+
+# Automatic persisted queries: the router's own cache for its clients, and to the
+# subgraphs it sends a hash first, which Lighthouse's persisted queries answer
+# (config.persisted_queries in each subgraph's initializer).
+apq:
+  router:
+    cache:
+      in_memory:
+        limit: 512
+  subgraph:
+    all:
+      enabled: true
+
+# A client may send a batch (a JSON array), which the router runs, batching its
+# fetches to a subgraph into one request too: Lighthouse runs a batch as a multiplex.
+# A GraphOS feature, as subscriptions are (below).
+batching:
+  enabled: true
+  mode: batch_http_link
+  subgraph:
+    all:
+      enabled: true
+
+# Multipart requests (the GraphQL multipart request specification), whose files
+# the router streams to the subgraph that takes them: accounts' updateAvatar,
+# where Lighthouse's @upload stores them.
+preview_file_uploads:
+  enabled: true
+  protocols:
+    multipart:
+      enabled: true
+      mode: stream
+      limits:
+        max_file_size: 5mb
+        max_files: 5
+
+# `Apollo-Expose-Query-Plan: true` answers the plan with the response: the suite
+# checks which subgraph resolved what (@provides, @override).
+plugins:
+  experimental.expose_query_plan: true
+
+# Federated subscriptions, which the blog subgraph delivers through HTTP callbacks
+# (Lighthouse::GraphQL::Federation::CallbackSubscriptions). A GraphOS feature: the
+# router starts with it only when it is connected to GraphOS (APOLLO_KEY and
+# APOLLO_GRAPH_REF, a free plan's will do); the suite leaves it, and batching, out otherwise.
+subscription:
+  enabled: true
+  mode:
+    callback:
+      public_url: http://127.0.0.1:4000/callback
+      listen: 0.0.0.0:4000
+      path: /callback
+      heartbeat_interval: 5s
+      subgraphs:
+        - blog

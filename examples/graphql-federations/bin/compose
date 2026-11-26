@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Prints each subgraph's SDL (Lighthouse's `lighthouse:print_schema FORMAT=federation`,
+# what `_service { sdl }` answers) into router/, and composes router/supergraph.graphql
+# from them with rover. Run it after changing a subgraph's schema; the suite
+# (spec/composition_spec.rb) fails while these files are out of date.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+ROVER="${ROVER:-$(command -v rover || echo "$HOME/.rover/bin/rover")}"
+
+(cd accounts && FORMAT=federation SCHEMA=AccountsSchema bin/rails lighthouse:print_schema > ../router/accounts.graphql)
+(cd blog && FORMAT=federation SCHEMA=BlogSchema bin/rails lighthouse:print_schema > ../router/blog.graphql)
+"$ROVER" supergraph compose --config router/supergraph.yaml --elv2-license accept > router/supergraph.graphql
+echo "router/accounts.graphql, router/blog.graphql and router/supergraph.graphql are up to date."

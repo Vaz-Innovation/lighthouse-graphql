@@ -1,0 +1,98 @@
+# The accounts subgraph, written the Lighthouse way, as ../../graphql's schema is:
+# directives say what each field does. It is a Federation 2 subgraph because it
+# links the spec: Lighthouse then adds `_service` and `_entities`, and prints
+# the SDL the router composes (../router/accounts.graphql). Guide: ../../../docs/federation.md
+#
+# It owns User. The blog subgraph adds to it (posts, postsCount, signature) and
+# writes Posts and Comments, which accounts knows as one entity interface,
+# Authored, to count the likes they get (@interfaceObject).
+extend schema
+  @link(
+    url: "https://specs.apollo.dev/federation/v2.9"
+    import: ["@key", "@shareable", "@inaccessible", "@tag", "@interfaceObject", "@composeDirective"]
+  )
+  @link(url: "https://lighthouse-graphql.dev/audit/v1.0", import: ["@audit"])
+  @composeDirective(name: "@audit")
+
+"""
+Marks a field holding personal data. A directive of the app's own, which
+@composeDirective keeps in the supergraph, for the router and its plugins.
+"""
+directive @audit(reason: String!) on FIELD_DEFINITION
+
+type Query {
+  "The signed-in user. Requires `Authorization: Bearer <token>`, which the router passes on."
+  me: User! @guard
+
+  "Find a user by id."
+  user(id: ID! @eq): User @find
+
+  "Users, a page at a time, filtered by name or role, in an order the client picks."
+  users(
+    name: String @like
+    role: Role @eq @tag(name: "filters")
+    orderBy: _ @orderBy(columns: ["name", "created_at"])
+  ): [User!]! @paginate(defaultCount: 10)
+
+  "How many accounts there are."
+  userCount: Int! @count(model: "User")
+}
+
+type Mutation {
+  "Create an account. Validators::Mutation::SignUpValidator checks the arguments first."
+  signUp(name: String!, email: String!): User! @create @validator @throttle(maxAttempts: 200)
+
+  "Set the signed-in user's avatar, sent as a multipart request; @upload stores it with ActiveStorage."
+  updateAvatar(avatar: Upload! @upload(path: "avatars")): User!
+    @guard
+    @update
+    @inject(context: "current_user.id", name: "id")
+
+  """
+  Like a Post or a Comment of the blog subgraph, by id: resolved by Mutations::Like.
+  It answers the Authored entity, whose fields the router fetches from both subgraphs.
+  """
+  like(id: ID!): Authored! @guard
+}
+
+"Someone with an account. The blog subgraph adds what they wrote."
+type User @key(fields: "id") @key(fields: "email") @tag(name: "public") {
+  id: ID!
+  "Shareable: the blog subgraph @provides it on a comment's author."
+  name: String! @shareable
+  "Visible to the user themselves and to admins only (UserPolicy#view_email?)."
+  email: String @canRoot(ability: "view_email") @audit(reason: "personal data")
+  role: Role!
+  "Where their avatar is served, when they set one (Mutation.updateAvatar)."
+  avatarUrl: String @attachment
+  # A stale count, kept for the clients of old: the blog subgraph resolves it now (@override).
+  postsCount: Int!
+  "For the staff's tools only: not in the API the router serves."
+  internalNotes: String @inaccessible
+  createdAt: DateTime!
+}
+
+# Something written in the blog subgraph, a Post or a Comment (its description is
+# blog's), as accounts knows it: an entity interface it adds fields to without
+# knowing its types (@interfaceObject). Types::AuthoredType resolves the fields;
+# `_entities` hands it the router's representation.
+type Authored @key(fields: "id") @interfaceObject {
+  id: ID!
+  "How many users like it."
+  likesCount: Int!
+  "Who likes it, the first ones first."
+  likedBy: [User!]!
+}
+
+enum Role {
+  MEMBER @enum(value: "member")
+  ADMIN @enum(value: "admin")
+  "Not in the API the router serves (@inaccessible): accounts' own state."
+  SUSPENDED @enum(value: "suspended") @inaccessible
+}
+
+"An ISO 8601 date and time, read and written by Types::DateTimeType."
+scalar DateTime
+
+"A file sent with a multipart request."
+scalar Upload
