@@ -152,38 +152,42 @@ schema, `use Lighthouse::GraphQL::Defer`, as PHP Lighthouse's are a service prov
 A type class's `scope_items` and `authorized?` ([authorization.md](authorization.md#on-the-type-scope_items-and-authorized))
 apply to every record of the type. `bench/type_authorization.rb` measures what that
 costs: 200 users, 4,000 posts (half drafts) and 12,000 comments on PostgreSQL 16,
-the post type plain, with hooks that keep every post (the mechanism alone), or with
-ones that hide the drafts. Medians of 40 runs (15 for the page and the counts),
-Ruby 3.4.4 with graphql 2.6.12, on an Apple M4 Pro:
+the post type plain, or with hooks that keep every post (the mechanism alone).
+Ruby 3.4.4, graphql 2.6.12, Apple M4 Pro. The added time is measured with the
+variants interleaved in one process, shuffled, after a full GC each run, so a slow
+moment of the machine lands on all of them alike (medians of 25 to 300 runs):
 
 | Query | Plain | `scope_items`, keeping all | `authorized?`, keeping all |
 | --- | --- | --- | --- |
-| A page of 100 posts, with its total | 14.0 ms, 3 queries | 14.2 ms, 3 queries | 13.9 ms, 3 queries |
-| 200 users → 4,000 posts → 12,000 comments | 736 ms, 3 queries | 771 ms, 4 queries | 735 ms, 3 queries |
-| 1,000 comments → their post | 95 ms, 2 queries | 110 ms, 3 queries | 101 ms, 2 queries |
-| 200 users, their posts counted (`@withCount`) | 17.2 ms, 2 queries | 19.2 ms, 2 queries | 18.8 ms, 2 queries |
-| A post by id (`@find`) | 0.6 ms, 1 query | 0.7 ms, 1 query | 0.6 ms, 1 query |
+| A page of 100 posts, with its total | 12.8 ms, 3 queries | +0.9 ms, 3 queries | +0.1 ms |
+| A page of 100, through an interface | 7.1 ms, 2 queries | +0.8 ms, 2 queries | +0.1 ms |
+| 200 users → 4,000 posts → 12,000 comments | 620 ms, 3 queries | +35 ms (5.6%), 4 queries | none |
+| 200 users → 4,000 posts, through an interface | 178 ms, 2 queries | +27 ms, 3 queries | +3 ms |
+| 1,000 comments → their post | 85 ms, 2 queries | +13 ms, 3 queries | +2 ms |
+| 1,000 comments → their post, through a union | 105 ms, 2 queries | +16 ms, 3 queries | +2 ms |
+| 200 users, their posts counted (`@withCount`) | 16.7 ms, 2 queries | +0.3 ms, 2 queries | none |
+| A post by id (`@find`) | 1.6 ms, 1 query | +0.4 ms, 1 query | none |
 
-- **No hooks, no cost.** A type whose class defines neither is left as graphql-ruby
-  builds it: the plain column matches the release before them, within the
-  benchmark's noise (about ±10% on the large queries).
+- **No hooks, no cost.** When no type of the schema defines `scope_items`, nothing
+  runs for it; a type whose class defines neither hook is left as graphql-ruby builds
+  it. The plain column matches the release before them, within the benchmark's noise.
 - **`scope_items` in the query.** A root field, a page and its total, `@find` and the
-  counts take the scope in the one query they run.
+  counts take the scope in the one query they run: the added time is the condition's.
 - **`scope_items` on a batch.** A relationship loads in a batch as before, then one
-  more query checks what it loaded, for every parent at once: about 10 µs per
-  record. 20,000 posts in one answer took 3.15 s instead of 2.91 s (8%), still in 4
-  queries.
-- **`authorized?`** runs once per object, as in any graphql-ruby schema: its cost is
-  your method's.
+  more query checks what it loaded, for every parent at once: 7 to 13 µs per record,
+  through an object type, an interface or a union alike.
+- **`authorized?`** runs once per object, as in any graphql-ruby schema: Lighthouse
+  adds under 1 µs to your method's cost.
 
 Hiding the drafts makes the same queries faster, as they answer less: the users →
-posts → comments one took 374 ms with a `scope_items` that hides them. Reproduce the
-numbers, or measure your own sizes (`USERS`, `POSTS_PER_USER`, ...), with the example
-app's bundle:
+posts → comments one takes about 400 ms with a `scope_items` that hides them.
+Reproduce the numbers, or measure your own sizes (`USERS`, `POSTS_PER_USER`, ...),
+with the example app's bundle. `INTERLEAVE=25` measures the added time as above;
+without it, each variant runs after the other, which a busy machine skews:
 
 ```shell
 cd examples/graphql
-DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/lighthouse_bench bundle exec ruby ../../bench/type_authorization.rb
+DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/lighthouse_bench INTERLEAVE=25 bundle exec ruby ../../bench/type_authorization.rb
 ```
 
 ## Nested mutations
@@ -192,38 +196,39 @@ A nested mutation's ids only reach the parent's records, and only ones the query
 see ([mutations.md](mutations.md#what-an-input-may-reach)). `bench/nested_mutations.rb`
 measures what that costs against the release before it, which looked records up in
 the whole table: one user with 10 tasks and 10 roles, each operation naming 10 ids,
-every run rolled back. Medians of 60 runs, statements counted (SELECT, INSERT,
-UPDATE, DELETE), PostgreSQL 16, Ruby 3.4.4, graphql 2.6.12, Apple M4 Pro:
+every run rolled back. Means of two runs of 60, a full GC before each operation,
+statements counted (SELECT, INSERT, UPDATE, DELETE), PostgreSQL 16, Ruby 3.4.4,
+graphql 2.6.12, Apple M4 Pro:
 
 | Mutation | Before | Now | Now, with `scope_items` |
 | --- | --- | --- | --- |
-| `update` 10 tasks | 6.1 ms, 21 | **5.3 ms, 12** | 5.5 ms, 12 |
-| `upsert` 10 tasks by id | 5.9 ms, 21 | **5.4 ms, 12** | 5.5 ms, 12 |
-| `upsert` 10 new tasks, ids given | 5.9 ms, 21 | **5.5 ms, 13** | 5.3 ms, 13 |
-| `delete` 10 tasks | 3.7 ms, 12 | 4.1 ms, 12 | 4.1 ms, 12 |
-| `disconnect` 10 tasks | 4.3 ms, 12 | 4.5 ms, 12 | 4.6 ms, 12 |
-| `connect` 10 tasks (has-many) | 4.3 ms, 12 | 4.5 ms, 12 | 4.4 ms, 12 |
-| `connect` 10 roles (many-to-many) | 6.9 ms, 21 | 7.4 ms, 22 | 7.2 ms, 22 |
-| `sync` 10 roles | 10.2 ms, 33 | 10.4 ms, 34 | 10.3 ms, 34 |
-| `delete` 10 roles | 6.0 ms, 23 | 7.0 ms, 23 | 6.9 ms, 23 |
-| `connect` a task (belongs-to) | 1.0 ms, 1 | 1.4 ms, 2 | 1.3 ms, 2 |
-| `@update` a task (root) | 1.1 ms, 2 | 1.2 ms, 2 | 1.3 ms, 2 |
-| `@upsert` a new task, id given (root) | 1.1 ms, 2 | 1.2 ms, 2 | 1.7 ms, 3 |
+| `update` 10 tasks | 4.8 ms, 21 | **4.1 ms, 12** | 4.0 ms, 12 |
+| `upsert` 10 tasks by id | 4.8 ms, 21 | **4.2 ms, 12** | 4.3 ms, 12 |
+| `upsert` 10 new tasks, ids given | 4.6 ms, 21 | **4.2 ms, 13** | 4.2 ms, 13 |
+| `delete` 10 tasks | 2.8 ms, 12 | 3.3 ms, 12 | 3.3 ms, 12 |
+| `disconnect` 10 tasks | 3.2 ms, 12 | 3.5 ms, 12 | 3.4 ms, 12 |
+| `connect` 10 tasks (has-many) | 3.1 ms, 12 | 3.4 ms, 12 | 3.4 ms, 12 |
+| `connect` 10 roles (many-to-many) | 5.3 ms, 21 | 5.5 ms, 22 | 5.5 ms, 22 |
+| `sync` 10 roles | 7.6 ms, 33 | 7.9 ms, 34 | 8.0 ms, 34 |
+| `delete` 10 roles | 4.9 ms, 23 | 5.1 ms, 23 | 5.1 ms, 23 |
+| `connect` a task (belongs-to) | 0.7 ms, 1 | 0.9 ms, 2 | 0.9 ms, 2 |
+| `@update` a task (root) | 0.9 ms, 2 | 0.9 ms, 2 | 1.0 ms, 2 |
+| `@upsert` a new task, id given (root) | 0.9 ms, 2 | 0.9 ms, 2 | 1.1 ms, 3 |
 
 - **A list of updates or upserts takes one query for every id**, where it took one per
   input: 10 inputs cost 9 statements fewer than before, 100 would cost 99 fewer. An
   upsert's ids that match no reachable record take one more query, for all of them,
   to refuse the ones that exist out of reach.
 - **`delete`, `disconnect` and a has-many `connect`** run the statements they did: the
-  lookup they made anyway now carries the parent's and the scope's conditions.
+  lookup they made anyway now carries the parent's and the scope's conditions, and
+  checking every id before changing any adds 0.2 to 0.5 ms per operation.
 - **One more statement where nothing was checked:** a belongs-to `connect` checks the
   record exists and may be seen, a many-to-many `connect` or `sync` checks all its ids
   at once, and a root `@upsert` of a scoped type checks a new id is not a hidden
   record's. That one statement is per operation, not per id.
 - **`scope_items` adds no statement:** it is a condition in the lookups above.
 
-The times move by a few tenths of a millisecond either way, within the benchmark's
-noise. Reproduce them, or measure your own (`IDS=100`, ...):
+Reproduce them, or measure your own (`IDS=100`, ...):
 
 ```shell
 cd examples/graphql

@@ -76,6 +76,8 @@ module Lighthouse::GraphQL::TypeAuthorization
   # the field's return type, else the one type of the relation's model that
   # defines it. A scope_items that answers no relation is the app's error.
   def scope(relation, field_def, context)
+    return relation unless index(context).any?
+
     klass = scoping_class(field_def, relation, context)
     klass ? narrowed(klass, relation, context) : relation
   end
@@ -98,13 +100,15 @@ module Lighthouse::GraphQL::TypeAuthorization
   # `relation` narrowed by the scope_items of its model's type (a count of a
   # relation, @withCount).
   def scope_model(relation, context)
-    klass = relation.respond_to?(:klass) && model_scoping_class(nil, relation.klass, context)
+    klass = index(context).any? && relation.respond_to?(:klass) && model_scoping_class(nil, relation.klass, context)
     klass ? narrowed(klass, relation, context) : relation
   end
 
   # `relation` narrowed by the scope_items of the object type `type`, or of
   # its model's type when `type` is an entity interface (Federation::Entities).
   def scope_type(relation, type, context)
+    return relation unless index(context).any?
+
     klass = type.kind.object? ? object_scoping_class(type.graphql_name, context) : model_scoping_class(nil, relation.klass, context)
     klass ? narrowed(klass, relation, context) : relation
   end
@@ -132,10 +136,18 @@ module Lighthouse::GraphQL::TypeAuthorization
 
   # [:object, name] when a field's records are of an object type, [:abstract,
   # name] of an interface or a union (either, a page of them), nil when it
-  # returns none.
+  # returns none. Read once per field and query.
   def records_of(field_def, context)
     return unless field_def.respond_to?(:type)
 
+    memo = memo(context)
+    return memo[field_def] if memo&.key?(field_def)
+
+    records = read_records_of(field_def, context)
+    memo ? (memo[field_def] = records) : records
+  end
+
+  def read_records_of(field_def, context)
     named = field_def.type.unwrap
     name = named.graphql_name.sub(Lighthouse::Support::ModelResolver::PAGINATION_SUFFIX, '')
     return [:abstract, name] if index(context).abstract?(name)

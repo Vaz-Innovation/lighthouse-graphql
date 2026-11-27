@@ -8,12 +8,13 @@ class Lighthouse::GraphQL::DataloaderSources::VisibleRecords < GraphQL::Dataload
   # scope_items of the type each resolves as leaves out: the field's object
   # type, or, through an interface or a union, the type of each record's model.
   def self.filter(value, field_def, context)
-    return value unless context && value
+    return value unless context && value && Lighthouse::GraphQL::TypeAuthorization.index(context).any?
 
-    hidden = hidden_records(Array.wrap(value), field_def, context)
+    records = Array.wrap(value)
+    hidden = hidden_records(records, field_def, context)
     return value if hidden.empty?
 
-    kept = Array.wrap(value).reject { |record| hidden.key?(record) }
+    kept = records.reject { |record| hidden.key?(record) }
     value.respond_to?(:to_ary) ? kept : kept.first
   end
 

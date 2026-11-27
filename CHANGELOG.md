@@ -19,7 +19,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `scope_items` that answers no relation, a count two scoping types of one model make ambiguous, and a
   Searchkick search of a scoped type are errors, never an unscoped answer. Which types define either
   hook is read when the schema is built, so a type without them costs nothing; `scope_items` takes no
-  extra query where Lighthouse builds one, and one per batch of a relationship (about 10 µs per record,
+  extra query where Lighthouse builds one, and one per batch of a relationship (7 to 13 µs per record,
   `bench/type_authorization.rb`, [measured](docs/performance.md#type-level-authorization)).
 
 ### Changed
@@ -33,7 +33,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `disconnect` checked before anything changes; an `upsert` whose id no record has still creates one. This
   is PHP Lighthouse's `nested_mutations_scope_to_parent`, always on, as it plans for v7: `connect` moves a
   record to another parent. A list of nested `update` or `upsert` inputs now looks its records up in one
-  query instead of one per input (10 inputs: 12 statements instead of 21); a belongs-to `connect` and a
+  query instead of one per input (10 inputs: 12 statements instead of 21, 4.1 ms instead of 4.8); a belongs-to `connect` and a
   many-to-many `connect` or `sync` take one more, to check their ids (`bench/nested_mutations.rb`,
   [measured](docs/performance.md#nested-mutations)).
 - **Every mutation looks records up through their type's `scope_items`.** `connect`, `sync`,

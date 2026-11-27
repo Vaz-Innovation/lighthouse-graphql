@@ -164,6 +164,7 @@ def run(schema, query, variables)
 end
 
 def measure(schema, query, variables)
+  GC.start(full_mark: true, immediate_sweep: true) # each variant from the same heap, whatever ran before
   3.times { run(schema, query, variables) }
   statements = 0
   count = ->(*, payload) { statements += 1 if payload[:sql].match?(WRITES_AND_READS) && payload[:name] != 'SCHEMA' }

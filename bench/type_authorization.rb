@@ -13,7 +13,10 @@
 #   DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/lighthouse_bench bundle exec ruby ../../bench/type_authorization.rb
 #
 # The database is created when missing; its bench_ tables are rebuilt. RUNS=n
-# sets the timed runs of each query (default 15); USERS, POSTS_PER_USER and
+# sets the timed runs of each query (default 15); INTERLEAVE=n instead runs n
+# rounds of every variant in a shuffled order, a full GC before each run, and
+# prints each one's median and its difference to the first variant: on a busy
+# machine, the way to tell a cost from noise. USERS, POSTS_PER_USER and
 # COMMENTS_PER_POST the data; VARIANTS (e.g. "Plain ScopedAll") and QUERIES
 # (parts of their labels, comma-separated) narrow what runs. To compare with another
 # checkout, put its lib first: `bundle exec ruby -I ../other/lib ../../bench/type_authorization.rb`.
@@ -88,6 +91,11 @@ class Types::PostAuthorizedType < GraphQL::Schema::Object
   def self.authorized?(post, context) = super && (post.published || post.author_id == context[:user_id])
 end
 
+# A type class with no hook: what having one costs, before any hook.
+class Types::PostClassOnlyType < GraphQL::Schema::Object
+  include Lighthouse::GraphQL::Type
+end
+
 # The same hooks, keeping every post: what the mechanism costs, the filtering aside.
 class Types::PostScopedAllType < GraphQL::Schema::Object
   include Lighthouse::GraphQL::Type
@@ -116,13 +124,17 @@ def schema_for(variant)
       users: [User#{variant}!]! @all(model: "BenchUser")
       comments: [Comment#{variant}!]! @paginate(model: "BenchComment", maxCount: 1000)
       post(id: ID! @eq): #{post} @find(model: "BenchPost")
+      pagedAuthored: [Authored#{variant}!]! @paginate(model: "BenchPost")
     }
+    interface Authored#{variant} { title: String }
+    union Searchable#{variant} = #{post} | User#{variant}
     type User#{variant} @model(class: "BenchUser") {
       name: String
       posts: [#{post}]! @hasMany
+      authored: [Authored#{variant}]! @hasMany(relation: "posts")
       postsCount: Int! @withCount(relation: "posts")
     }
-    type #{post} @model(class: "BenchPost") {
+    type #{post} implements Authored#{variant} @model(class: "BenchPost") {
       title: String
       published: Boolean!
       authorId: ID!
@@ -132,6 +144,7 @@ def schema_for(variant)
     type Comment#{variant} @model(class: "BenchComment") {
       body: String
       post: #{post} @belongsTo
+      target: Searchable#{variant} @belongsTo(relation: "post")
     }
   GRAPHQL
 end
@@ -141,7 +154,10 @@ QUERIES = {
   'users → posts → comments' => '{ users { name posts { title comments { body } } } }',
   '1000 comments → post' => '{ comments(first: 1000) { data { body post { title } } } }',
   'users with posts counted' => '{ users { name postsCount } }',
-  'a draft by id' => '{ post(id: "2") { title } }'
+  'a draft by id' => '{ post(id: "2") { title } }',
+  'page of 100, as an interface' => '{ pagedAuthored(first: 100) { paginatorInfo { total } data { title } } }',
+  'users → posts, as an interface' => '{ users { name authored { title } } }',
+  '1000 comments → post, as a union' => '{ comments(first: 1000) { data { body target { ... on PostVARIANT { title } } } } }'
 }.freeze
 
 # The posts an answer holds.
@@ -155,6 +171,7 @@ end
 
 def measure(schema, query)
   context = { user_id: 1 }
+  GC.start(full_mark: true, immediate_sweep: true) # each variant from the same heap, whatever ran before
   3.times { schema.execute(query, context: context) }
   statements = 0
   count = ->(*, payload) { statements += 1 unless payload[:name] == 'SCHEMA' }
@@ -174,14 +191,38 @@ puts "#{USERS} users, #{USERS * POSTS_PER_USER} posts (half drafts), #{USERS * P
      "#{RUNS} runs each; ruby #{RUBY_VERSION}, graphql #{GraphQL::VERSION}, PostgreSQL #{postgres}"
 variants = ENV.fetch('VARIANTS', 'Plain ScopedAll AuthorizedAll Scoped Authorized Both').split
 schemas = variants.index_with { |variant| schema_for(variant) }
+# Each variant's median over `rounds` shuffled rounds, and its difference to the first's.
+def interleave(schemas, query, rounds)
+  times = schemas.transform_values { [] }
+  context = { user_id: 1 }
+  3.times { schemas.each { |variant, schema| schema.execute(query.gsub('VARIANT', variant), context: context) } }
+  rounds.times do
+    schemas.keys.shuffle.each do |variant|
+      GC.start(full_mark: true, immediate_sweep: true)
+      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      schemas[variant].execute(query.gsub('VARIANT', variant), context: context)
+      times[variant] << ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - started) * 1000)
+    end
+  end
+  medians = times.transform_values { |list| list.sort[list.size / 2] }
+  base = medians.values.first
+  medians.each { |variant, median| puts format('  %-14s %10.1f %+10.1f %+8.1f%%', variant, median, median - base, (median - base) / base * 100) }
+end
+
 only = ENV['QUERIES']&.split(',')
+interleaved = ENV['INTERLEAVE']&.then { |rounds| Integer(rounds) }
 QUERIES.each do |label, query|
   next if only&.none? { |part| label.include?(part) }
 
   puts "\n#{label}"
+  if interleaved
+    puts '  post type       median ms   added ms    added'
+    interleave(schemas, query, interleaved)
+    next
+  end
   puts '  post type       median ms     p95 ms    SQL  posts errors'
   variants.each do |variant|
-    m = measure(schemas[variant], query)
+    m = measure(schemas[variant], query.gsub('VARIANT', variant))
     puts format('  %-14s %10.1f %10.1f %6d %6d %6d', variant, m[:median], m[:p95], m[:statements], m[:posts], m[:errors])
   end
 end

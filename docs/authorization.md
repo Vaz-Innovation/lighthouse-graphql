@@ -282,9 +282,10 @@ What it costs, measured on PostgreSQL ([performance.md](performance.md#type-leve
 - `authorized?` costs what your method does: nothing measurable on top of it.
 - `scope_items` is free where Lighthouse builds the query (a root field, a page and
   its total, a count, `@find`, batched or not): it is part of that one query. A
-  relationship it loads in a batch is checked in one more query per batch, about
-  10 µs per record loaded: 4,000 posts across 200 users took 35 ms more (5%),
-  20,000 took 8% more, in the same number of queries whatever the parents.
+  relationship it loads in a batch is checked in one more query per batch, 7 to
+  13 µs per record loaded: 4,000 posts across 200 users took 35 ms more (5.6%),
+  through an interface or a union alike, in the same number of queries whatever
+  the parents.
 
 Rails' reloader rebuilds the schema with your code, so a hook you add or remove
 in development applies on the next request.

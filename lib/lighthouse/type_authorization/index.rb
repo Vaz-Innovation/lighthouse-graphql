@@ -15,6 +15,8 @@ Lighthouse::GraphQL::TypeAuthorization::Index = Struct.new(:scoped, :scoped_by_m
     new(scoped_types.to_set(&:graphql_name).freeze, by_model.transform_values(&:freeze).freeze, abstract.freeze).freeze
   end
 
+  # Does any type of the schema define scope_items? When none does, nothing is scoped.
+  def any? = !scoped.empty?
   def scoped?(name) = scoped.include?(name)
   def scoped_of(model) = scoped_by_model.fetch(model, [])
   def abstract?(name) = abstract.include?(name)
