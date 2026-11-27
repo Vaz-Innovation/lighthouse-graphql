@@ -23,6 +23,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **BREAKING: a nested `update`, `upsert`, `delete` or `disconnect` only reaches the parent's records.** On a
+  `has_one`, `has_many` or many-to-many association they found records in the whole table, so an `update`
+  of another user's task moved it to this user, and a `delete` destroyed any record by id
+  ([nuwave/lighthouse#2744](https://github.com/nuwave/lighthouse/issues/2744)). They now look records up
+  among the parent's related ones, and fail with PHP Lighthouse's `Cannot modify a model that is not
+  related to the given parent: 3, 7.` for an id that is not (or exists nowhere), every id of a `delete` or
+  `disconnect` checked before anything changes; an `upsert` whose id no record has still creates one. This
+  is PHP Lighthouse's `nested_mutations_scope_to_parent`, always on, as it plans for v7: `connect` moves a
+  record to another parent.
+- **Every mutation looks records up through their type's `scope_items`.** `connect`, `sync`,
+  `syncWithoutDetaching`, a `belongs_to`'s operations, and a root `@update` or `@upsert`, find no record
+  the scope hides: it is as missing as one that does not exist, so a client can't connect, or probe, what
+  it may not see. A `belongs_to` `connect` also checks the record exists, where it set the foreign key
+  as given.
 - **The repository moved to [Manuel-Antunes/lighthouse-graphql](https://github.com/Manuel-Antunes/lighthouse-graphql)**,
   and the documentation to <https://manuel-antunes.github.io/lighthouse-graphql/>. The gem's homepage and
   documentation links, the generators' templates and the guides point there; GitHub redirects the old

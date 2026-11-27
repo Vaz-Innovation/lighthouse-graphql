@@ -2,13 +2,24 @@
 
 # Saves records from nested input: create, update and upsert each save one
 # record, running the operations its input carries on its associations.
+#
+# Every existing record an operation names is looked up among the ones the
+# query may see, its type's scope_items (TypeAuthorization): one it hides is
+# as missing as one that does not exist. An update, upsert, delete or
+# disconnect on a has-one, has-many or many-to-many association (whose `link`
+# knows the parent's related records) only reaches records related to the
+# parent; connect, sync and a belongs-to's operations bind records not related yet.
 class Lighthouse::GraphQL::NestedMutations::Executor
   include Lighthouse::GraphQL::NestedMutations::BelongsToOperations
   include Lighthouse::GraphQL::NestedMutations::HasOperations
   include Lighthouse::GraphQL::NestedMutations::ManyToManyOperations
 
-  def initialize(field_name)
+  NOT_RELATED = 'Cannot modify a model that is not related to the given parent: %s.'
+
+  # `context`: the query's, for the scope_items of the records it looks up.
+  def initialize(field_name, context = nil)
     @field_name = field_name
+    @context = context
   end
 
   def create(model, input, link: nil)
@@ -21,21 +32,40 @@ class Lighthouse::GraphQL::NestedMutations::Executor
     raise ::GraphQL::ExecutionError, Lighthouse::GraphQL::NestedMutations::MISSING_PRIMARY_KEY if key.nil? || id.nil?
 
     part.attributes.delete(key)
-    save(find!(model, id), part, link)
+    save(find!(model, id, within: link&.related), part, link)
   end
 
   # The record identified by `identifying` columns, else by primary key,
-  # else `fallback`, else a new one — created with the given id, if any.
+  # else `fallback`, else a new one — created with the given id, if any. An
+  # id of a record it may not reach is an error, not a new record.
   def upsert(model, input, link: nil, identifying: nil, fallback: nil)
     part = partition(model, input)
-    record = identifying.nil? ? nil : find_identified(model, part, identifying)
-    record ||= find_by_given_key(model, part)
+    within = link&.related
+    record = identifying.nil? ? nil : find_identified(model, part, identifying, within)
+    record ||= find_by_given_key(model, part, within)
     save(record || fallback || model.new, part, link)
   end
 
-  def find!(model, id)
-    model.find_by(model.primary_key => id) ||
-      raise(::GraphQL::ExecutionError, "Couldn't find #{model.name} with '#{model.primary_key}'=#{id}")
+  # The record `id` names among the ones the query may see (and, `within:` a
+  # parent's related records, among those).
+  def find!(model, id, within: nil)
+    reachable(model, within).find_by(model.primary_key => id) || raise(::GraphQL::ExecutionError, missing(model, [id], within))
+  end
+
+  # Every record `ids` names, reachable as find! reaches one; checked all
+  # before any changes, the error naming every one that is not.
+  def find_all!(model, ids, within: nil)
+    ids = Array(ids)
+    found = reachable(model, within).where(model.primary_key => ids).to_a
+    absent = ids.map(&:to_s) - found.map { |record| record[model.primary_key].to_s }
+    raise ::GraphQL::ExecutionError, missing(model, absent, within) unless absent.empty?
+
+    found
+  end
+
+  # The records of `model` (or of the parent's related ones) the query may see.
+  def reachable(model, within = nil)
+    Lighthouse::GraphQL::TypeAuthorization.scope_model((within || model).all, @context)
   end
 
   # Assign, run the operations that set this record's foreign keys, save
@@ -78,19 +108,26 @@ class Lighthouse::GraphQL::NestedMutations::Executor
     prefix.empty? ? @field_name : prefix
   end
 
-  def find_identified(model, part, columns)
+  def missing(model, ids, within)
+    return format(NOT_RELATED, ids.join(', ')) if within
+
+    "Couldn't find #{model.name} with '#{model.primary_key}'=#{ids.join(', ')}"
+  end
+
+  def find_identified(model, part, columns, within)
     raise Lighthouse::DefinitionError, "@upsert's identifyingColumns must not be empty." if columns.empty?
 
     values = columns.to_h { |column| [column.to_s, part.attributes[column.to_s]] }
     raise ::GraphQL::ExecutionError, Lighthouse::GraphQL::NestedMutations::MISSING_IDENTIFYING_COLUMNS if values.values.any?(&:nil?)
 
-    model.find_by(values)
+    reachable(model, within).find_by(values)
   end
 
   # The record the input's primary key (`id`, or the model's own) names. A
   # blank key is dropped so the database assigns one; a key no record has
-  # becomes the new record's primary key.
-  def find_by_given_key(model, part)
+  # becomes the new record's primary key. A key of a record the query may not
+  # reach (hidden, or not related to the parent) is an error.
+  def find_by_given_key(model, part, within)
     key, id = part.take_key(model)
     return nil if key.nil?
 
@@ -99,9 +136,17 @@ class Lighthouse::GraphQL::NestedMutations::Executor
       return nil
     end
 
-    record = model.find_by(model.primary_key => id)
-    part.attributes[model.primary_key] = part.attributes.delete(key) if record.nil? && key != model.primary_key
-    record
+    record = reachable(model, within).find_by(model.primary_key => id)
+    return record if record
+
+    refuse_existing!(model, id, within)
+    part.attributes[model.primary_key] = part.attributes.delete(key) if key != model.primary_key
+    nil
+  end
+
+  # An upsert's key of a record that exists but is out of reach is no new record's.
+  def refuse_existing!(model, id, within)
+    raise ::GraphQL::ExecutionError, missing(model, [id], within) if model.exists?(model.primary_key => id)
   end
 
   # ----------------------------------------------------------------------

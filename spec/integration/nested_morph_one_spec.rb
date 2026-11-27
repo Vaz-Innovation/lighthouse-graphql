@@ -92,12 +92,14 @@ RSpec.describe 'Nested mutations: morphOne' do
     end
   end
 
-  it 'attaches an existing image through upsert' do
+  # PHP Lighthouse's nested_mutations_scope_to_parent (nuwave/lighthouse#2744), always on.
+  it 'refuses to upsert an existing image not related to the parent' do
     task = LH::Task.create!(name: 'task')
     image = LH::Image.create!(url: 'loose')
 
-    expect_data(task_mutation(:update, { 'id' => task.id, 'name' => 'foo', 'image' => { 'upsert' => { 'id' => image.id, 'url' => 'foo' } } }),
-                'updateTask' => { 'id' => '1', 'name' => 'foo', 'image' => { 'url' => 'foo' } })
-    expect(image.reload.imageable).to eq(task)
+    result = task_mutation(:update, { 'id' => task.id, 'name' => 'foo', 'image' => { 'upsert' => { 'id' => image.id, 'url' => 'foo' } } })
+
+    expect(result['errors'].pluck('message')).to eq(["Cannot modify a model that is not related to the given parent: #{image.id}."])
+    expect([image.reload.url, image.imageable]).to eq(['loose', nil])
   end
 end

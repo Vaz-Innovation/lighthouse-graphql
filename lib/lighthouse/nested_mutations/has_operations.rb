@@ -10,7 +10,7 @@ module Lighthouse::GraphQL::NestedMutations::HasOperations
   def nest_has_one(record, reflection, operations)
     model = reflection.klass
     link = Lighthouse::GraphQL::NestedMutations::HasLink.new(record, reflection)
-    existing = -> { record.association(reflection.name).scope.first }
+    existing = -> { link.related.first }
 
     in_order(reflection, operations).each do |name, operation|
       case name
@@ -18,8 +18,9 @@ module Lighthouse::GraphQL::NestedMutations::HasOperations
         refuse_second_child!(record, model, existing.call)
         create(model, operation.input, link: link)
       # An upsert that identifies no record updates the current one, if any.
-      when 'update', 'upsert' then write(name, model, operation.input, operation, link: link) { existing.call }
-      when 'delete' then delete_child(model, operation, existing)
+      when 'update', 'upsert'
+        write(name, model, operation.input, operation, link: link) { existing.call }
+      when 'delete' then delete_child(model, operation, existing, link.related)
       end
     end
   end
@@ -33,32 +34,34 @@ module Lighthouse::GraphQL::NestedMutations::HasOperations
   end
 
   # An ID, or — as for any single relation — a Boolean meaning "the current one".
-  def delete_child(model, operation, existing)
+  def delete_child(model, operation, existing, within)
     if BOOLEANS.include?(operation.value)
       existing.call&.destroy! if operation.value
     else
-      model.where(model.primary_key => operation.plain).destroy_all
+      find_all!(model, operation.plain, within: within).each(&:destroy)
     end
   end
 
   def nest_has_many(record, reflection, operations)
     model = reflection.klass
     link = Lighthouse::GraphQL::NestedMutations::HasLink.new(record, reflection)
+    children = link.related
 
     in_order(reflection, operations).each do |name, operation|
       case name
       when 'create', 'update', 'upsert' then write_each(name, model, operation, link)
-      when 'connect' then relink(model, operation) { |child| link.before_save(child) }
-      when 'disconnect' then relink(model, operation) { |child| child[reflection.foreign_key] = nil }
-      when 'delete' then model.where(model.primary_key => operation.plain).destroy_all
+      when 'connect' then relink(find_all!(model, operation.plain), operation) { |child| link.before_save(child) }
+      when 'disconnect'
+        relink(find_all!(model, operation.plain, within: children), operation) { |child| child[reflection.foreign_key] = nil }
+      when 'delete' then find_all!(model, operation.plain, within: children).each(&:destroy)
       end
     end
   end
 
   # Re-points (or detaches) the existing children the operation names, and
   # saves each through its validations, errors keyed by the operation's path.
-  def relink(model, operation)
-    model.where(model.primary_key => operation.plain).each do |child|
+  def relink(children, operation)
+    children.each do |child|
       yield child
       persist!(child, Hash.new { operation.path.join('.') })
     end

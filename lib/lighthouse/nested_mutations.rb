@@ -17,10 +17,11 @@
 # associations that point back at it run. Errors are keyed by the full
 # GraphQL path of the input (`input.author.create.name`).
 #
-# As in PHP Lighthouse, `update`, `upsert`, `delete` and `disconnect` find
-# records by primary key in the whole table, not only among the parent's
-# current children — an `update` re-parents the record it finds. Authorize
-# the mutation field accordingly.
+# What an input may reach (Executor): `update`, `upsert`, `delete` and
+# `disconnect` on a has-one, has-many or many-to-many association only the
+# parent's related records (PHP Lighthouse's nested_mutations_scope_to_parent,
+# always on); every operation only records the query may see, through the
+# record type's scope_items (TypeAuthorization).
 module Lighthouse::GraphQL::NestedMutations
   MISSING_PRIMARY_KEY = 'Missing primary key for update.'
   MISSING_IDENTIFYING_COLUMNS = 'All configured identifying columns must be present and non-null for upsert.'
@@ -108,6 +109,9 @@ module Lighthouse::GraphQL::NestedMutations
 
   # Sets a child's foreign key (and morph type) to its hasOne/hasMany owner.
   HasLink = Struct.new(:owner, :reflection) do
+    # The owner's records on the association now: what its nested operations may reach.
+    def related = owner.association(reflection.name).scope
+
     def before_save(child)
       child[reflection.foreign_key] = owner[reflection.active_record_primary_key]
       child[reflection.type] = owner.class.polymorphic_name if reflection.type
@@ -118,6 +122,8 @@ module Lighthouse::GraphQL::NestedMutations
 
   # Attaches a saved child to a many-to-many owner, keeping existing links.
   AttachLink = Struct.new(:pivot) do
+    def related = pivot.related
+
     def before_save(_child); end
 
     def after_save(child)
@@ -139,6 +145,9 @@ module Lighthouse::GraphQL::NestedMutations
             "#{owner.class}##{reflection.name} goes through #{reflection.through_reflection.name} to a " \
             "#{reflection.source_reflection.macro}; nested mutations need a join model that belongs_to #{reflection.klass}."
     end
+
+    # The owner's related records now.
+    def related = @owner.association(@reflection.name).scope
 
     def ids
       (@through ? joins.where(source_type_condition).pluck(source_key) : @owner.public_send(@reflection.name).pluck(@reflection.klass.primary_key))

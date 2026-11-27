@@ -14,22 +14,28 @@ module Lighthouse::GraphQL::NestedMutations::ManyToManyOperations
       case name
       when 'create', 'update', 'upsert' then write_each(name, model, operation, link)
       when 'delete'
+        records = find_all!(model, operation.plain, within: pivot.related)
         pivot.detach(operation.plain)
-        model.where(model.primary_key => operation.plain).destroy_all
-      else link_pivot(pivot, name, operation)
+        records.each(&:destroy)
+      else link_pivot(pivot, model, name, operation)
       end
     end
     pivot.reset
   end
 
-  # The operations that only add or remove join records.
-  def link_pivot(pivot, name, operation)
+  # The operations that only add or remove join records. What they attach must
+  # exist and be one the query may see; a disconnect only detaches related ones.
+  def link_pivot(pivot, model, name, operation)
     case name
-    when 'sync' then pivot.sync(pairs(operation), detaching: true)
-    when 'syncWithoutDetaching' then pivot.sync(pairs(operation), detaching: false)
-    when 'connect' then pairs(operation).each { |id, values| pivot.attach(id, values) }
+    when 'sync' then pivot.sync(attachable(model, operation), detaching: true)
+    when 'syncWithoutDetaching' then pivot.sync(attachable(model, operation), detaching: false)
+    when 'connect' then attachable(model, operation).each { |id, values| pivot.attach(id, values) }
     when 'disconnect' then pivot.detach(operation.plain)
     end
+  end
+
+  def attachable(model, operation)
+    pairs(operation).tap { |found| find_all!(model, found.map(&:first)) }
   end
 
   # [[id, pivot values], ...] from a list of IDs or of { id, ...pivot } inputs.

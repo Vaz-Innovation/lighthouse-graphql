@@ -198,8 +198,8 @@ RSpec.describe 'Model mutation directives' do
     end
 
     it 'runs a nested update given as an argument with @update(relation:)' do
-      LH::User.create!(name: 'user')
-      LH::Task.create!(id: 3, name: 'task')
+      user = LH::User.create!(name: 'user')
+      LH::Task.create!(id: 3, name: 'task', user: user)
 
       query = 'mutation { updateUserTask(input: { id: 1, name: "foo", updateTask: { id: 3, name: "Uniq" } }) { name tasks { id name } } }'
       expect_data(graphql(query),
@@ -207,9 +207,9 @@ RSpec.describe 'Model mutation directives' do
     end
 
     it 'runs a nested update on a list given as an argument' do
-      LH::User.create!(name: 'user')
-      LH::Task.create!(id: 3, name: 'a')
-      LH::Task.create!(id: 4, name: 'b')
+      user = LH::User.create!(name: 'user')
+      LH::Task.create!(id: 3, name: 'a', user: user)
+      LH::Task.create!(id: 4, name: 'b', user: user)
 
       query = <<~GRAPHQL
         mutation {

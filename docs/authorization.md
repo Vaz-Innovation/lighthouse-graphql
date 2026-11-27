@@ -258,7 +258,9 @@ end
   loads for every parent is checked in one more query. A count that answers no
   records of a type (`@count(model: "Post")`, `@aggregate`, `@withCount`) is scoped
   by the type whose model it counts; two types of one model that both define
-  `scope_items` make such a count an error, never an unscoped answer.
+  `scope_items` make such a count an error, never an unscoped answer. Mutations
+  look records up through it too: a root `@update`, and a nested `connect`, `sync`,
+  `update`, `delete`, ... find no record it hides ([mutations.md](mutations.md#what-an-input-may-reach)).
 - **`authorized?`** runs where graphql-ruby runs it, for each object of the type any
   field returns, at any depth. A refusal goes to your schema's `unauthorized_object`,
   which answers `null` by default.

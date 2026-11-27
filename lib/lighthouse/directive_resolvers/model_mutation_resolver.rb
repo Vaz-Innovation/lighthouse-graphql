@@ -54,8 +54,8 @@ module Lighthouse::GraphQL::DirectiveResolvers
       raise NotImplementedError
     end
 
-    def executor
-      Lighthouse::GraphQL::NestedMutations::Executor.new(@field_def.name)
+    def executor(ctx)
+      Lighthouse::GraphQL::NestedMutations::Executor.new(@field_def.name, ctx)
     end
 
     def transaction(model, &block)
@@ -135,7 +135,7 @@ module Lighthouse::GraphQL::DirectiveResolvers
 
     protected
 
-    def mutate(model, _obj, args, ctx) = executor.create(model, field_input(args, ctx))
+    def mutate(model, _obj, args, ctx) = executor(ctx).create(model, field_input(args, ctx))
   end
 
   # @createMany — create one model per input in the field's single list argument.
@@ -151,8 +151,8 @@ module Lighthouse::GraphQL::DirectiveResolvers
 
     protected
 
-    def mutate(model, _obj, args, _ctx)
-      each_item(item_inputs(args)) { |input| executor.create(model, input) }
+    def mutate(model, _obj, args, ctx)
+      each_item(item_inputs(args)) { |input| executor(ctx).create(model, input) }
     end
   end
 
@@ -170,7 +170,7 @@ module Lighthouse::GraphQL::DirectiveResolvers
 
     protected
 
-    def mutate(model, _obj, args, ctx) = executor.update(model, field_input(args, ctx))
+    def mutate(model, _obj, args, ctx) = executor(ctx).update(model, field_input(args, ctx))
   end
 
   # @updateMany — update one model per input (each carrying its primary key).
@@ -186,8 +186,8 @@ module Lighthouse::GraphQL::DirectiveResolvers
 
     protected
 
-    def mutate(model, _obj, args, _ctx)
-      each_item(item_inputs(args)) { |input| executor.update(model, input) }
+    def mutate(model, _obj, args, ctx)
+      each_item(item_inputs(args)) { |input| executor(ctx).update(model, input) }
     end
   end
 
@@ -212,7 +212,7 @@ module Lighthouse::GraphQL::DirectiveResolvers
 
     def mutate(model, _obj, args, ctx)
       # rubocop:disable-next Rails/SkipsModelValidations -- Executor#upsert, not ActiveRecord's: it saves through validations.
-      executor.upsert(model, field_input(args, ctx), identifying: identifying_columns)
+      executor(ctx).upsert(model, field_input(args, ctx), identifying: identifying_columns)
     end
   end
 
@@ -234,10 +234,10 @@ module Lighthouse::GraphQL::DirectiveResolvers
 
     protected
 
-    def mutate(model, _obj, args, _ctx)
+    def mutate(model, _obj, args, ctx)
       columns = identifying_columns
       # rubocop:disable-next Rails/SkipsModelValidations -- Executor#upsert, not ActiveRecord's: it saves through validations.
-      each_item(item_inputs(args)) { |input| executor.upsert(model, input, identifying: columns) }
+      each_item(item_inputs(args)) { |input| executor(ctx).upsert(model, input, identifying: columns) }
     end
   end
 

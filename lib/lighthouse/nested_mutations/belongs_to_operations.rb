@@ -17,12 +17,15 @@ module Lighthouse::GraphQL::NestedMutations::BelongsToOperations
     end
   end
 
+  # The record connected must exist and be one the query may see.
   def connect_owner(record, reflection, value)
     if reflection.polymorphic?
       model = morph_model(value[:type])
+      find!(model, value[:id])
       record[reflection.foreign_type] = model.polymorphic_name
       record[reflection.foreign_key] = value[:id]
     else
+      find!(reflection.klass, value)
       record[reflection.foreign_key] = value
     end
   end

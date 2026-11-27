@@ -149,12 +149,16 @@ RSpec.describe 'Nested mutations: hasMany' do
     end
   end
 
-  it 'updates a nested model that belonged to no one, attaching it (as PHP Lighthouse does)' do
+  # PHP Lighthouse's nested_mutations_scope_to_parent (nuwave/lighthouse#2744), always on:
+  # connect binds a record not related yet.
+  it 'refuses to update a nested model not related to the parent, changing nothing' do
     user = LH::User.create!(name: 'user')
     task = LH::Task.create!(name: 'loose')
 
-    expect_data(user_mutation(:update, { 'id' => user.id, 'name' => 'foo', 'tasks' => { 'update' => [{ 'id' => task.id, 'name' => 'bar' }] } }),
-                'updateUser' => { 'id' => user.id.to_s, 'name' => 'foo', 'tasks' => [{ 'id' => task.id.to_s, 'name' => 'bar' }] })
+    result = user_mutation(:update, { 'id' => user.id, 'name' => 'foo', 'tasks' => { 'update' => [{ 'id' => task.id, 'name' => 'bar' }] } })
+
+    expect(result['errors'].pluck('message')).to eq(["Cannot modify a model that is not related to the given parent: #{task.id}."])
+    expect([task.reload.name, task.user_id, user.reload.name]).to eq(['loose', nil, 'user'])
   end
 
   describe 'connecting models with a custom primary key' do

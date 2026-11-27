@@ -179,7 +179,7 @@ module Lighthouse::GraphQL::TypeAuthorization
     return if names.empty?
 
     raise Lighthouse::DefinitionError,
-          "#{field_def.respond_to?(:path) ? field_def.path : 'A count'} counts #{relation.klass.name}, which #{names.join(' and ')} " \
+          "#{field_def.respond_to?(:path) ? field_def.path : 'A lookup'} reads #{relation.klass.name}, which #{names.join(' and ')} " \
           'both scope (scope_items): say which with the field returning that type'
   end
 

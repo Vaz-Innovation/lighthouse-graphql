@@ -265,11 +265,35 @@ input UpdateUserInput {
 }
 ```
 
-### Permissions
+### What an input may reach
 
-As in PHP Lighthouse, nested `update`, `upsert`, `delete` and `disconnect` find
-records by primary key **in the whole table**, not only among the parent's
-current children. A nested `update` of another user's task moves the task to
-this user. Authorize the mutation field accordingly, with `@can*` checks on the
-field or validators that restrict the ids. There is no per-operation permission
-mechanism.
+A client chooses the ids a nested operation names, so Lighthouse bounds what
+they reach, in two ways.
+
+**Only the parent's records.** `update`, `upsert`, `delete` and `disconnect` on a
+`has_one`, `has_many` or many-to-many association find records among the parent's
+related ones only. An id of another parent's record, or of no record, fails with
+PHP Lighthouse's error, the same for both so a client can't probe which ids exist:
+
+```
+Cannot modify a model that is not related to the given parent: 3, 7.
+```
+
+Every id of a `delete` or `disconnect` is checked before anything changes. An
+`upsert` whose id no record has still creates one, so client-generated ids keep
+working. This is PHP Lighthouse's `nested_mutations_scope_to_parent`
+([nuwave/lighthouse#2744](https://github.com/nuwave/lighthouse/issues/2744)), always on,
+as PHP Lighthouse plans for its v7: to move a record to another parent, `connect` it.
+
+**Only records the query may see.** `connect`, `sync`, `syncWithoutDetaching` and a
+`belongs_to`'s operations bind records that are not related yet: that is what they
+are for, so the parent can't bound them. When the record's type class defines
+[`scope_items`](authorization.md#on-the-type-scope_items-and-authorized), every
+operation, nested or not (`@update` on a root field too), looks records up through
+it: a record the scope hides is as missing as one that does not exist (`Couldn't find
+Task with 'id'=7`), and a `connect` or `sync` of one fails. A `belongs_to` `connect`
+checks the record exists, too.
+
+What remains is the app's: whether this user may *change* a record they can see (a
+published post they don't own, connected to their account). Guard the mutation
+field with [`@can*`](authorization.md), or a validator on the ids.
