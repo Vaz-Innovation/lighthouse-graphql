@@ -518,7 +518,8 @@ module Builders
 end
 ```
 
-`@builder` works with `@all`, `@paginate`, `@first`, `@count` and `@aggregate`.
+`@builder` works on every field that queries records: `@all`, `@paginate`, `@find`,
+`@first`, `@count`, `@aggregate` and the relationship directives (`@hasMany`, `@belongsTo`, ...).
 It is repeatable, and `method:` names a method other than `call`. Builder classes
 are looked up in the builders namespace only. Raising a `GraphQL::ExecutionError`
 from a builder (e.g. a tenancy check) always reaches the client. Any other error

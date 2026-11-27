@@ -29,6 +29,11 @@ type User {
 
 That's the whole resolver layer for those fields. No Ruby classes required.
 
+> **Authorization follows fields, not types.** `@guard` and `@can*` protect the field
+> they're on; a record reached through a relation (`comment.post`) needs its own rule.
+> Scope the association (`belongs_to :post, -> { published }`) or the field. See
+> [records reached through a relation](docs/authorization.md#records-reached-through-a-relation).
+
 ---
 
 ## Why Lighthouse?

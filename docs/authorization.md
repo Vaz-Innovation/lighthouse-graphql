@@ -201,6 +201,61 @@ Keep the two layers distinct:
 For lists, scope with a builder (e.g. Pundit's `policy_scope`) rather than
 authorizing item by item.
 
+## Records reached through a relation
+
+A field's directives guard that field only. A client reaches the same records
+through every relation in the graph, so a rule on the root field doesn't follow
+them:
+
+```graphql
+type Query {
+  posts: [Post!]! @paginate(scopes: ["published"])   # drafts left out here…
+}
+
+type Comment {
+  post: Post @belongsTo                               # …and reachable here
+}
+```
+
+`{ me { comments { data { post { title } } } } }` answers each comment's post,
+published or not. `@guard` doesn't change that: it checks that someone is signed
+in, not what they may see. Put a row-level rule where every path goes through it:
+
+| Where | How | Covers |
+| --- | --- | --- |
+| The association | `belongs_to :post, -> { published }` | every field on that association, still batched |
+| The field | `@belongsTo(scopes: ["published"])`, or a [`@builder`](resolvers.md#builders) | that field; one query per parent (paginated relations stay batched) |
+| Each record | `@canResolved(ability: "show")` | that field, each item checked by the policy after it loads |
+
+The association is the safest place: the relationship directives load through
+Active Record's preloader, so its scope applies at any depth, in one query per
+batch. For a rule that depends on the user, a builder applies Pundit's scope to a
+relation field:
+
+```graphql
+type Comment {
+  post: Post @belongsTo @builder(class: "PolicyScope")
+}
+```
+
+```ruby
+# app/graphql/builders/policy_scope.rb
+class Builders::PolicyScope
+  def self.call(relation, _args, context)
+    Pundit.policy_scope!(context[:current_user], relation)
+  end
+end
+```
+
+A singular field a rule can empty must be nullable (`post: Post`, not `Post!`),
+or the hidden record fails its parent instead. `@canResolved` with
+`action: RETURN_VALUE` answers `null` for a record the policy refuses, instead of
+an error.
+
+Exposing the API to an AI agent (e.g. [Apollo MCP Server](https://www.apollographql.com/docs/apollo-mcp-server))
+doesn't change this: the agent runs only the operations you ship, but the endpoint
+behind it answers any query.
+
 ## Migrating from `@can`
 
 `@can` is gone. Its modes map one to one:

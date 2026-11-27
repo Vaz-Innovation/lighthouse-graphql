@@ -180,6 +180,10 @@ type User {
 }
 ```
 
+A rule on a root field doesn't follow the records a relation reaches: scope the
+association or the field too. See
+[records reached through a relation](authorization.md#records-reached-through-a-relation).
+
 ## Writing relationships
 
 Creating, connecting, syncing or deleting related records from a mutation's input

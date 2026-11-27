@@ -13,6 +13,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   documentation links, the generators' templates and the guides point there; GitHub redirects the old
   repository URLs, but not the old documentation site.
 
+### Documentation
+
+- **Records reached through a relation.** A field's `@guard` or `@can*` guards that field only, and a
+  client reaches the same records through any relation (`comment.post` walks back to a draft the root
+  `posts` leaves out). [The authorization guide](docs/authorization.md#records-reached-through-a-relation)
+  shows where to put a row-level rule every path goes through: the association's scope (kept by the
+  batched load), the field's `scopes:` or `@builder` (Pundit's `policy_scope`), or `@canResolved` per
+  record; the README says so on its first screen. The builders guide lists every directive `@builder`
+  works with, the relationship directives and `@find` included.
+
 ## [0.10.0] - 2026-11-26
 
 ### Added
