@@ -2,7 +2,7 @@
 # User model with `name` and `email` columns — replace it with your own types.
 # This file is the schema's entrypoint: split the schema into files it imports
 # (#import user.graphql), which add their fields with `extend type Query`.
-# Directives reference: https://github.com/Vaz-Innovation/lighthouse-graphql/blob/main/docs/directives.md
+# Directives reference: https://github.com/Manuel-Antunes/lighthouse-graphql/blob/main/docs/directives.md
 
 "Indicates what fields are available at the top level of a query operation."
 type Query {

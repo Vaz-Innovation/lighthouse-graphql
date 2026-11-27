@@ -6,6 +6,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **The repository moved to [Manuel-Antunes/lighthouse-graphql](https://github.com/Manuel-Antunes/lighthouse-graphql)**,
+  and the documentation to <https://manuel-antunes.github.io/lighthouse-graphql/>. The gem's homepage and
+  documentation links, the generators' templates and the guides point there; GitHub redirects the old
+  repository URLs, but not the old documentation site.
+
 ## [0.10.0] - 2026-11-26
 
 ### Added
@@ -887,7 +894,7 @@ Several defaults change.
   signature, so they cannot drift from the code.
 - A documentation site, built from `docs/` with VuePress as PHP Lighthouse builds its own,
   and published to GitHub Pages on every push to `main`:
-  <https://vaz-innovation.github.io/lighthouse-graphql/>.
+  <https://manuel-antunes.github.io/lighthouse-graphql/>.
 - `docs/motivation.md`: where Lighthouse comes from, why the schema comes first, and why
   directives work so well on Active Record — and when something else fits better.
 
@@ -1093,22 +1100,22 @@ had been running inside a private monorepo as a path gem before being extracted.
 - Config-driven extension seams: `Lighthouse.configure`, `resolver_namespaces`,
   `on_error`, and `DirectiveRegistry.register` for app-defined directives.
 
-[Unreleased]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.10.0...HEAD
-[0.10.0]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.9.1...v0.10.0
-[0.9.1]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.9.0...v0.9.1
-[0.9.0]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.8.2...v0.9.0
-[0.8.2]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.8.1...v0.8.2
-[0.8.1]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.8.0...v0.8.1
-[0.8.0]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.7.3...v0.8.0
-[0.7.3]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.7.2...v0.7.3
-[0.7.2]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.7.1...v0.7.2
-[0.7.1]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.7.0...v0.7.1
-[0.7.0]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.6.0...v0.7.0
-[0.6.0]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.5.0...v0.6.0
-[0.5.0]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.4.0...v0.5.0
-[0.4.0]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.3.0...v0.4.0
-[0.3.0]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.2.1...v0.3.0
-[0.2.1]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.2.0...v0.2.1
-[0.2.0]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.1.1...v0.2.0
-[0.1.1]: https://github.com/Vaz-Innovation/lighthouse-graphql/compare/v0.1.0...v0.1.1
-[0.1.0]: https://github.com/Vaz-Innovation/lighthouse-graphql/releases/tag/v0.1.0
+[Unreleased]: https://github.com/Manuel-Antunes/lighthouse-graphql/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/Manuel-Antunes/lighthouse-graphql/compare/v0.9.1...v0.10.0
+[0.9.1]: https://github.com/Manuel-Antunes/lighthouse-graphql/compare/v0.9.0...v0.9.1
+[0.9.0]: https://github.com/Manuel-Antunes/lighthouse-graphql/compare/v0.8.2...v0.9.0
+[0.8.2]: https://github.com/Manuel-Antunes/lighthouse-graphql/compare/v0.8.1...v0.8.2
+[0.8.1]: https://github.com/Manuel-Antunes/lighthouse-graphql/compare/v0.8.0...v0.8.1
+[0.8.0]: https://github.com/Manuel-Antunes/lighthouse-graphql/compare/v0.7.3...v0.8.0
+[0.7.3]: https://github.com/Manuel-Antunes/lighthouse-graphql/compare/v0.7.2...v0.7.3
+[0.7.2]: https://github.com/Manuel-Antunes/lighthouse-graphql/compare/v0.7.1...v0.7.2
+[0.7.1]: https://github.com/Manuel-Antunes/lighthouse-graphql/compare/v0.7.0...v0.7.1
+[0.7.0]: https://github.com/Manuel-Antunes/lighthouse-graphql/compare/v0.6.0...v0.7.0
+[0.6.0]: https://github.com/Manuel-Antunes/lighthouse-graphql/compare/v0.5.0...v0.6.0
+[0.5.0]: https://github.com/Manuel-Antunes/lighthouse-graphql/compare/v0.4.0...v0.5.0
+[0.4.0]: https://github.com/Manuel-Antunes/lighthouse-graphql/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/Manuel-Antunes/lighthouse-graphql/compare/v0.2.1...v0.3.0
+[0.2.1]: https://github.com/Manuel-Antunes/lighthouse-graphql/compare/v0.2.0...v0.2.1
+[0.2.0]: https://github.com/Manuel-Antunes/lighthouse-graphql/compare/v0.1.1...v0.2.0
+[0.1.1]: https://github.com/Manuel-Antunes/lighthouse-graphql/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/Manuel-Antunes/lighthouse-graphql/releases/tag/v0.1.0

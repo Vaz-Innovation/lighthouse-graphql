@@ -3,7 +3,7 @@ import { searchPlugin } from '@vuepress/plugin-search'
 import { defaultTheme } from '@vuepress/theme-default'
 import { defineUserConfig } from 'vuepress'
 
-const repo = 'Vaz-Innovation/lighthouse-graphql'
+const repo = 'Manuel-Antunes/lighthouse-graphql'
 
 // The guides in ../docs, grouped as PHP Lighthouse groups its own.
 const sidebar = [
@@ -43,7 +43,7 @@ const sidebar = [
 ]
 
 export default defineUserConfig({
-  // Served from https://vaz-innovation.github.io/lighthouse-graphql/
+  // Served from https://manuel-antunes.github.io/lighthouse-graphql/
   base: '/lighthouse-graphql/',
   lang: 'en-US',
   title: 'Lighthouse GraphQL Rails',

@@ -273,7 +273,7 @@ nothing leaves the query to the database.
 | Up to date | always | once the index is (callbacks, jobs) |
 
 Lighthouse is tested with Searchkick 6.2 on Elasticsearch 9.5 and on OpenSearch 2.19 and 3.9,
-and with pg_search 2.3 and 2.4 on PostgreSQL 16 (the [example app](https://github.com/Vaz-Innovation/lighthouse-graphql/tree/main/example)'s suite).
+and with pg_search 2.3 and 2.4 on PostgreSQL 16 (the [example app](https://github.com/Manuel-Antunes/lighthouse-graphql/tree/main/example)'s suite).
 
 ### Setting up pg_search
 

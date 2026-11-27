@@ -225,7 +225,7 @@ const client = new ApolloClient({
 
 The token in the URL is read by `ApplicationCable::Connection`, which identifies
 the socket (`identified_by :current_user`), and the channel passes it on in the
-context; the example app's [`connection.rb`](https://github.com/Vaz-Innovation/lighthouse-graphql/blob/main/examples/graphql/app/channels/application_cable/connection.rb)
+context; the example app's [`connection.rb`](https://github.com/Manuel-Antunes/lighthouse-graphql/blob/main/examples/graphql/app/channels/application_cable/connection.rb)
 does that.
 
 A client can use both, for instance WebSocket in the browser and SSE from a

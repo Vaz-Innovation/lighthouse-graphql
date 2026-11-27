@@ -18,14 +18,14 @@ Gem::Specification.new do |spec|
     first-class Apollo Federation support so a Rails service can act as a subgraph.
   DESC
 
-  spec.homepage = 'https://github.com/Vaz-Innovation/lighthouse-graphql'
+  spec.homepage = 'https://github.com/Manuel-Antunes/lighthouse-graphql'
   spec.license = 'MIT'
   spec.required_ruby_version = '>= 3.0'
 
   spec.metadata = {
     'source_code_uri' => spec.homepage,
     'changelog_uri' => "#{spec.homepage}/blob/main/CHANGELOG.md",
-    'documentation_uri' => 'https://vaz-innovation.github.io/lighthouse-graphql/',
+    'documentation_uri' => 'https://manuel-antunes.github.io/lighthouse-graphql/',
     'rubygems_mfa_required' => 'true'
   }
 

@@ -1,8 +1,8 @@
 # Lighthouse for Ruby (`lighthouse-graphql`)
 
 [![Gem Version](https://img.shields.io/gem/v/lighthouse-graphql.svg)](https://rubygems.org/gems/lighthouse-graphql)
-[![CI](https://github.com/Vaz-Innovation/lighthouse-graphql/actions/workflows/ci.yml/badge.svg)](https://github.com/Vaz-Innovation/lighthouse-graphql/actions/workflows/ci.yml)
-[![License](https://img.shields.io/github/license/Vaz-Innovation/lighthouse-graphql.svg)](./LICENSE.txt)
+[![CI](https://github.com/Manuel-Antunes/lighthouse-graphql/actions/workflows/ci.yml/badge.svg)](https://github.com/Manuel-Antunes/lighthouse-graphql/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/Manuel-Antunes/lighthouse-graphql.svg)](./LICENSE.txt)
 
 **SDL-first, directive-driven GraphQL for Ruby on Rails.**
 
@@ -184,7 +184,7 @@ by its suite. See [examples/graphql-federations/README.md](examples/graphql-fede
 
 ## Documentation
 
-**Read it at [vaz-innovation.github.io/lighthouse-graphql](https://vaz-innovation.github.io/lighthouse-graphql/)**,
+**Read it at [manuel-antunes.github.io/lighthouse-graphql](https://manuel-antunes.github.io/lighthouse-graphql/)**,
 or as Markdown in [`docs/`](docs):
 
 | Guide | What it covers |

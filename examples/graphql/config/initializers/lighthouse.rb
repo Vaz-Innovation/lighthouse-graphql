@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 # Lighthouse configuration. Every option is optional; the defaults are shown.
-# Reference: https://github.com/Vaz-Innovation/lighthouse-graphql/blob/main/docs/configuration.md
+# Reference: https://github.com/Manuel-Antunes/lighthouse-graphql/blob/main/docs/configuration.md
 Lighthouse.configure do |config|
   # The schema's entrypoint. It imports the other .graphql files
   # (#import user.graphql, #import blog/*.graphql), which add to a type

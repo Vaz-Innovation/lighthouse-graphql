@@ -112,7 +112,7 @@ schema, run its `bin/compose`.
 
 [`docs/`](./docs) holds the guides as plain Markdown, which ships in the gem and reads well on
 GitHub. [`website/`](./website) turns them into the site at
-<https://vaz-innovation.github.io/lighthouse-graphql/> with VuePress, as PHP Lighthouse builds
+<https://manuel-antunes.github.io/lighthouse-graphql/> with VuePress, as PHP Lighthouse builds
 lighthouse-php.com: `website/.vuepress/config.js` has the navbar and the sidebar,
 `website/README.md` the home page. A new guide needs an entry in the sidebar.
 

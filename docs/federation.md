@@ -6,7 +6,7 @@ composes its schema with other subgraphs' into one supergraph, and asks each
 subgraph for its part of every query. As in PHP Lighthouse, it takes no Ruby:
 the SDL says it.
 
-The repository's [`examples/graphql-federations`](https://github.com/Vaz-Innovation/lighthouse-graphql/tree/main/examples/graphql-federations)
+The repository's [`examples/graphql-federations`](https://github.com/Manuel-Antunes/lighthouse-graphql/tree/main/examples/graphql-federations)
 is two subgraphs (two Rails apps) behind Apollo Router and behind GraphQL Yoga,
 with an end-to-end suite that drives every feature on this page through the
 router, and the graph through Yoga, which subscribes over Server-Sent Events.

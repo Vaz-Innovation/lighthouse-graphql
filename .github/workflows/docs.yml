@@ -2,7 +2,7 @@ name: Docs
 
 # Builds the documentation site (website/, from the guides in docs/) with
 # VuePress, as PHP Lighthouse builds lighthouse-php.com, and publishes it to
-# GitHub Pages: https://vaz-innovation.github.io/lighthouse-graphql/
+# GitHub Pages: https://manuel-antunes.github.io/lighthouse-graphql/
 on:
   push:
     branches: [main]
