@@ -167,7 +167,8 @@ module Lighthouse::GraphQL::Federation::Entities
 
       columns = selections.map { |selection| column(@type, selection.name) }
       rows = representations.index_with { |representation| key_row(selections, representation) }
-      records = by_columns(rows.values.uniq.map { |row| model.where(columns.zip(row).to_h) }.reduce(:or), columns)
+      relation = rows.values.uniq.map { |row| model.where(columns.zip(row).to_h) }.reduce(:or)
+      records = by_columns(Lighthouse::GraphQL::TypeAuthorization.scope_type(relation, @type, @context), columns)
       rows.transform_values { |row| records[row.map(&:to_s)] }
     end
 
@@ -186,7 +187,8 @@ module Lighthouse::GraphQL::Federation::Entities
     end
 
     def find_one(model, selections, representation)
-      records = constrain(model.all, @type, selections, representation).limit(2).to_a
+      relation = Lighthouse::GraphQL::TypeAuthorization.scope_type(model.all, @type, @context)
+      records = constrain(relation, @type, selections, representation).limit(2).to_a
       raise ::GraphQL::ExecutionError, 'The query returned more than one result.' if records.size > 1
 
       records.first

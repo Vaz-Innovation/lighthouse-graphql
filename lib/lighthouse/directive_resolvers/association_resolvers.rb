@@ -54,6 +54,10 @@ module Lighthouse::GraphQL::DirectiveResolvers
       return paginate(obj, name, args, ctx) if pagination_type
       return constrained(association_scope(obj, name), args, ctx) if constrained?(args)
 
+      Lighthouse::GraphQL::TypeAuthorization.visible(loaded(obj, name, ctx), @field_def, ctx)
+    end
+
+    def loaded(obj, name, ctx)
       dataloader = Lighthouse::Support::Batching.dataloader(ctx)
       return obj.public_send(name) unless dataloader && obj.class.respond_to?(:reflect_on_association)
 

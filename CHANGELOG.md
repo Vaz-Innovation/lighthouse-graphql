@@ -6,6 +6,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Type-level authorization, graphql-ruby's way.** A type class (`Types::PostType` including
+  `Lighthouse::GraphQL::Type`) that defines `self.scope_items(relation, context)` narrows every query
+  Lighthouse builds for records of its type: `@all`, `@paginate` (in the query, so totals are right),
+  `@find` (by key too), `@first`, the relationship directives (a batched relation stays batched, with one
+  query per batch checking what it loaded), `enhance_builder`, `_entities`, and the counts of its model
+  (`@count`, `@aggregate`, `@withCount`). `self.authorized?(object, context)` runs for each object of the
+  type any field returns, through graphql-ruby, as in a code-first schema. Both were ignored before. A
+  `scope_items` that answers no relation, a count two scoping types of one model make ambiguous, and a
+  Searchkick search of a scoped type are errors, never an unscoped answer.
+
 ### Changed
 
 - **The repository moved to [Manuel-Antunes/lighthouse-graphql](https://github.com/Manuel-Antunes/lighthouse-graphql)**,
@@ -20,7 +32,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `posts` leaves out). [The authorization guide](docs/authorization.md#records-reached-through-a-relation)
   shows where to put a row-level rule every path goes through: the association's scope (kept by the
   batched load), the field's `scopes:` or `@builder` (Pundit's `policy_scope`), or `@canResolved` per
-  record; the README says so on its first screen. The builders guide lists every directive `@builder`
+  record, or the type itself (above); the README says so on its first screen. The builders guide lists every directive `@builder`
   works with, the relationship directives and `@find` included.
 
 ## [0.10.0] - 2026-11-26

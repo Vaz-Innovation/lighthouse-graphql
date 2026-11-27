@@ -223,14 +223,59 @@ in, not what they may see. Put a row-level rule where every path goes through it
 
 | Where | How | Covers |
 | --- | --- | --- |
+| **The type** | `scope_items` / `authorized?` on `Types::PostType` | every record of the type, whatever field reaches it |
 | The association | `belongs_to :post, -> { published }` | every field on that association, still batched |
 | The field | `@belongsTo(scopes: ["published"])`, or a [`@builder`](resolvers.md#builders) | that field; one query per parent (paginated relations stay batched) |
 | Each record | `@canResolved(ability: "show")` | that field, each item checked by the policy after it loads |
 
-The association is the safest place: the relationship directives load through
+### On the type: `scope_items` and `authorized?`
+
+The type is the place for a rule that must hold everywhere. Lighthouse runs
+graphql-ruby's type-level hooks on the [type class](types.md) of an SDL type, the
+`Types::<Name>Type` that includes `Lighthouse::GraphQL::Type`:
+
+```ruby
+# app/graphql/types/post_type.rb
+class Types::PostType < Types::BaseObject
+  include Lighthouse::GraphQL::Type
+
+  # The Posts Lighthouse queries, narrowed in the query itself.
+  def self.scope_items(posts, context)
+    Pundit.policy_scope!(context[:current_user], posts)
+  end
+
+  # Each Post a field returns; false hides it.
+  def self.authorized?(post, context)
+    super && Pundit.policy!(context[:current_user], post).show?
+  end
+end
+```
+
+- **`scope_items`** gets a relation and must answer one. Lighthouse applies it in
+  every query it builds for records of the type: `@all`, `@paginate` (so its total
+  is right), `@find`, `@first`, the relationship directives, `resolve_info.enhance_builder`
+  and Federation's `_entities`. A relationship that batches keeps batching: what it
+  loads for every parent is checked in one more query. A count that answers no
+  records of a type (`@count(model: "Post")`, `@aggregate`, `@withCount`) is scoped
+  by the type whose model it counts; two types of one model that both define
+  `scope_items` make such a count an error, never an unscoped answer.
+- **`authorized?`** runs where graphql-ruby runs it, for each object of the type any
+  field returns, at any depth. A refusal goes to your schema's `unauthorized_object`,
+  which answers `null` by default.
+
+Prefer `scope_items` for rows: `authorized?` hides an object after it loads, so a
+refused item of a `[Post!]!` list nulls the whole list, and a page still counts it.
+A field searched outside the database (`@search` with Searchkick) can't take
+`scope_items`, as it can't take `scopes:`: such a search is an error, never an
+unscoped answer. Records your own code loads (a type method, a resolver class that
+doesn't call `enhance_builder`) are yours to scope.
+
+### On the association or the field
+
+The association needs no Lighthouse: the relationship directives load through
 Active Record's preloader, so its scope applies at any depth, in one query per
-batch. For a rule that depends on the user, a builder applies Pundit's scope to a
-relation field:
+batch. For a rule on one field that depends on the user, a builder applies
+Pundit's scope:
 
 ```graphql
 type Comment {

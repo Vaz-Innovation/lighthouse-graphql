@@ -104,6 +104,7 @@ require_relative 'namespaces'
   subscription
   type
   type_resolution
+  type_authorization
   resolve_info
   global_id
   enum_directive
@@ -187,6 +188,7 @@ require_relative 'namespaces'
   directives/definitions
   directives/registry
   dataloader_sources/association_loader
+  dataloader_sources/visible_records
   dataloader_sources/model_loader
   dataloader_sources/relation_page_loader
   dataloader_sources/relation_count_loader

@@ -43,7 +43,8 @@ require 'active_support/concern'
 # type name, or a type class such as Types::PostType). A scalar's
 # `coerce_input` / `coerce_result` convert its values. The SDL still declares
 # the types and their fields: the class only lends its behaviour, so `field`
-# declarations in it are ignored, and an object type's `authorized?` does not run.
+# declarations in it are ignored. An object type's `authorized?` and
+# `scope_items` apply to every record of its type (TypeAuthorization).
 #
 # The model an object type resolves is the SDL's to say, with @model(class:).
 #
@@ -91,6 +92,7 @@ module Lighthouse::GraphQL::Type
     Lighthouse::GraphQL::TypeResolution.validate!(schema, bases)
     Lighthouse::GraphQL::ScalarCoercion.apply(schema, bases[:scalar])
     Lighthouse::GraphQL::EnumDirective.apply(schema)
+    Lighthouse::GraphQL::TypeAuthorization.apply(schema)
   end
 
   included do

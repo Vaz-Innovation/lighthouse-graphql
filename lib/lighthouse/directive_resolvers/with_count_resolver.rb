@@ -36,7 +36,9 @@ class Lighthouse::GraphQL::DirectiveResolvers::WithCountDirectiveResolver < Ligh
     scopes = Array(directive_arg('scopes'))
 
     install(target_type_class, lambda do |obj, args, ctx|
-      ctx.dataloader.with(Lighthouse::GraphQL::DataloaderSources::RelationCountsLoader, relation, scopes).load(obj) if obj.is_a?(::ActiveRecord::Base)
+      if obj.is_a?(::ActiveRecord::Base)
+        ctx.dataloader.with(Lighthouse::GraphQL::DataloaderSources::RelationCountsLoader, relation, scopes, ctx).load(obj)
+      end
       inner.call(obj, args, ctx)
     end)
   end

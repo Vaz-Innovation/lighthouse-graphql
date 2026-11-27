@@ -54,7 +54,10 @@ class Lighthouse::GraphQL::DirectiveResolvers::FindDirectiveResolver < Lighthous
   def find(args, ctx)
     model = model_class
     dataloader = Lighthouse::Support::Batching.dataloader(ctx)
-    return dataloader.with(Lighthouse::GraphQL::DataloaderSources::ModelLoader, model).load(args[:id]) if dataloader && batchable?(args)
+    if dataloader && batchable?(args)
+      found = dataloader.with(Lighthouse::GraphQL::DataloaderSources::ModelLoader, model).load(args[:id])
+      return Lighthouse::GraphQL::TypeAuthorization.visible(found, @field_def, ctx)
+    end
 
     found = find_relation(model, args, ctx)
     return found.only_record if found.is_a?(Lighthouse::Search::Result)

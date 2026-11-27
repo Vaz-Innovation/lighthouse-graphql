@@ -57,7 +57,12 @@ class Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
     return relation unless relation.respond_to?(:where)
 
     relation = relation.all if relation.is_a?(Class) # a model class, as `enhance_builder(Post)` gives it
-    Lighthouse::Support::Failures.strictly(ctx) { filter(relation, args_hash(args), ctx, search) }
+    Lighthouse::Support::Failures.strictly(ctx) do
+      scoped = Lighthouse::GraphQL::TypeAuthorization.scope(relation, @field_def, ctx)
+      result = filter(scoped, args_hash(args), ctx, search)
+      unscoped_search!(result) unless scoped.equal?(relation)
+      result
+    end
   end
 
   def constantize_model(name)
@@ -126,6 +131,16 @@ class Lighthouse::GraphQL::DirectiveResolvers::BaseDirectiveResolver
     raise Lighthouse::DefinitionError,
           "@search on #{@type_def.graphql_name}.#{@field_def.name}: #{result.adapter_name} answers outside the database, so it cannot " \
           "apply #{dropped.join(', ')} of the field; it does not search"
+  end
+
+  # A type's scope_items narrows a relation; an engine (Searchkick) answers
+  # outside the database, without it: an error, never the records it would hide.
+  def unscoped_search!(result)
+    return unless result.is_a?(Lighthouse::Search::Result)
+
+    raise Lighthouse::DefinitionError,
+          "@search on #{@type_def.graphql_name}.#{@field_def.name}: #{result.adapter_name} answers outside the database, so it cannot " \
+          "apply the scope_items of #{@field_def.type.unwrap.graphql_name}'s type class; it does not search"
   end
 
   # One of arg_builders, on the relation.

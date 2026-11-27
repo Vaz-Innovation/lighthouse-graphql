@@ -5,18 +5,20 @@
 # (RelationBatch), else one COUNT per parent. Each count is kept on its parent
 # as `<relation>_count` (RelationCounts).
 class Lighthouse::GraphQL::DataloaderSources::RelationCountsLoader < GraphQL::Dataloader::Source
-  # Applies the directive's scopes to the related records, as RelationBatch
-  # applies a field's filters. A value, so equal scopes batch together.
-  Scopes = Struct.new(:names) do
+  # Applies the directive's scopes, then the scope_items of the related model's
+  # type (TypeAuthorization), to the related records, as RelationBatch applies a
+  # field's filters. A value, so equal scopes batch together.
+  Scopes = Struct.new(:names, :context) do
     def decorate_relation(relation, _args, _context)
-      Array(names).reduce(relation) { |scoped, scope| scoped.public_send(scope) }
+      scoped = Array(names).reduce(relation) { |acc, scope| acc.public_send(scope) }
+      Lighthouse::GraphQL::TypeAuthorization.scope_model(scoped, context)
     end
   end
 
-  def initialize(relation, scopes)
+  def initialize(relation, scopes, context = nil)
     super()
     @relation = relation.to_s
-    @scopes = Scopes.new(Array(scopes))
+    @scopes = Scopes.new(Array(scopes), context)
   end
 
   # keys: the parent records, of one class or several

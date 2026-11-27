@@ -29,9 +29,11 @@ type User {
 
 That's the whole resolver layer for those fields. No Ruby classes required.
 
-> **Authorization follows fields, not types.** `@guard` and `@can*` protect the field
-> they're on; a record reached through a relation (`comment.post`) needs its own rule.
-> Scope the association (`belongs_to :post, -> { published }`) or the field. See
+> **Authorize the type, not only the field.** `@guard` and `@can*` protect the field
+> they're on, and a client reaches the same records through any relation (`comment.post`).
+> Define graphql-ruby's `scope_items` / `authorized?` on `Types::PostType` and every
+> `Post` Lighthouse loads goes through them: root fields, pages and their totals,
+> batched relations, counts and federated entities. See
 > [records reached through a relation](docs/authorization.md#records-reached-through-a-relation).
 
 ---
