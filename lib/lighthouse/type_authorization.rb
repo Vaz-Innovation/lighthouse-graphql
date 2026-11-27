@@ -31,31 +31,18 @@
 module Lighthouse::GraphQL::TypeAuthorization
   MEMO = :lighthouse_type_authorization
 
-  # The schema's object types whose classes define scope_items, by name and by
-  # the name of their model.
-  Index = Struct.new(:scoped, :scoped_by_model) do
-    def scoped?(name) = scoped.include?(name)
-    def scoped_of(model) = scoped_by_model.fetch(model, [])
-  end
-  EMPTY = Index.new(Set.new.freeze, {}.freeze).freeze
-
   module_function
 
   # Each object type whose class defines `authorized?` hands it to the class (a
   # root type is built on its class already, RootTypes), and the schema keeps
   # the Index of the ones defining scope_items.
   def apply(schema)
-    scoped = Set.new
-    by_model = Hash.new { |hash, model| hash[model] = [] }
+    scoped = []
     each_type_class(schema) do |type, klass|
       delegate_authorized(type) if own?(klass, :authorized?)
-      next unless own?(klass, :scope_items)
-
-      scoped << type.graphql_name
-      model = Lighthouse::GraphQL::Directives::ModelDirective.model_for(type)
-      by_model[model.name] << type.graphql_name if model
+      scoped << type if own?(klass, :scope_items)
     end
-    index = Index.new(scoped.freeze, by_model.transform_values(&:freeze).freeze).freeze
+    index = Index.build(schema, scoped)
     schema.define_singleton_method(:lighthouse_type_authorization) { index }
   end
 
@@ -102,40 +89,24 @@ module Lighthouse::GraphQL::TypeAuthorization
           '`posts.where(...)`, a policy scope, ...'
   end
 
-  # The records a relationship field loaded (one, a list, or nil), less the
-  # ones its type's scope_items leaves out: one query per batch of them.
+  # The records a field loaded (one, a list, or nil), less the ones the
+  # scope_items of the type each resolves as leaves out (VisibleRecords.filter).
   def visible(value, field_def, context)
-    klass = context && value && field_scoping_class(field_def, context)
-    return value unless klass
-
-    records = Array.wrap(value)
-    kept = records.zip(shown(klass, records, context)).filter_map { |record, shown| record if shown }
-    value.respond_to?(:to_ary) ? kept : kept.first
+    Lighthouse::GraphQL::DataloaderSources::VisibleRecords.filter(value, field_def, context)
   end
 
   # `relation` narrowed by the scope_items of its model's type (a count of a
   # relation, @withCount).
   def scope_model(relation, context)
-    klass = model_scoping_class(nil, relation, context)
+    klass = relation.respond_to?(:klass) && model_scoping_class(nil, relation.klass, context)
     klass ? narrowed(klass, relation, context) : relation
   end
 
-  # `relation` narrowed by the scope_items of the object type `type` (an entity
-  # lookup, Federation::Entities).
+  # `relation` narrowed by the scope_items of the object type `type`, or of
+  # its model's type when `type` is an entity interface (Federation::Entities).
   def scope_type(relation, type, context)
-    return relation unless index(context).scoped?(type.graphql_name)
-
-    narrowed(type_class(type.graphql_name, context), relation, context)
-  end
-
-  # Whether each record is one its type's scope_items keeps: batched with the
-  # other parents' through the Dataloader, at once without one.
-  def shown(klass, records, context)
-    dataloader = Lighthouse::Support::Batching.dataloader(context)
-    source = Lighthouse::GraphQL::DataloaderSources::VisibleRecords
-    return source.new(klass, context).fetch(records) unless dataloader
-
-    dataloader.with(source, klass, context).load_all(records)
+    klass = type.kind.object? ? object_scoping_class(type.graphql_name, context) : model_scoping_class(nil, relation.klass, context)
+    klass ? narrowed(klass, relation, context) : relation
   end
 
   # The Lighthouse class of the SDL type `name` (Lighthouse::GraphQL::Type),
@@ -149,44 +120,56 @@ module Lighthouse::GraphQL::TypeAuthorization
   end
 
   # The class whose scope_items applies to `relation`, or nil. A field that
-  # returns records of a type scopes by that type alone; one that returns none
-  # (a count, an aggregate) by its model's.
+  # returns records of an object type (or a page of them) scopes by that type
+  # alone; one that returns an interface or a union, or no records (a count,
+  # an aggregate), by the type of the relation's model.
   def scoping_class(field_def, relation, context)
-    return field_scoping_class(field_def, context) if records_type?(field_def)
+    kind, name = records_of(field_def, context)
+    return object_scoping_class(name, context) if kind == :object
 
-    model_scoping_class(field_def, relation, context)
+    model_scoping_class(field_def, relation.klass, context) if relation.respond_to?(:klass)
   end
 
-  def records_type?(field_def)
-    field_def.respond_to?(:type) && field_def.type.unwrap.kind.object?
+  # [:object, name] when a field's records are of an object type, [:abstract,
+  # name] of an interface or a union (either, a page of them), nil when it
+  # returns none.
+  def records_of(field_def, context)
+    return unless field_def.respond_to?(:type)
+
+    named = field_def.type.unwrap
+    name = named.graphql_name.sub(Lighthouse::Support::ModelResolver::PAGINATION_SUFFIX, '')
+    return [:abstract, name] if index(context).abstract?(name)
+
+    [:object, name] if named.kind.object?
   end
 
-  def field_scoping_class(field_def, context)
-    return unless records_type?(field_def)
-
-    name = field_def.type.unwrap.graphql_name.sub(Lighthouse::Support::ModelResolver::PAGINATION_SUFFIX, '')
+  def object_scoping_class(name, context)
     type_class(name, context) if index(context).scoped?(name)
   end
 
-  # For a field that answers no records of a type (a count, an aggregate): the
-  # one type of the relation's model whose class defines scope_items. Two that
-  # do make the field's count ambiguous: an error, never an unscoped answer.
-  def model_scoping_class(field_def, relation, context)
-    return unless relation.respond_to?(:klass)
-
-    names = index(context).scoped_of(relation.klass.name)
+  # The one type of `model` (or of its base class) whose class defines
+  # scope_items. Two that do make the lookup ambiguous: an error, never an
+  # unscoped answer.
+  def model_scoping_class(field_def, model, context)
+    names = scoped_names_of(model, context)
     return type_class(names.first, context) if names.size == 1
     return if names.empty?
 
     raise Lighthouse::DefinitionError,
-          "#{field_def.respond_to?(:path) ? field_def.path : 'A lookup'} reads #{relation.klass.name}, which #{names.join(' and ')} " \
+          "#{field_def.respond_to?(:path) ? field_def.path : 'A lookup'} reads #{model.name}, which #{names.join(' and ')} " \
           'both scope (scope_items): say which with the field returning that type'
+  end
+
+  # The scoping types of `model`, else of its base class (an STI subclass's).
+  def scoped_names_of(model, context)
+    models = model.respond_to?(:base_class) ? [model, model.base_class].uniq : [model]
+    models.map { |klass| index(context).scoped_of(klass.name) }.find(&:any?) || []
   end
 
   # The schema's Index; an empty one outside a query or for a schema Lighthouse did not build.
   def index(context)
     schema = context.respond_to?(:schema) ? context.schema : nil
-    schema.respond_to?(:lighthouse_type_authorization) ? schema.lighthouse_type_authorization : EMPTY
+    schema.respond_to?(:lighthouse_type_authorization) ? schema.lighthouse_type_authorization : Index::EMPTY
   end
 
   def memo(context)

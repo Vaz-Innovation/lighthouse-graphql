@@ -55,7 +55,7 @@ class Lighthouse::GraphQL::DirectiveResolvers::FindDirectiveResolver < Lighthous
     model = model_class
     dataloader = Lighthouse::Support::Batching.dataloader(ctx)
     if dataloader && batchable?(args)
-      scoping = Lighthouse::GraphQL::TypeAuthorization.field_scoping_class(@field_def, ctx)
+      scoping = Lighthouse::GraphQL::TypeAuthorization.scoping_class(@field_def, model.all, ctx)
       return dataloader.with(Lighthouse::GraphQL::DataloaderSources::ModelLoader, model, scoping, scoping && ctx).load(args[:id])
     end
 

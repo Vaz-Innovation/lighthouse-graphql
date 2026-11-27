@@ -13,7 +13,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Lighthouse builds for records of its type: `@all`, `@paginate` (in the query, so totals are right),
   `@find` (by key too), `@first`, the relationship directives (a batched relation stays batched, with one
   query per batch checking what it loaded), `enhance_builder`, `_entities`, and the counts of its model
-  (`@count`, `@aggregate`, `@withCount`). `self.authorized?(object, context)` runs for each object of the
+  (`@count`, `@aggregate`, `@withCount`). A field that returns an interface or a union (or a page of one)
+  is scoped by the type each record resolves as, through its model. `self.authorized?(object, context)` runs for each object of the
   type any field returns, through graphql-ruby, as in a code-first schema. Both were ignored before. A
   `scope_items` that answers no relation, a count two scoping types of one model make ambiguous, and a
   Searchkick search of a scoped type are errors, never an unscoped answer. Which types define either

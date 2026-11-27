@@ -105,6 +105,7 @@ require_relative 'namespaces'
   type
   type_resolution
   type_authorization
+  type_authorization/index
   resolve_info
   global_id
   enum_directive
