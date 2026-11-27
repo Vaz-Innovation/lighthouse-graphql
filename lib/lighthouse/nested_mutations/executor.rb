@@ -16,6 +16,11 @@ class Lighthouse::GraphQL::NestedMutations::Executor
 
   NOT_RELATED = 'Cannot modify a model that is not related to the given parent: %s.'
 
+  # The records a list of update or upsert inputs names, looked up in one
+  # query (write_each), by key; `taken`: the keys of the ones that exist but
+  # are out of reach, which an upsert may not take for a new record.
+  Prefetched = Struct.new(:records, :taken)
+
   # `context`: the query's, for the scope_items of the records it looks up.
   def initialize(field_name, context = nil)
     @field_name = field_name
@@ -32,7 +37,7 @@ class Lighthouse::GraphQL::NestedMutations::Executor
     raise ::GraphQL::ExecutionError, Lighthouse::GraphQL::NestedMutations::MISSING_PRIMARY_KEY if key.nil? || id.nil?
 
     part.attributes.delete(key)
-    save(find!(model, id, within: link&.related), part, link)
+    save(prefetched(link)&.records&.fetch(id.to_s, nil) || find!(model, id, within: link&.related), part, link)
   end
 
   # The record identified by `identifying` columns, else by primary key,
@@ -42,7 +47,7 @@ class Lighthouse::GraphQL::NestedMutations::Executor
     part = partition(model, input)
     within = link&.related
     record = identifying.nil? ? nil : find_identified(model, part, identifying, within)
-    record ||= find_by_given_key(model, part, within)
+    record ||= find_by_given_key(model, part, within, prefetched(link))
     save(record || fallback || model.new, part, link)
   end
 
@@ -127,7 +132,7 @@ class Lighthouse::GraphQL::NestedMutations::Executor
   # blank key is dropped so the database assigns one; a key no record has
   # becomes the new record's primary key. A key of a record the query may not
   # reach (hidden, or not related to the parent) is an error.
-  def find_by_given_key(model, part, within)
+  def find_by_given_key(model, part, within, prefetched = nil)
     key, id = part.take_key(model)
     return nil if key.nil?
 
@@ -136,17 +141,58 @@ class Lighthouse::GraphQL::NestedMutations::Executor
       return nil
     end
 
-    record = reachable(model, within).find_by(model.primary_key => id)
-    return record if record
-
-    refuse_existing!(model, id, within)
-    part.attributes[model.primary_key] = part.attributes.delete(key) if key != model.primary_key
-    nil
+    record = prefetched ? taken_or_found(model, id, within, prefetched) : lookup_given_key(model, id, within)
+    part.attributes[model.primary_key] = part.attributes.delete(key) if record.nil? && key != model.primary_key
+    record
   end
 
-  # An upsert's key of a record that exists but is out of reach is no new record's.
-  def refuse_existing!(model, id, within)
-    raise ::GraphQL::ExecutionError, missing(model, [id], within) if model.exists?(model.primary_key => id)
+  # A narrowed lookup that misses a record that exists is refused: that key is
+  # no new record's. Unnarrowed, missing is missing.
+  def lookup_given_key(model, id, within)
+    scope = reachable(model, within)
+    record = scope.find_by(model.primary_key => id)
+    narrowed = within || scope.where_clause.any?
+    raise ::GraphQL::ExecutionError, missing(model, [id], within) if record.nil? && narrowed && model.exists?(model.primary_key => id)
+
+    record
+  end
+
+  def taken_or_found(model, id, within, prefetched)
+    raise ::GraphQL::ExecutionError, missing(model, [id], within) if prefetched.taken.include?(id.to_s)
+
+    prefetched.records[id.to_s]
+  end
+
+  def prefetched(link) = link && @prefetched&.[](link)
+
+  # Runs the block with the records a list of update or upsert inputs on a
+  # parent's association names looked up at once, as find! and an upsert's
+  # key would one by one: one query for them, one more for an upsert's keys
+  # that miss, whatever the list's length.
+  def prefetching(name, model, operation, link)
+    keys = prefetchable?(name, operation, link) ? given_keys(model, operation) : []
+    return yield if keys.empty?
+
+    (@prefetched ||= {}.compare_by_identity)[link] = prefetch(name, model, keys, link)
+    yield
+  ensure
+    @prefetched&.delete(link) if link
+  end
+
+  def prefetchable?(name, operation, link) = link && %w[update upsert].include?(name) && operation.identifying.nil?
+
+  def prefetch(name, model, keys, link)
+    key = model.primary_key
+    records = reachable(model, link.related).where(key => keys).index_by { |record| record[key].to_s }
+    absent = keys - records.keys
+    taken = name == 'upsert' && absent.any? ? model.where(key => absent).pluck(key).map(&:to_s) : []
+    Prefetched.new(records, taken.to_set)
+  end
+
+  # The primary keys a list of inputs gives, as strings.
+  def given_keys(model, operation)
+    names = ['id', model.primary_key].uniq.map(&:to_sym)
+    operation.inputs.filter_map { |input| names.filter_map { |name| input.args[name] }.first&.to_s.presence }.uniq
   end
 
   # ----------------------------------------------------------------------
@@ -189,6 +235,8 @@ class Lighthouse::GraphQL::NestedMutations::Executor
   end
 
   def write_each(name, model, operation, link)
-    operation.inputs.each { |input| write(name, model, input, operation, link: link) }
+    prefetching(name, model, operation, link) do
+      operation.inputs.each { |input| write(name, model, input, operation, link: link) }
+    end
   end
 end

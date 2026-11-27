@@ -297,3 +297,8 @@ checks the record exists, too.
 What remains is the app's: whether this user may *change* a record they can see (a
 published post they don't own, connected to their account). Guard the mutation
 field with [`@can*`](authorization.md), or a validator on the ids.
+
+A list of nested `update` or `upsert` inputs looks every record it names up in one
+query, where it took one per input; a belongs-to `connect` and a many-to-many
+`connect` or `sync` take one more, to check their ids. What that measures to is in
+[performance.md](performance.md#nested-mutations).

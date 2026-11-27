@@ -31,7 +31,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   related to the given parent: 3, 7.` for an id that is not (or exists nowhere), every id of a `delete` or
   `disconnect` checked before anything changes; an `upsert` whose id no record has still creates one. This
   is PHP Lighthouse's `nested_mutations_scope_to_parent`, always on, as it plans for v7: `connect` moves a
-  record to another parent.
+  record to another parent. A list of nested `update` or `upsert` inputs now looks its records up in one
+  query instead of one per input (10 inputs: 12 statements instead of 21); a belongs-to `connect` and a
+  many-to-many `connect` or `sync` take one more, to check their ids (`bench/nested_mutations.rb`,
+  [measured](docs/performance.md#nested-mutations)).
 - **Every mutation looks records up through their type's `scope_items`.** `connect`, `sync`,
   `syncWithoutDetaching`, a `belongs_to`'s operations, and a root `@update` or `@upsert`, find no record
   the scope hides: it is as missing as one that does not exist, so a client can't connect, or probe, what

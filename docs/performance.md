@@ -13,7 +13,8 @@ by default**; enable the ones your app needs.
 | [`persisted_queries`](#persisted-queries) | Apollo's Automatic Persisted Queries, optionally an allowlist | Large queries, CDN caching of `GET`s, locking the API down to known operations |
 
 [`@defer`](defer.md) (experimental) is a fourth, a plugin of the schema. What
-[type-level authorization](#type-level-authorization) costs is measured below.
+[type-level authorization](#type-level-authorization) and bounding
+[nested mutations](#nested-mutations) cost is measured below.
 
 ## Schema cache
 
@@ -183,6 +184,50 @@ app's bundle:
 ```shell
 cd examples/graphql
 DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/lighthouse_bench bundle exec ruby ../../bench/type_authorization.rb
+```
+
+## Nested mutations
+
+A nested mutation's ids only reach the parent's records, and only ones the query may
+see ([mutations.md](mutations.md#what-an-input-may-reach)). `bench/nested_mutations.rb`
+measures what that costs against the release before it, which looked records up in
+the whole table: one user with 10 tasks and 10 roles, each operation naming 10 ids,
+every run rolled back. Medians of 60 runs, statements counted (SELECT, INSERT,
+UPDATE, DELETE), PostgreSQL 16, Ruby 3.4.4, graphql 2.6.12, Apple M4 Pro:
+
+| Mutation | Before | Now | Now, with `scope_items` |
+| --- | --- | --- | --- |
+| `update` 10 tasks | 6.1 ms, 21 | **5.3 ms, 12** | 5.5 ms, 12 |
+| `upsert` 10 tasks by id | 5.9 ms, 21 | **5.4 ms, 12** | 5.5 ms, 12 |
+| `upsert` 10 new tasks, ids given | 5.9 ms, 21 | **5.5 ms, 13** | 5.3 ms, 13 |
+| `delete` 10 tasks | 3.7 ms, 12 | 4.1 ms, 12 | 4.1 ms, 12 |
+| `disconnect` 10 tasks | 4.3 ms, 12 | 4.5 ms, 12 | 4.6 ms, 12 |
+| `connect` 10 tasks (has-many) | 4.3 ms, 12 | 4.5 ms, 12 | 4.4 ms, 12 |
+| `connect` 10 roles (many-to-many) | 6.9 ms, 21 | 7.4 ms, 22 | 7.2 ms, 22 |
+| `sync` 10 roles | 10.2 ms, 33 | 10.4 ms, 34 | 10.3 ms, 34 |
+| `delete` 10 roles | 6.0 ms, 23 | 7.0 ms, 23 | 6.9 ms, 23 |
+| `connect` a task (belongs-to) | 1.0 ms, 1 | 1.4 ms, 2 | 1.3 ms, 2 |
+| `@update` a task (root) | 1.1 ms, 2 | 1.2 ms, 2 | 1.3 ms, 2 |
+| `@upsert` a new task, id given (root) | 1.1 ms, 2 | 1.2 ms, 2 | 1.7 ms, 3 |
+
+- **A list of updates or upserts takes one query for every id**, where it took one per
+  input: 10 inputs cost 9 statements fewer than before, 100 would cost 99 fewer. An
+  upsert's ids that match no reachable record take one more query, for all of them,
+  to refuse the ones that exist out of reach.
+- **`delete`, `disconnect` and a has-many `connect`** run the statements they did: the
+  lookup they made anyway now carries the parent's and the scope's conditions.
+- **One more statement where nothing was checked:** a belongs-to `connect` checks the
+  record exists and may be seen, a many-to-many `connect` or `sync` checks all its ids
+  at once, and a root `@upsert` of a scoped type checks a new id is not a hidden
+  record's. That one statement is per operation, not per id.
+- **`scope_items` adds no statement:** it is a condition in the lookups above.
+
+The times move by a few tenths of a millisecond either way, within the benchmark's
+noise. Reproduce them, or measure your own (`IDS=100`, ...):
+
+```shell
+cd examples/graphql
+DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/lighthouse_bench bundle exec ruby ../../bench/nested_mutations.rb
 ```
 
 ## What is deliberately not cached

@@ -98,6 +98,33 @@ RSpec.describe 'Nested mutations: what an input may reach' do
       expect_data(created, 'updateUser' => { 'tasks' => [{ 'name' => 'own' }, { 'name' => 'new' }] })
     end
 
+    it 'looks a list of updates up at once, refusing it whole for one that is not related' do
+      second = LH::Task.create!(name: 'second', user: ada)
+      queries = []
+      count = ->(*, payload) { queries << payload[:sql] if payload[:sql].match?(/\ASELECT .*lh_tasks/i) }
+
+      updated = ActiveSupport::Notifications.subscribed(count, 'sql.active_record') do
+        update_user('tasks' => { 'update' => [{ 'id' => own.id, 'name' => 'one' }, { 'id' => second.id, 'name' => 'two' }] })
+      end
+      refused = update_user('tasks' => { 'update' => [{ 'id' => own.id, 'name' => 'three' }, { 'id' => theirs.id, 'name' => 'four' }] })
+
+      expect(error_messages(updated)).to be_empty
+      # one lookup, the parent's and the scope's, for both ids (the others read the answer's tasks)
+      expect(queries.grep(/"user_id" = \? AND .*"lh_tasks"."id" IN \(\?, \?\)/).size).to eq(1)
+      expect(queries.grep(/"lh_tasks"."id" = \?/)).to be_empty
+      expect(error_messages(refused)).to eq([not_related(theirs)])
+      expect([own.reload.name, theirs.reload.name]).to eq(%w[one theirs])
+    end
+
+    it "upserts a list at once: updates the parent's, creates new ids, refuses another parent's" do
+      result = update_user('tasks' => { 'upsert' => [{ 'id' => own.id, 'name' => 'kept' }, { 'id' => '998', 'name' => 'made' }] })
+      refused = update_user('tasks' => { 'upsert' => [{ 'id' => '997', 'name' => 'never' }, { 'id' => theirs.id, 'name' => 'stolen' }] })
+
+      expect_data(result, 'updateUser' => { 'tasks' => [{ 'name' => 'kept' }, { 'name' => 'made' }] })
+      expect(error_messages(refused)).to eq([not_related(theirs)])
+      expect([LH::Task.exists?(997), theirs.reload.name]).to eq([false, 'theirs'])
+    end
+
     it 'updates, deletes and disconnects the related ones as before' do
       result = update_user('tasks' => { 'update' => [{ 'id' => own.id, 'name' => 'renamed' }], 'disconnect' => [own.id] })
 
