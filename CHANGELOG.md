@@ -16,7 +16,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (`@count`, `@aggregate`, `@withCount`). `self.authorized?(object, context)` runs for each object of the
   type any field returns, through graphql-ruby, as in a code-first schema. Both were ignored before. A
   `scope_items` that answers no relation, a count two scoping types of one model make ambiguous, and a
-  Searchkick search of a scoped type are errors, never an unscoped answer.
+  Searchkick search of a scoped type are errors, never an unscoped answer. Which types define either
+  hook is read when the schema is built, so a type without them costs nothing; `scope_items` takes no
+  extra query where Lighthouse builds one, and one per batch of a relationship (about 10 µs per record,
+  `bench/type_authorization.rb`, [measured](docs/performance.md#type-level-authorization)).
 
 ### Changed
 

@@ -472,9 +472,11 @@ A class that includes the concern must inherit from the schema's
 `base_types[:object]` when one is given, or the schema does not build. The concern
 also hands over the classes of unions, interfaces and scalars, which pick the type
 of a union's values or coerce a scalar's: see [types.md](types.md). It is not the schema's type: it only lends its
-methods. Fields are declared in the SDL, so `field` declarations in it are ignored,
-and graphql-ruby's type-level `authorized?` does not run; authorize with
-[`@can*`](authorization.md). `Query` and `Mutation` are the exception: they are
+methods. Fields are declared in the SDL, so `field` declarations in it are ignored.
+graphql-ruby's type-level hooks do apply: `self.authorized?` to each object of the
+type a field returns, `self.scope_items` to every query Lighthouse builds for its
+records ([authorization.md](authorization.md#on-the-type-scope_items-and-authorized)).
+`Query` and `Mutation` are the exception: they are
 built on their [root type classes](#root-type-classes), whose `field`s count.
 `Subscription` fields resolve with their own classes.
 

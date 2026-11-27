@@ -69,6 +69,7 @@ RSpec.describe "A type class's authorized? and scope_items" do
         pagedPosts: [TaPost!]! @paginate(model: "TypeAuthPost")
         post(id: ID! @eq): TaPost @find(model: "TypeAuthPost")
         postCount: Int! @count(model: "TypeAuthPost")
+        authorTotal: Int @aggregate(model: "TypeAuthPost", column: "author_id", function: "SUM")
         guarded: [TaGuardedPost]! @all(model: "TypeAuthPost")
         users: [TaUser!]! @all(model: "TypeAuthUser")
       }
@@ -172,6 +173,11 @@ RSpec.describe "A type class's authorized? and scope_items" do
       expect(result['data']['_entities']).to eq([{ 'title' => 'Live' }, nil])
     end
 
+    it 'aggregates what the scope keeps' do
+      expect(run('{ authorTotal }')['authorTotal']).to eq(2 * ada.id)
+      expect(run('{ authorTotal }', user: ada)['authorTotal']).to eq(3 * ada.id)
+    end
+
     it 'counts a relation (@withCount) with the scope too' do
       counts = run('{ users { name postsCount } }')['users'].to_h { |u| [u['name'], u['postsCount']] }
 
@@ -200,6 +206,17 @@ RSpec.describe "A type class's authorized? and scope_items" do
       result = searched.execute('{ searched(search: "great") { title } }', context: { current_user: grace })
 
       expect(result['errors'].pluck('message').join).to include("cannot apply the scope_items of TaSearched's type class")
+    end
+  end
+
+  describe 'what the schema reads when it is built' do
+    it 'leaves a type whose class defines neither as graphql-ruby has it: nothing runs for it' do
+      default = GraphQL::Schema::Object.method(:authorized?).owner
+
+      expect(schema.get_type('TaUser').method(:authorized?).owner).to eq(default)
+      expect(schema.get_type('TaPost').method(:authorized?).owner).to eq(default)
+      expect(schema.get_type('TaGuardedPost').method(:authorized?).owner).not_to eq(default)
+      expect(schema.lighthouse_type_authorization.scoped.to_a).to eq(['TaPost'])
     end
   end
 

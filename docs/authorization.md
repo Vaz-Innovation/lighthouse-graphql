@@ -270,6 +270,20 @@ A field searched outside the database (`@search` with Searchkick) can't take
 unscoped answer. Records your own code loads (a type method, a resolver class that
 doesn't call `enhance_builder`) are yours to scope.
 
+What it costs, measured on PostgreSQL ([performance.md](performance.md#type-level-authorization)):
+
+- A type whose class defines neither hook costs nothing: Lighthouse reads which
+  ones do when the schema is built, and leaves the others as graphql-ruby has them.
+- `authorized?` costs what your method does: nothing measurable on top of it.
+- `scope_items` is free where Lighthouse builds the query (a root field, a page and
+  its total, a count, `@find`, batched or not): it is part of that one query. A
+  relationship it loads in a batch is checked in one more query per batch, about
+  10 µs per record loaded: 4,000 posts across 200 users took 35 ms more (5%),
+  20,000 took 8% more, in the same number of queries whatever the parents.
+
+Rails' reloader rebuilds the schema with your code, so a hook you add or remove
+in development applies on the next request.
+
 ### On the association or the field
 
 The association needs no Lighthouse: the relationship directives load through

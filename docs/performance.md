@@ -12,7 +12,8 @@ by default**; enable the ones your app needs.
 | [`watch_sdl`](#reloading-the-sdl-in-development) | Reloads the app when a `.graphql` file changes | Developing; typically `Rails.env.development?` |
 | [`persisted_queries`](#persisted-queries) | Apollo's Automatic Persisted Queries, optionally an allowlist | Large queries, CDN caching of `GET`s, locking the API down to known operations |
 
-[`@defer`](defer.md) (experimental) is a fourth, a plugin of the schema.
+[`@defer`](defer.md) (experimental) is a fourth, a plugin of the schema. What
+[type-level authorization](#type-level-authorization) costs is measured below.
 
 ## Schema cache
 
@@ -144,6 +145,45 @@ bin/rails lighthouse:persisted_queries:verify SCHEMA=AppSchema
 later parts of it, so it renders the most important content first. They are a plugin of the
 schema, `use Lighthouse::GraphQL::Defer`, as PHP Lighthouse's are a service provider: the guide is
 [defer.md](defer.md).
+
+## Type-level authorization
+
+A type class's `scope_items` and `authorized?` ([authorization.md](authorization.md#on-the-type-scope_items-and-authorized))
+apply to every record of the type. `bench/type_authorization.rb` measures what that
+costs: 200 users, 4,000 posts (half drafts) and 12,000 comments on PostgreSQL 16,
+the post type plain, with hooks that keep every post (the mechanism alone), or with
+ones that hide the drafts. Medians of 40 runs (15 for the page and the counts),
+Ruby 3.4.4 with graphql 2.6.12, on an Apple M4 Pro:
+
+| Query | Plain | `scope_items`, keeping all | `authorized?`, keeping all |
+| --- | --- | --- | --- |
+| A page of 100 posts, with its total | 14.0 ms, 3 queries | 14.2 ms, 3 queries | 13.9 ms, 3 queries |
+| 200 users → 4,000 posts → 12,000 comments | 736 ms, 3 queries | 771 ms, 4 queries | 735 ms, 3 queries |
+| 1,000 comments → their post | 95 ms, 2 queries | 110 ms, 3 queries | 101 ms, 2 queries |
+| 200 users, their posts counted (`@withCount`) | 17.2 ms, 2 queries | 19.2 ms, 2 queries | 18.8 ms, 2 queries |
+| A post by id (`@find`) | 0.6 ms, 1 query | 0.7 ms, 1 query | 0.6 ms, 1 query |
+
+- **No hooks, no cost.** A type whose class defines neither is left as graphql-ruby
+  builds it: the plain column matches the release before them, within the
+  benchmark's noise (about ±10% on the large queries).
+- **`scope_items` in the query.** A root field, a page and its total, `@find` and the
+  counts take the scope in the one query they run.
+- **`scope_items` on a batch.** A relationship loads in a batch as before, then one
+  more query checks what it loaded, for every parent at once: about 10 µs per
+  record. 20,000 posts in one answer took 3.15 s instead of 2.91 s (8%), still in 4
+  queries.
+- **`authorized?`** runs once per object, as in any graphql-ruby schema: its cost is
+  your method's.
+
+Hiding the drafts makes the same queries faster, as they answer less: the users →
+posts → comments one took 374 ms with a `scope_items` that hides them. Reproduce the
+numbers, or measure your own sizes (`USERS`, `POSTS_PER_USER`, ...), with the example
+app's bundle:
+
+```shell
+cd examples/graphql
+DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/lighthouse_bench bundle exec ruby ../../bench/type_authorization.rb
+```
 
 ## What is deliberately not cached
 
